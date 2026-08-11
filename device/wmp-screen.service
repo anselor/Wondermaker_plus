@@ -1,0 +1,19 @@
+[Unit]
+Description=Wondermaker+ printer screen bridge (framebuffer stream + touch injection)
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+# Needs root: /dev/input/event0 is root:input and touch injection writes to it.
+User=root
+ExecStart=/usr/bin/python3 /opt/wondermaker_plus/wmp_screen.py
+Restart=always
+RestartSec=3
+# The vendor UI already eats ~40% of a core; stay out of its way.
+Nice=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

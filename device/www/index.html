@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Printer screen</title>
+<style>
+  :root { color-scheme: dark; }
+  html, body {
+    margin: 0; padding: 0; background: #000; overflow: hidden;
+    font: 12px/1.4 -apple-system, "Segoe UI", Roboto, sans-serif; color: #e6e6e6;
+  }
+  #wrap { position: relative; width: 100%; line-height: 0; }
+  #screen {
+    width: 100%; height: auto; display: block; background: #111;
+    touch-action: none; user-select: none; cursor: crosshair;
+  }
+  #screen.disarmed { cursor: not-allowed; }
+  #overlay { position: absolute; inset: 0; pointer-events: none; }
+  .ripple {
+    position: absolute; width: 42px; height: 42px; margin: -21px 0 0 -21px;
+    border: 2px solid #ff6a00; border-radius: 50%;
+    animation: pop .45s ease-out forwards;
+  }
+  @keyframes pop {
+    from { transform: scale(.35); opacity: 1; }
+    to   { transform: scale(1.15); opacity: 0; }
+  }
+  #bar {
+    position: absolute; left: 0; right: 0; bottom: 0; line-height: 1.4;
+    display: flex; gap: 10px; align-items: center; padding: 5px 8px;
+    background: linear-gradient(transparent, rgba(0,0,0,.78));
+    opacity: 0; transition: opacity .18s;
+  }
+  #wrap:hover #bar, #bar.show { opacity: 1; }
+  #bar button {
+    font: inherit; color: #e6e6e6; background: #2a2a2a; cursor: pointer;
+    border: 1px solid #444; border-radius: 4px; padding: 2px 9px;
+  }
+  #bar button:hover { background: #383838; }
+  #bar button.armed { background: #b34700; border-color: #ff6a00; }
+  #status { opacity: .75; }
+  .spacer { flex: 1; }
+  #dead {
+    position: absolute; inset: 0; display: none; place-items: center;
+    background: rgba(0,0,0,.72); font-size: 13px; pointer-events: none;
+  }
+  #dead.show { display: grid; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="screen" width="800" height="480"></canvas>
+  <div id="overlay"></div>
+  <div id="dead">Connecting to screen&hellip;</div>
+  <div id="bar">
+    <button id="arm" title="Enable or block touch input">&hellip;</button>
+    <span id="status">connecting</span>
+    <span class="spacer"></span>
+    <span id="coords"></span>
+  </div>
+</div>
+<script>
+(function () {
+  "use strict";
+  var DEV_W = 800, DEV_H = 480, DRAG_PX = 18, MAGIC = 0x574d5046; // "WMPF"
+
+  var cv = document.getElementById("screen"),
+      ctx = cv.getContext("2d"),
+      overlay = document.getElementById("overlay"),
+      bar = document.getElementById("bar"),
+      armBtn = document.getElementById("arm"),
+      statusEl = document.getElementById("status"),
+      coordsEl = document.getElementById("coords"),
+      dead = document.getElementById("dead");
+
+  var imgData = ctx.createImageData(DEV_W, DEV_H),
+      outPix = new Uint32Array(imgData.data.buffer),
+      armed = true, down = null, frames = 0, live = false;
+
+  function api(path, body) {
+    return fetch(path, {
+      method: body ? "POST" : "GET",
+      headers: body ? { "Content-Type": "application/json" } : undefined,
+      body: body ? JSON.stringify(body) : undefined
+    }).then(function (r) { return r.json(); });
+  }
+
+  // ---- frame decode -----------------------------------------------------
+  // Wire format is raw BGRA deflated by the server; swizzle to RGBA in place.
+  function paint(bgra) {
+    var src = new Uint32Array(bgra.buffer, bgra.byteOffset, bgra.length >> 2);
+    for (var i = 0; i < src.length; i++) {
+      var v = src[i];
+      outPix[i] = 0xFF000000 | ((v & 0xFF) << 16) | (v & 0xFF00) | ((v >>> 16) & 0xFF);
+    }
+    ctx.putImageData(imgData, 0, 0);
+    frames++;
+    dead.classList.remove("show");
+  }
+
+  function inflate(bytes) {
+    var ds = new DecompressionStream("deflate");
+    return new Response(new Blob([bytes]).stream().pipeThrough(ds))
+      .arrayBuffer().then(function (b) { return new Uint8Array(b); });
+  }
+
+  // ---- stream -----------------------------------------------------------
+  function connect() {
+    if (!window.DecompressionStream) { return fallback(); }
+    var buf = new Uint8Array(0);
+
+    function append(chunk) {
+      var n = new Uint8Array(buf.length + chunk.length);
+      n.set(buf, 0); n.set(chunk, buf.length); buf = n;
+    }
+
+    function drain() {
+      while (buf.length >= 8) {
+        var dv = new DataView(buf.buffer, buf.byteOffset, 8);
+        if (dv.getUint32(0) !== MAGIC) { buf = new Uint8Array(0); return; }
+        var len = dv.getUint32(4);
+        if (buf.length < 8 + len) return;
+        var payload = buf.slice(8, 8 + len);
+        buf = buf.slice(8 + len);
+        if (len > 0) inflate(payload).then(paint).catch(function () {});
+      }
+    }
+
+    fetch("stream.bin", { cache: "no-store" }).then(function (res) {
+      if (!res.ok || !res.body) throw new Error("stream " + res.status);
+      live = true;
+      var reader = res.body.getReader();
+      return (function pump() {
+        return reader.read().then(function (r) {
+          if (r.done) throw new Error("stream ended");
+          append(r.value); drain();
+          return pump();
+        });
+      })();
+    }).catch(function () {
+      live = false;
+      dead.classList.add("show");
+      setTimeout(connect, 1500);
+    });
+  }
+
+  // Older browsers without DecompressionStream get slow JPEG polling.
+  function fallback() {
+    var im = new Image();
+    im.onload = function () { ctx.drawImage(im, 0, 0); frames++; dead.classList.remove("show"); };
+    setInterval(function () { im.src = "snapshot.jpg?t=" + Date.now(); }, 3000);
+    im.src = "snapshot.jpg";
+  }
+
+  // ---- coordinate mapping ----------------------------------------------
+  function toDevice(ev) {
+    var r = cv.getBoundingClientRect();
+    if (!r.width || !r.height) return null;
+    return {
+      x: Math.max(0, Math.min(DEV_W - 1,
+           Math.round((ev.clientX - r.left) / r.width * DEV_W))),
+      y: Math.max(0, Math.min(DEV_H - 1,
+           Math.round((ev.clientY - r.top) / r.height * DEV_H))),
+      cx: ev.clientX - r.left,
+      cy: ev.clientY - r.top
+    };
+  }
+
+  function ripple(cx, cy) {
+    var d = document.createElement("div");
+    d.className = "ripple";
+    d.style.left = cx + "px"; d.style.top = cy + "px";
+    overlay.appendChild(d);
+    setTimeout(function () { d.remove(); }, 460);
+  }
+
+  // ---- input ------------------------------------------------------------
+  cv.addEventListener("pointerdown", function (ev) {
+    if (!armed) return;
+    ev.preventDefault();
+    down = toDevice(ev);
+    // Capture keeps a drag alive if the pointer leaves the canvas, but some
+    // engines reject it for synthetic pointers -- a failure must not lose the
+    // gesture we already recorded.
+    try { cv.setPointerCapture(ev.pointerId); } catch (e) { /* non-fatal */ }
+  });
+
+  cv.addEventListener("pointermove", function (ev) {
+    var p = toDevice(ev);
+    if (p) coordsEl.textContent = p.x + ", " + p.y;
+  });
+
+  cv.addEventListener("pointerup", function (ev) {
+    if (!armed || !down) return;
+    var up = toDevice(ev), start = down;
+    down = null;
+    if (!up) return;
+    ripple(up.cx, up.cy);
+    var dist = Math.hypot(up.cx - start.cx, up.cy - start.cy);
+    if (dist >= DRAG_PX) {
+      api("api/swipe", { x1: start.x, y1: start.y, x2: up.x, y2: up.y })
+        .then(function (r) { say(r.woke ? "swiped (woke screen)" : "swiped"); })
+        .catch(function () { say("swipe failed"); });
+    } else {
+      api("api/tap", { x: start.x, y: start.y })
+        .then(function (r) { say(r.woke ? "tapped (woke screen)" : "tapped " + r.x + "," + r.y); })
+        .catch(function () { say("tap failed"); });
+    }
+  });
+
+  cv.addEventListener("pointercancel", function () { down = null; });
+  cv.addEventListener("contextmenu", function (e) { e.preventDefault(); });
+
+  // ---- arm toggle -------------------------------------------------------
+  function paintArm() {
+    armBtn.textContent = armed ? "Touch on" : "Touch off";
+    armBtn.classList.toggle("armed", armed);
+    cv.classList.toggle("disarmed", !armed);
+  }
+  armBtn.addEventListener("click", function () {
+    api("api/arm", { armed: !armed }).then(function (s) {
+      armed = !!s.armed; paintArm(); say(armed ? "input enabled" : "input blocked");
+    });
+  });
+
+  var sayTimer = null;
+  function say(msg) {
+    statusEl.textContent = msg;
+    bar.classList.add("show");
+    clearTimeout(sayTimer);
+    sayTimer = setTimeout(function () { bar.classList.remove("show"); }, 2200);
+  }
+
+  // ---- housekeeping -----------------------------------------------------
+  function poll() {
+    api("api/state").then(function (s) {
+      armed = !!s.armed;
+      paintArm();
+      if (!bar.classList.contains("show")) {
+        statusEl.textContent = (!live ? "offline"
+          : s.backlight === 0 ? "screen asleep" : "live") + " · " + frames + " frames";
+      }
+    }).catch(function () {});
+  }
+
+  paintArm();
+  connect();
+  poll();
+  setInterval(poll, 5000);
+})();
+</script>
+</body>
+</html>
