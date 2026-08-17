@@ -190,6 +190,9 @@ def main():
     p.add_argument("--no-restart", action="store_true")
     g = sub.add_parser("pull")
     g.add_argument("dir")
+    m = sub.add_parser("machine",
+                       help="collect this printer's calibration into one readable file")
+    m.add_argument("out", nargs="?", help="output file (default: stdout)")
     args = ap.parse_args()
 
     t = SshTransport() if args.ssh else HttpTransport()
@@ -200,6 +203,37 @@ def main():
 
 
 def run(t, args):
+    if args.mode == "machine":
+        parts = ["# Machine calibration snapshot — everything unique to THIS printer.",
+                 "# Derived view (read-only): the authoritative copies live in",
+                 "# printer.cfg's SAVE_CONFIG block, wm_zru_*.cfg, saved_variables.cfg.",
+                 ""]
+        parts.append("## CAN bus UUIDs")
+        for name in sorted(t.listdir()):
+            if fnmatch.fnmatch(name, "wm_zru_*.cfg"):
+                for line in t.read(name).decode(errors="replace").splitlines():
+                    if "canbus_uuid" in line and not line.strip().startswith("#"):
+                        parts.append(f"{name}: {line.strip()}")
+        parts.append("")
+        parts.append("## Tool offsets and state (saved_variables.cfg)")
+        try:
+            parts.append(t.read("saved_variables.cfg").decode(errors="replace").rstrip())
+        except FileNotFoundError:
+            parts.append("(missing)")
+        parts.append("")
+        parts.append("## SAVE_CONFIG block (mesh, input shaper, probe offsets)")
+        pc = t.read("printer.cfg")
+        parts.append((SAVE_CONFIG_MARKER + pc.split(SAVE_CONFIG_MARKER, 1)[1]
+                      ).decode(errors="replace").rstrip()
+                     if SAVE_CONFIG_MARKER in pc else "(no SAVE_CONFIG block)")
+        report = "\n".join(parts) + "\n"
+        if args.out:
+            open(args.out, "w").write(report)
+            print(f"wrote {args.out}")
+        else:
+            print(report)
+        return
+
     if args.mode == "pull":
         os.makedirs(args.dir, exist_ok=True)
         n = 0
