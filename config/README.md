@@ -79,6 +79,17 @@ without explanation.
 After a successful T0–T3 toolchange, wipe the freshly picked-up nozzle
 (it oozed while parked) before returning control to the slicer.
 
+### skip-forced-rehome-on-resume — `live/printer.cfg` homing_override (ours, 2026-08-17)
+The touchscreen UI's resume handler unconditionally sends `G28 Y` + `G28 X`
+before `RESUME` (hardcoded in `TM_T1/bin/client`; the binary even ships a
+"Model misalignment alert" message acknowledging the resulting shift). Each
+re-home lands within endstop repeatability of the original datum, shifting
+the resumed layers. Since every G28 routes through `[homing_override]`, the
+override now skips XY homing while the printer is paused *and* the axis is
+still homed. If homing was genuinely lost (motors disabled, power cycle),
+`homed_axes` is empty and homing proceeds; printing-state re-homes
+(toolchange retry recovery) are untouched.
+
 ## Considered and not imported
 
 - **WonderSync** (`Experimental/wondermaker_mmu.py` in the mods repo): a
