@@ -90,6 +90,23 @@ still homed. If homing was genuinely lost (motors disabled, power cycle),
 `homed_axes` is empty and homing proceeds; printing-state re-homes
 (toolchange retry recovery) are untouched.
 
+## Vendor touchscreen landmines (from binary analysis of TM_T1/bin/client)
+
+- **Toolhead-count switch replaces `printer.cfg` wholesale** with a factory
+  template (and blanks `wm_zru_thr*.cfg` CAN UUIDs). Re-deploy from
+  `config/live/` after ever using that screen flow.
+- **Screen calibration flows (resonance/PID/leveling) end in SAVE_CONFIG**,
+  overwriting our shaper values and shifting the SAVE_CONFIG block. Use
+  `utils/resonance.py` instead; run `utils/config_sync.py diff` after any
+  screen calibration.
+- The tool-offset calibration flow disables X/Y steppers (homing is
+  legitimately lost; a re-home after those flows is expected).
+- UI-resume overrides the RESUME macro's saved temperatures and (before our
+  homing_override gate) forced `G28 Y` + `G28 X` before every resume.
+- OTA firmware fetches over plain HTTP (`po.wondermaker3d.com`); a
+  `boot.img` on a USB stick triggers an unattended boot-partition update;
+  the internet check fetches a developer's personal Gitee repo.
+
 ## Considered and not imported
 
 - **WonderSync** (`Experimental/wondermaker_mmu.py` in the mods repo): a
