@@ -21,15 +21,27 @@ Excluded from both (runtime state, not configuration): rotating
 `printer-*.cfg` backups, `saved_variables.cfg`, `tmt1.ini`,
 on-printer `*.wmp-backup*` files.
 
-Exception to the marker rule: the SAVE_CONFIG block at the bottom of
-`printer.cfg` cannot contain comments (Klipper rewrites it), so changes
-there are documented only in this file.
+## Per-machine calibration is NOT in this repo
 
-**`printer.cfg` caveat:** its SAVE_CONFIG block is part runtime state (bed
-mesh, probe offsets update as the printer runs). Before pushing
-`printer.cfg`, refresh `live/printer.cfg`'s SAVE_CONFIG block from the
-printer's current copy (`utils/config_sync.py pull`) so a push never
-reverts a newer mesh; only the marked sections above SAVE_CONFIG are ours.
+So the repo is shareable without pushing one machine's calibration onto
+another, `config_sync.py` enforces split ownership:
+
+- **`printer.cfg`**: the repo owns the body (macros, limits, marked edits);
+  **the printer owns its SAVE_CONFIG block** (bed mesh, input shaper, probe
+  offsets). The repo copies are truncated above the block; `push` splices
+  the target printer's own SAVE_CONFIG back on, and `diff` compares bodies
+  only. Set your shaper values with `utils/resonance.py apply`.
+- **`wm_zru_*.cfg`**: unique per machine (CAN bus UUIDs). Kept here only as
+  sanitized reference (`REPLACE_WITH_YOUR_UUID`); never diffed or pushed.
+- `saved_variables.cfg` (tool offsets etc.) and `tmt1.ini` are never touched.
+
+Note if publishing: git history from before this sanitization contains one
+machine's mesh/UUIDs — start public history from the current tree (squash)
+if that matters to you.
+
+Exception to the marker rule: the SAVE_CONFIG block of `printer.cfg` cannot
+contain comments (Klipper rewrites it), so SAVE_CONFIG-level changes (like
+shaper values) are documented only in this file.
 
 ## Current modifications
 

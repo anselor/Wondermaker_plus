@@ -30,10 +30,23 @@ REMOTE_DIR = "/home/t13dp/printer_data/config"
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 LIVE = os.path.join(REPO, "config", "live")
 EXCLUDE = ["printer-20*.cfg", "*.wmp-backup*", "saved_variables.cfg", "tmt1.ini"]
+# Machine-owned files: unique per printer (CAN bus UUIDs). Present in the
+# repo only as sanitized reference copies; never diffed or pushed.
+MACHINE_FILES = ["wm_zru_*.cfg"]
+# printer.cfg is split-ownership: the repo owns the body, the printer owns
+# the SAVE_CONFIG block (bed mesh, shapers, probe offsets — per-machine
+# calibration). diff compares bodies only; push splices the printer's
+# current SAVE_CONFIG onto the repo body.
+SAVE_CONFIG_MARKER = b"#*# <---------------------- SAVE_CONFIG ---------------------->"
 
 
 def excluded(name):
-    return any(fnmatch.fnmatch(name, p) for p in EXCLUDE)
+    return any(fnmatch.fnmatch(name, p) for p in EXCLUDE + MACHINE_FILES)
+
+
+def body_of(data):
+    """Everything above the SAVE_CONFIG marker."""
+    return data.split(SAVE_CONFIG_MARKER)[0]
 
 
 # ---------------------------------------------------------------- transports
@@ -134,6 +147,8 @@ def changed_files(t):
         except FileNotFoundError:
             missing.append(name)
             continue
+        if name == "printer.cfg":
+            local, remote = body_of(local), body_of(remote)
         if local != remote:
             differs.append(name)
     return differs, missing
@@ -227,11 +242,21 @@ def run(t, args):
 
     stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     for name in targets:
+        data = open(os.path.join(LIVE, name), "rb").read()
         if name in differs:
             backup = f"{name}.wmp-backup-{stamp}"
             t.copy(name, backup)
             print(f"  backed up {name} -> {backup}")
-        t.write(name, open(os.path.join(LIVE, name), "rb").read())
+        if name == "printer.cfg":
+            # keep this machine's calibration: repo body + printer's SAVE_CONFIG
+            try:
+                current = t.read(name)
+            except FileNotFoundError:
+                current = b""
+            data = body_of(data)
+            if SAVE_CONFIG_MARKER in current:
+                data += SAVE_CONFIG_MARKER + current.split(SAVE_CONFIG_MARKER, 1)[1]
+        t.write(name, data)
         print(f"  pushed {name}")
 
     if args.no_restart:
