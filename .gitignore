@@ -6,3 +6,11 @@ utils/.klippy_cache/
 resonance/
 orig/fw_V1.0.26_20251127/home/
 machine/
+.mcp.json
+analysis/
+
+# firmware analysis: ignore large/binary payloads, keep the tooling
+!analysis/
+analysis/client
+analysis/client_ghidra*
+analysis/*.deb
