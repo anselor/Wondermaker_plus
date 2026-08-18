@@ -44,7 +44,12 @@ GET_POSITION checkpoint technique through the modified start.
 
 ---
 
-## 2. Purge off the left bed edge instead of the front
+## 2. Purge off the left bed edge instead of the front — IMPLEMENTED 2026-08-19
+
+**Implemented variant** (user refinement): the purge LINE stays *on the bed*
+at X-2 (plate's left overhang, outside printable X) running Y100→150, so the
+nozzle still gets the on-bed priming drag; the off-bed blob-purge variant
+below was not needed. See `left-edge-purge` in `live/macros.cfg`.
 
 **Problem:** the start purge line occupies the bed's front edge. Stock put
 it at Y-1 where the toolhead shroud strikes the front panel (root cause of

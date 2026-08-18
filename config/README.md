@@ -122,7 +122,12 @@ Pause park moved Y1 → Y20 (1 mm front margin invited strikes); `REHOME`
 macro forces a real XY re-home while paused (the homing gate otherwise
 blocks all paused-state G28s, including deliberate recovery).
 
-### purge-approach-margin — `live/macros.cfg` START_PRINT (ours, 2026-08-18) — ROOT CAUSE FIX
+### left-edge-purge — `live/macros.cfg` START_PRINT (ours, 2026-08-19; supersedes purge-approach-margin)
+Purge line moved from the bed front to the plate's left overhang (X-2,
+Y100→150, outside printable X): same on-bed priming drag, zero front
+geometry exposure, zero printable-area cost, no stripe in the print area.
+
+### purge-approach-margin — superseded (ours, 2026-08-18) — ROOT CAUSE FIX
 At the stock purge position Y-1 the toolhead shroud strikes the front panel
 on every print start (bang), occasionally gripping and stealing ~1.5 mm of
 Y — the source of mysteriously shifted prints. Proven with stepper-counter
