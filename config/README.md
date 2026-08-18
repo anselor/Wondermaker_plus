@@ -102,6 +102,36 @@ still homed. If homing was genuinely lost (motors disabled, power cycle),
 `homed_axes` is empty and homing proceeds; printing-state re-homes
 (toolchange retry recovery) are untouched.
 
+### toolchange-feedrate-preserve — `live/change_macros.cfg` T0–T3 (ours, 2026-08-18)
+Gcode feedrate is modal; toolchange internals (dock moves, wipe) leave it
+polluted and slicers omit F when they believe speed is unchanged, so
+post-toolchange travels crawled (5–50 mm/s). T macros capture the slicer's
+feedrate on entry and re-assert it on exit (feedrate only — a full
+RESTORE_GCODE_STATE would revert the new tool's XY offset).
+
+### wipe-feedrate-restore / wipe-speed — `live/fz-wipe-nozzle.cfg` (ours, 2026-08-17/18)
+WIPE_NOZZLE brackets itself with SAVE/RESTORE_GCODE_STATE and strokes at a
+tunable 200 mm/s (`wipe_speed`, stock: hardcoded 50 mm/s).
+
+### load-auto-wipe — `live/macros.cfg` EXTRUDE_FILAMENT (ours, 2026-08-18)
+Auto-wipe after the load purge; the screen's "clean nozzle manually" dialog
+becomes a formality.
+
+### pause-park-margin + rehome-escape — `live/macros.cfg`, `live/printer.cfg` (ours, 2026-08-18)
+Pause park moved Y1 → Y20 (1 mm front margin invited strikes); `REHOME`
+macro forces a real XY re-home while paused (the homing gate otherwise
+blocks all paused-state G28s, including deliberate recovery).
+
+### purge-approach-margin — `live/macros.cfg` START_PRINT (ours, 2026-08-18) — ROOT CAUSE FIX
+At the stock purge position Y-1 the toolhead shroud strikes the front panel
+on every print start (bang), occasionally gripping and stealing ~1.5 mm of
+Y — the source of mysteriously shifted prints. Proven with stepper-counter
+checkpoints inside START_PRINT (zero loss through home/mesh/toolchange/purge
+even during an audible slam ⇒ the panel yields, not the belts). Purge start
+moved to Y2 on the bed's front edge. Every other suspect (docks, endstop
+repeatability hot+cold, mesh probing, top cover, Z) instrumented and
+acquitted along the way.
+
 ## Vendor touchscreen landmines (from binary analysis of TM_T1/bin/client)
 
 - **Toolhead-count switch replaces `printer.cfg` wholesale** with a factory
@@ -128,3 +158,4 @@ still homed. If homing was genuinely lost (motors disabled, power cycle),
   revisit when it matures.
 - The mods repo's whitespace/reformat-only differences in `stock_macros.cfg`
   vs `macros.cfg` (their "stock" file is not actually stock).
+
