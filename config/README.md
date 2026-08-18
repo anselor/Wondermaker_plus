@@ -123,7 +123,7 @@ macro forces a real XY re-home while paused (the homing gate otherwise
 blocks all paused-state G28s, including deliberate recovery).
 
 ### left-edge-purge — `live/macros.cfg` START_PRINT (ours, 2026-08-19; supersedes purge-approach-margin)
-Purge line moved from the bed front to the plate's left overhang (X-2,
+Purge line moved from the bed front to the plate's left edge (X0,
 Y100→150, outside printable X): same on-bed priming drag, zero front
 geometry exposure, zero printable-area cost, no stripe in the print area.
 
