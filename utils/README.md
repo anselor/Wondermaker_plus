@@ -55,3 +55,26 @@ timestamped `printer.cfg` backup there and on the printer.
 
 `.klippy_cache/` holds Klipper's GPL analysis modules fetched from the
 printer on first run; it is gitignored, delete it to refresh.
+
+## verify_shaper.py — movement-noise / shaper verification
+
+Closed-loop check (Bambu-style): drives a battery of real movement patterns
+(pure X/Y, both diagonals, square, triangle) with the shaper ON at print
+accels and measures the residual vibration that reaches the part — vs shaper
+OFF. Answers "does my configured shaper actually cancel ringing at the accel
+I print at, and in which directions?", which the frequency-fit alone doesn't.
+
+```bash
+uv run --with paramiko --with numpy --with matplotlib python utils/verify_shaper.py
+```
+
+Writes to `resonance/<date>/movement-test/`: `report.txt`, `spectra.png`
+(residual PSD per pattern — shows the frequency of a direction-specific
+rattle) and `summary.png` (ON vs OFF energy per pattern). A pattern whose ON
+residual is much higher than pure X/Y (esp. a diagonal) points to a
+mechanical rattle on that belt path the shaper can't fix. Options:
+`--accels`, `--patterns`, `--vel`, `--cycles`, `--out`.
+
+Note: `ACCELEROMETER_MEASURE` is a toggle; the script forces it to a known
+stopped state at start and self-heals mid-run (an interrupted prior run can
+leave it running, which otherwise desyncs every capture).
