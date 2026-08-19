@@ -47,6 +47,21 @@ shaper values) are documented only in this file.
 
 ## Current modifications
 
+> **Status after the 1.1.04 re-baseline (2026-08-19).** The entries below
+> describe each delta's history. On the current 1.1.04 base:
+> **active** — accel-cap, input-shaper values, pause-mapping-snapshot,
+> pause-park-margin, left-edge-purge (supersedes purge-approach-margin),
+> toolchange-feedrate-preserve, toolchange-wipe, wipe-speed +
+> wipe-feedrate-restore (merged with the vendor's new `wipe_position`),
+> REHOME macro.
+> **dropped (vendor fixed it in 1.1.04)** — skip-forced-rehome-on-resume
+> (binary-verified: the resume path no longer force-homes; keeping our gate
+> would block the wanted recovery re-home); load-auto-wipe (1.1.04 wipes
+> after the load purge itself); print-end-rewrite (1.1.04's PRINT_END adds
+> Z-safety, wiper-park, and the `print_body_ready` UI contract — taken as-is).
+> **deferred** — start-print-chamber (speculative; re-add if printing ABS/ASA).
+> See `analysis/fw_1.1.04_diff/MERGE-PLAN.md` for the full rationale.
+
 ### pause-mapping-snapshot — `live/macros.cfg` (ours, 2026-08-17)
 Stock `PAUSE` resets the logical→physical tool mapping (`box_modify_t0..3`)
 to identity without saving it, and stock `RESUME` restores the mapping from
