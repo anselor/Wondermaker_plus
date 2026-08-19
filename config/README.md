@@ -1,10 +1,9 @@
 # Printer configuration: stock vs live
 
-- **`stock/`** — pristine snapshot of the vendor config, captured 2026-08-16.
-  Versions at capture: OS/Klipper image `KLP_IMG_WM_ZRU_V1.0.26_20251127`
-  (`~/iso_version.txt`) + touchscreen app **System_1.0.71** (installed
-  2026-08-10; see `~/TM_T1/.../upgrade log`). The two components version
-  independently — record both when re-baselining after an update.
+- **`stock/`** — pristine snapshot of the vendor config, captured after installing touchscreen app **System_1.1.04** (2026-08-19).
+  OS/Klipper image `KLP_IMG_WM_ZRU_V1.0.26`. The prior 1.0.71 stock is kept
+  as `config/stock_1.0.71/` for before/after diffs; analysis in
+  `analysis/fw_1.1.04_diff/`. Re-baseline process is documented there.
   `printer.cfg` is the pre-tuning backup, so the SAVE_CONFIG block holds the
   vendor's own calibration values. Never edit this directory.
 - **`live/`** — what runs on the printer. Started as an exact copy of
