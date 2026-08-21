@@ -11,10 +11,12 @@ set -euo pipefail
 PREFIX=/opt/wondermaker_plus
 NGINX_SITE=/etc/nginx/sites-available/fluidd
 UNIT=/etc/systemd/system/wmp-screen.service
+TL_UNIT=/etc/systemd/system/wmp-timelapse-camera.service
 MARKER="# wondermaker_plus"
 INCLUDE_LINE="    include ${PREFIX}/nginx-screen.conf; ${MARKER}"
 MOONRAKER=http://127.0.0.1:7125
 WEBCAM_NAME="Touchscreen"
+TL_CAMERA="camera"        # real webcam name the timelapse must use
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 say() { echo "==> $*"; }
@@ -26,7 +28,9 @@ die() { echo "!! $*" >&2; exit 1; }
 # --- 1. payload ------------------------------------------------------------
 say "installing payload to $PREFIX"
 mkdir -p "$PREFIX/backup"
-cp -a "$SRC/device/wmp_screen.py" "$SRC/device/nginx-screen.conf" "$PREFIX/"
+cp -a "$SRC/device/wmp_screen.py" "$SRC/device/nginx-screen.conf" \
+      "$SRC/device/timelapse-camera-fix.sh" "$PREFIX/"
+chmod +x "$PREFIX/timelapse-camera-fix.sh"
 rm -rf "$PREFIX/www"
 cp -a "$SRC/device/www" "$PREFIX/www"
 echo "$(cat /home/t13dp/iso_version.txt 2>/dev/null | head -1)" > "$PREFIX/installed-against.txt"
@@ -91,6 +95,18 @@ curl -sf -m 5 -X POST "$MOONRAKER/server/webcams/item" \
          \"flip_vertical\": false,
          \"rotation\": 0}" >/dev/null \
     || echo "!! moonraker registration failed (add the webcam by hand in Fluidd)"
+
+# --- 5. timelapse camera fixer --------------------------------------------
+# Registering the Touchscreen webcam above is exactly what makes the vendor
+# timelapse fall back to the LCD mirror, so fix it here: a oneshot unit that
+# forces the timelapse camera back to the real webcam on every boot, plus
+# once now.
+say "installing timelapse-camera fixer (so timelapses record the print, not the LCD)"
+cp -a "$SRC/device/wmp-timelapse-camera.service" "$TL_UNIT"
+systemctl daemon-reload
+systemctl enable wmp-timelapse-camera.service >/dev/null 2>&1 || true
+WMP_MOONRAKER="$MOONRAKER" WMP_TIMELAPSE_CAMERA="$TL_CAMERA" \
+    "$PREFIX/timelapse-camera-fix.sh" || true
 
 # --- report ----------------------------------------------------------------
 sleep 2

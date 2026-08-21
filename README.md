@@ -66,13 +66,24 @@ Deliberately small, and all of it reversed by `uninstall.sh`:
 |---|---|
 | `/opt/wondermaker_plus/` | created (code, www, and the nginx backup) |
 | `/etc/systemd/system/wmp-screen.service` | created |
+| `/etc/systemd/system/wmp-timelapse-camera.service` | created (boot-time timelapse-camera fixer) |
 | `/etc/nginx/sites-available/fluidd` | **one** `include` line added, backed up first |
-| Moonraker database | one webcam entry named `Touchscreen` |
+| Moonraker database | one webcam entry named `Touchscreen`; timelapse `camera` forced to the real webcam |
 
 The nginx edit is a single `include` so that everything else lives in our own
 file. Install validates with `nginx -t` and rolls the original back if the
 config is rejected. Pristine copies of every file modified on the printer are
 committed under `orig/fw_<version>/<path>`.
+
+### Timelapse camera
+
+Registering the `Touchscreen` webcam is what makes the vendor's
+`moonraker-timelapse` fall back to the LCD mirror (its camera lookup is by
+name, but the screen stores a UUID, so it misses and picks the first webcam).
+So the installer also drops in `wmp-timelapse-camera.service`, a boot-time
+oneshot that forces the timelapse `camera` back to the real webcam (named
+`camera`) — self-healing even if the screen's camera picker is touched.
+Override the target with `WMP_TIMELAPSE_CAMERA`.
 
 ## Layout in Fluidd
 

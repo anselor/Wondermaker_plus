@@ -1,0 +1,12 @@
+[Unit]
+Description=Wondermaker+ force timelapse camera to the real webcam
+After=moonraker.service
+Wants=moonraker.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/wondermaker_plus/timelapse-camera-fix.sh
+RemainAfterExit=no
+
+[Install]
+WantedBy=multi-user.target

@@ -6,6 +6,7 @@ set -uo pipefail
 PREFIX=/opt/wondermaker_plus
 NGINX_SITE=/etc/nginx/sites-available/fluidd
 UNIT=/etc/systemd/system/wmp-screen.service
+TL_UNIT=/etc/systemd/system/wmp-timelapse-camera.service
 MARKER="# wondermaker_plus"
 MOONRAKER=http://127.0.0.1:7125
 WEBCAM_NAME="Touchscreen"
@@ -25,6 +26,9 @@ say "stopping and removing service"
 systemctl stop wmp-screen.service 2>/dev/null
 systemctl disable wmp-screen.service 2>/dev/null
 rm -f "$UNIT"
+say "removing timelapse-camera fixer"
+systemctl disable wmp-timelapse-camera.service 2>/dev/null
+rm -f "$TL_UNIT"
 systemctl daemon-reload
 
 # --- 3. nginx --------------------------------------------------------------
