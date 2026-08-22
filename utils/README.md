@@ -78,3 +78,10 @@ mechanical rattle on that belt path the shaper can't fix. Options:
 Note: `ACCELEROMETER_MEASURE` is a toggle; the script forces it to a known
 stopped state at start and self-heals mid-run (an interrupted prior run can
 leave it running, which otherwise desyncs every capture).
+
+## config_sync.py — deploy config to the printer
+
+Diffs, pushes, and pulls the Klipper config between `config/` and the printer
+over Moonraker's HTTP API, backing up replaced files and preserving each
+machine's calibration (bed mesh, shapers, probe offsets, CAN IDs, tool
+offsets). Documented with the config it deploys: [`config/README.md`](../config/README.md).

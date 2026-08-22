@@ -42,8 +42,16 @@ Highlights:
   print-end sequence, and the vendor's toolhead-swap and runout improvements.
 
 The config is tracked as a stock baseline versus a live copy, with every
-change marked in-line, and deployed with `utils/config_sync.py` (which
-preserves each machine's own calibration).
+change marked in-line. Deploy it with **`utils/config_sync.py`**, which
+pushes changes to the printer over Moonraker's HTTP API (no SSH needed),
+backs up each file it replaces, restarts Klipper, and preserves every
+machine-specific calibration — bed mesh, input shapers, probe offsets, CAN
+bus IDs, and tool offsets are never overwritten.
+
+```bash
+uv run python utils/config_sync.py diff   # what differs from the printer
+uv run python utils/config_sync.py push   # deploy changes
+```
 
 Full details, deployment, and the list of changes: [`config/README.md`](config/README.md).
 
@@ -58,10 +66,9 @@ saved data and graphs:
 - **`utils/verify_shaper.py`** — drives real movement patterns with the shaper
   active and measures the ringing that actually reaches the part, so you can
   confirm a calibration and spot direction-specific mechanical problems.
-- **`utils/config_sync.py`** — diff, push, and pull the Klipper config between
-  the repo and the printer.
 
-Full details: [`utils/README.md`](utils/README.md).
+Full details: [`utils/README.md`](utils/README.md). (Config deployment lives
+with the config area above, under `utils/config_sync.py`.)
 
 ## Also here
 

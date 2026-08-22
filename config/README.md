@@ -23,6 +23,37 @@ Excluded from both (runtime state, not configuration): rotating
 `printer-*.cfg` backups, `saved_variables.cfg`, `tmt1.ini`,
 on-printer `*.wmp-backup*` files.
 
+## Deploying with config_sync.py
+
+`utils/config_sync.py` moves config between this repo and the printer over
+**Moonraker's HTTP API** — no SSH or credentials needed. It works while the
+rest of the printer keeps running and only restarts Klipper at the end.
+
+```bash
+uv run python utils/config_sync.py diff            # show what differs from the printer
+uv run python utils/config_sync.py push            # upload changed files, then restart Klipper
+uv run python utils/config_sync.py push macros.cfg # push only the named file(s)
+uv run python utils/config_sync.py pull DIR        # download the printer's config to inspect
+```
+
+On push it:
+
+- backs up each replaced file on the printer as `<name>.wmp-backup-<timestamp>` first,
+- firmware-restarts Klipper and confirms it returns to **Ready** (fails loudly if not),
+- refuses to run while a print is in progress,
+- accepts `--no-restart` (upload only) and `--ssh` (use SFTP if Moonraker is down).
+
+**Your printer-specific calibration is preserved on every push:**
+
+- **Bed mesh, input shapers, probe offsets** — `printer.cfg`'s SAVE_CONFIG
+  block is read live from the printer and spliced back onto the pushed file,
+  so it is never overwritten.
+- **CAN bus UUIDs** (`wm_zru_*.cfg`) — never pushed.
+- **Tool offsets and filament settings** (`saved_variables.cfg`, `tmt1.ini`) —
+  never touched.
+
+Target the printer with `WMP_PRINTER` (and `WMP_USER` / `WMP_PASS` for `--ssh`).
+
 ## Per-machine calibration is NOT in this repo
 
 So the repo is shareable without pushing one machine's calibration onto
