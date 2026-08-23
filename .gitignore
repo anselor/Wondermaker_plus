@@ -11,3 +11,6 @@ machine/
 
 # Local-only reverse-engineering workspace (kept private, never pushed)
 analysis/
+
+# harness worktrees (local only)
+.claude/worktrees/
