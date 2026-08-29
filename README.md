@@ -40,17 +40,27 @@ Highlights:
   without ringing, with input-shaper values to match.
 - **Adopted upstream fixes** — chamber-temperature support, a guarded
   print-end sequence, and the vendor's toolhead-swap and runout improvements.
+- **Clean filament unload** — tip-shaping unload sequences ported from the
+  Snapmaker U1 (PLA/ABS/TPU) and Prusa MMU3 profiles (PETG), selected by
+  material with per-material unload temperatures, then cool and wipe.
+  Material comes from the optional `wm_material` Klipper extra
+  (`klipper_extras/`, reads the touchscreen's slot settings; SSH install) or,
+  without it, from the hotend temperature.
+- **Single-purge load** — loading from the screen no longer purges, docks,
+  undocks and purges again.
+- **Home with the first tool** (off by default) — `START_PRINT` can Z-home and
+  mesh with the print's first tool instead of always fetching T0, with tool
+  offsets applied relative to it. `PROBE_WITH_INITIAL_TOOL ENABLE=1`.
 
 The config is tracked as a stock baseline versus a live copy, with every
-change marked in-line. Deploy it with **`utils/config_sync.py`**, which
-pushes changes to the printer over Moonraker's HTTP API (no SSH needed),
-backs up each file it replaces, restarts Klipper, and preserves every
-machine-specific calibration — bed mesh, input shapers, probe offsets, CAN
-bus IDs, and tool offsets are never overwritten.
+change marked in-line. Deploy it with `tools/deploy.py install config` (or
+`utils/config_sync.py` directly): Moonraker HTTP, no SSH; backs up each
+replaced file, restarts Klipper, and never overwrites machine calibration
+(bed mesh, input shapers, probe offsets, CAN bus IDs, tool offsets).
 
 ```bash
-uv run python utils/config_sync.py diff   # what differs from the printer
-uv run python utils/config_sync.py push   # deploy changes
+uv run python tools/deploy.py status config    # what differs from the printer
+uv run python tools/deploy.py install config   # deploy changes
 ```
 
 Full details, deployment, and the list of changes: [`config/README.md`](config/README.md).
