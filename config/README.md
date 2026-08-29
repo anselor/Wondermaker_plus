@@ -82,7 +82,7 @@ shaper values) are documented only in this file.
 > describe each delta's history. On the current 1.1.04 base:
 > **active** — accel-cap, input-shaper values, pause-mapping-snapshot,
 > pause-park-margin, left-edge-purge (supersedes purge-approach-margin),
-> toolchange-feedrate-preserve, toolchange-wipe, wipe-speed +
+> toolchange-feedrate-preserve, toolchange-wipe, u1-tip-shaping, insert-no-autoload, wm-material-include, wipe-speed +
 > wipe-feedrate-restore (merged with the vendor's new `wipe_position`),
 > REHOME macro.
 > **dropped (vendor fixed it in 1.1.04)** — skip-forced-rehome-on-resume
@@ -92,6 +92,67 @@ shaper values) are documented only in this file.
 > Z-safety, wiper-park, and the `print_body_ready` UI contract — taken as-is).
 > **deferred** — start-print-chamber (speculative; re-add if printing ABS/ASA).
 > See `analysis/fw_1.1.04_diff/MERGE-PLAN.md` for the full rationale.
+
+### u1-tip-shaping — `live/macros.cfg` (ported from Snapmaker U1 firmware 1.6.0, 2026-08-29)
+Stock `RETRACT_FILAMENT` (touchscreen auto-unload) and `UNLOAD_FILAMENT`
+(manual unload) leave a blobby, stringy filament end. The Snapmaker U1's
+1.6.0 firmware unloads with a purge → fast pull → very slow pull (draws a
+thin cone) → re-plunge (rounds the tip) → fast + slow pull → extract
+sequence (`CONTROL_RETRACT_ACTION`; full source in
+`docs/reference/snapmaker-u1-unload-macros.cfg`). Both macros now call
+`_TIP_SHAPE_RETRACT`, which picks one of three U1 variants by material
+class — `pla` (PLA/PETG/PA/PC), `abs` (ABS/ASA/HIPS/Wood: slower re-plunge),
+`soft` (TPU/TPE: no re-plunge), plus `petg` (PETG/PCTG/PET), which is
+*not* U1's: its slow pulls draw PETG into a long cone + 15 mm strand. It is
+the Prusa Core One / MK4 MMU3 recipe from `PrusaResearch.ini` (`*PETPG*`):
+hard ram (17.5 mm/s — our extruder audibly skips a few steps there, accepted;
+the final pull carries 10 mm extra margin so the tip still clears the
+gears), one 60 mm/s pull with no slow phase, 3 cooling moves
+at 5→2.5 mm/s, then 35 mm "stamping" and a second pull, at **235 °C** — PETG wants
+cooler, not hotter: PCTG gave 5 mm of string at 250 and a faint wisp at 235 — and runs the moves via `_TIP_SHAPE_MOVES`.
+The final pull is lengthened vs U1 so the net retraction stays at stock's
+−57 mm. Hotend temperature is still set by the caller (the touchscreen uses
+its material table temp); on top of that `_TIP_SHAPE_RETRACT` raises pla/abs
+classes to `unload_temp_min` when set (U1 uses 250 °C for PLA/PETG/ABS; TPU
+per U1's table: PLA 250, PETG 270, ABS/ASA/HIPS/PA 280, PC/PET 300, TPU 250
+— `variable_unload_temps`; `unload_temp_min` is the floor, 0 disables). After
+the moves `RETRACT_FILAMENT` does what
+the U1 does next — `M104 S0`, fan 100 %, `post_cool_s` (5 s), then
+`WIPE_NOZZLE` to snap the cooled hair off the nozzle. Tested: PLA 220 °C
+left a 2–3 mm wisp, 250 °C + cool/wipe none; PCTG (as PETG) strung
+badly at 250 and 270 with the U1 recipe → the Prusa-style `petg` class, and 235 °C. The unload purge happens
+at `X-13 Y80`, the same side spot `EXTRUDE_FILAMENT` uses (stock unloaded
+over the wiper at Y232). `_TIP_SHAPE_RETRACT DRY_RUN=1` reports the class it would
+use without moving; `MATERIAL=ABS` / `CLASS=soft` override detection.
+
+**Material detection.** The touchscreen never passes the material to the
+macro (binary-verified: `auto_fila_out()` heats to its material table
+temp, then runs bare `RETRACT_FILAMENT`). Two sources, in order:
+
+1. **`wm_material` Klipper extra** (optional, `klipper_extras/`, installed
+   with `uv run --with paramiko python tools/deploy_material.py install`) —
+   reads the touchscreen's `tmt1.ini` (`[slot] material0..3`) and exposes
+   `printer.wm_material.material0..3` (names from the binary's 18-entry
+   table). `WM_MATERIAL_STATUS` prints them. The slot is resolved from the
+   physical extruder through the `box_modify_t*` mapping.
+2. **Temperature fallback** when the module is absent: the target the
+   touchscreen just set — 230 ⇒ soft (TPU/TPE), ≥255 ⇒ abs (ASA, but also
+   PA/PC), else pla. PETG vs ABS (both 250) is indistinguishable and
+   defaults to pla.
+
+### insert-no-autoload — `live/extruder0-3.cfg` (ours, 2026-08-30)
+Each tool's filament-sensor `insert_gcode` ran a full auto-load (pick tool,
+purge, wipe, dock). `_ENABLE_SENSOR` enables only the active tool's sensor,
+so in practice it fired during the touchscreen's Load flow, which then ran
+its own `EXTRUDE_FILAMENT` — purge, dock, undock, purge, dock. (A first
+attempt gated on "extruder already heating" failed when filament is
+inserted before pressing Load.) The sensor gcode now only prints a hint and
+cancels the runout pause; the screen's Load is the single load path.
+
+### wm-material-include — `live/printer.cfg` (ours, 2026-08-29)
+`[include wm_material*.cfg]` after `macros.cfg`. Klipper's glob include
+matches nothing when the optional module's cfg is not installed, so the
+same `printer.cfg` works with or without it.
 
 ### pause-mapping-snapshot — `live/macros.cfg` (ours, 2026-08-17)
 Stock `PAUSE` resets the logical→physical tool mapping (`box_modify_t0..3`)
