@@ -82,7 +82,7 @@ shaper values) are documented only in this file.
 > describe each delta's history. On the current 1.1.04 base:
 > **active** — accel-cap, input-shaper values, pause-mapping-snapshot,
 > pause-park-margin, left-edge-purge (supersedes purge-approach-margin),
-> toolchange-feedrate-preserve, toolchange-wipe, u1-tip-shaping, insert-no-autoload, wm-material-include, wipe-speed +
+> toolchange-feedrate-preserve, toolchange-wipe, u1-tip-shaping, insert-no-autoload, probe-with-initial-tool (off by default), wm-material-include, wipe-speed +
 > wipe-feedrate-restore (merged with the vendor's new `wipe_position`),
 > REHOME macro.
 > **dropped (vendor fixed it in 1.1.04)** — skip-forced-rehome-on-resume
@@ -92,6 +92,23 @@ shaper values) are documented only in this file.
 > Z-safety, wiper-park, and the `print_body_ready` UI contract — taken as-is).
 > **deferred** — start-print-chamber (speculative; re-add if printing ABS/ASA).
 > See `analysis/fw_1.1.04_diff/MERGE-PLAN.md` for the full rationale.
+
+### probe-with-initial-tool — `live/macros.cfg`, `live/printer.cfg`, `live/change_macros.cfg` (ours, 2026-08-30; design: `docs/design-ideas.md` #1)
+**Off by default.** Stock `START_PRINT` always grabs T0 to Z-home and mesh,
+cools and parks it, then fetches the print's first tool — two extra
+toolchanges and a heat cycle per print. Enable per machine with
+`PROBE_WITH_INITIAL_TOOL ENABLE=1` (saved variable, survives restarts;
+`ENABLE=0` reverts; no argument reports). When on, `START_PRINT` records
+the *physical* tool behind `INITIAL_TOOL` (through `box_modify_t*`) in the
+`probe_tool` saved variable, heats that extruder directly, `Z_HOMING` grabs
+it (`_CHANGE_TOOL T={probe_tool}`), and `_OFFSET_SET` applies
+`offset(tool) − offset(probe_tool)`. `probe_tool = 0` reproduces stock
+bit-for-bit (`t0_offset` is `(0,0,0)`); it is forced to 0 when the saved
+default mesh is loaded (T0 datum), in `G29`, `PRINT_END`, `CANCEL_PRINT`,
+and 2 s after every Klipper start. Known limit: power-loss recovery
+re-homes with T0 — mixed datums mid-print; not handled.
+Verification plan (from the design note): a supervised first layer on a
+print starting on T1–T3, and a control print starting on T0.
 
 ### u1-tip-shaping — `live/macros.cfg` (ported from Snapmaker U1 firmware 1.6.0, 2026-08-29)
 Stock `RETRACT_FILAMENT` (touchscreen auto-unload) and `UNLOAD_FILAMENT`

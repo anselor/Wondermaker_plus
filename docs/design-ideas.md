@@ -7,7 +7,11 @@ GET_POSITION checkpoint technique (see git history of `config/live/macros.cfg`).
 
 ---
 
-## 1. Probe with the print's initial tool instead of T0
+## 1. Probe with the print's initial tool instead of T0 — IMPLEMENTED 2026-08-30 (toggle, default off)
+
+Built as designed: `probe-with-initial-tool` in `config/README.md`. Enable with
+`PROBE_WITH_INITIAL_TOOL ENABLE=1`. Rollout verification (a)–(c) below still
+to be done on a real print.
 
 **Problem:** every print start grabs T0, heats it to 140, Z-homes and meshes
 with it, cools it, parks it, then fetches the actual first tool — two extra
