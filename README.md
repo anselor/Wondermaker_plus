@@ -17,7 +17,7 @@ completely, and includes a fix so timelapses record the print rather than the
 LCD.
 
 ```bash
-uv run --with paramiko python tools/deploy.py install
+uv run --with paramiko python tools/deploy.py install touchscreen
 ```
 
 Full details: [`docs/touchscreen.md`](docs/touchscreen.md).
@@ -70,7 +70,30 @@ saved data and graphs:
 Full details: [`utils/README.md`](utils/README.md). (Config deployment lives
 with the config area above, under `utils/config_sync.py`.)
 
-## Also here
+## Deploying
+
+`tools/deploy.py` installs, removes, and reports each component:
+
+| component | what | needs |
+|---|---|---|
+| `config` | Klipper config from `config/live` (`utils/config_sync.py`) | Moonraker HTTP only — works on a stock printer |
+| `touchscreen` | camera snapshot service, nginx page, timelapse-camera fixer | SSH login + sudo |
+| `material` | `wm_material` Klipper extra (material-aware unload) | SSH login |
+
+```bash
+uv run python tools/deploy.py install config                      # no SSH
+uv run --with paramiko python tools/deploy.py install all
+uv run --with paramiko python tools/deploy.py install material
+uv run --with paramiko python tools/deploy.py status
+uv run python tools/deploy.py list
+```
+
+Klipper is restarted once at the end when needed (`--no-restart` to skip).
+Refuses to run during a print. Credentials: `WMP_PRINTER`, `WMP_USER`,
+`WMP_PASS`. New components: add a module with `install/uninstall/status` to
+`tools/components/` and register it in `components/__init__.py`.
+
+
 
 - [`docs/orca-print-dialog-integration.md`](docs/orca-print-dialog-integration.md)
   — how to drive the timelapse and bed-leveling toggles from OrcaSlicer.

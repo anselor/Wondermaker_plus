@@ -1,115 +1,160 @@
-#!/usr/bin/env python3
-"""Push Wondermaker+ to the printer and run its install/uninstall scripts.
+"""Deploy tool for everything this repo puts on the printer.
 
-usage:
-    uv run --with paramiko python tools/deploy.py install
-    uv run --with paramiko python tools/deploy.py uninstall
+Components (tools/components/):
+    config       Klipper config from config/live. Moonraker HTTP only; works on a stock printer.
+    touchscreen  camera snapshot service, nginx page, timelapse fixer. SSH + sudo.
+    material     wm_material Klipper extra. SSH.
+
+    uv run python tools/deploy.py install config [--files macros.cfg ...]
+    uv run python tools/deploy.py status config
+    uv run --with paramiko python tools/deploy.py install all
+    uv run --with paramiko python tools/deploy.py install material
+    uv run --with paramiko python tools/deploy.py uninstall touchscreen
     uv run --with paramiko python tools/deploy.py status
+    uv run python tools/deploy.py list
 
-Nothing is installed on the host; paramiko is pulled in per-run by uv.
+Klipper is restarted once at the end if an installed component needs it
+(--no-restart to skip). Refuses to run during a print.
+Env: WMP_PRINTER (default printer.local), WMP_USER (t13dp), WMP_PASS.
 """
+import argparse
 import os
-import posixpath
 import sys
+import time
+import urllib.request
 
-import paramiko
-
-HOST = os.environ.get("WMP_PRINTER", "printer.local")
-USER = os.environ.get("WMP_USER", "t13dp")
-PASS = os.environ.get("WMP_PASS", "CHANGE_ME")
-STAGE = "/tmp/wondermaker_plus"
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PAYLOAD = ["device", "scripts"]
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from components import REGISTRY, ORDER  # noqa: E402
 
 
-def connect():
-    c = paramiko.SSHClient()
-    c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    c.connect(HOST, username=USER, password=PASS, timeout=20,
-              allow_agent=False, look_for_keys=False)
-    return c
+class DeployError(Exception):
+    pass
 
 
-def shq(s):
-    return "'" + s.replace("'", "'\\''") + "'"
+class Context:
+    DeployError = DeployError
 
+    def __init__(self, args):
+        self.host = os.environ.get("WMP_PRINTER", "printer.local")
+        self.user = os.environ.get("WMP_USER", "t13dp")
+        self.password = os.environ.get("WMP_PASS", "CHANGE_ME")
+        self.no_restart = getattr(args, "no_restart", False)
+        self.files = getattr(args, "files", []) or []
+        self._ssh = None
+        self._sftp = None
 
-def run(c, cmd, sudo=False, stream=True):
-    if sudo:
-        cmd = "echo %s | sudo -S bash -c %s" % (PASS, shq(cmd))
-    _, out, err = c.exec_command(cmd, timeout=300, get_pty=False)
-    body = ""
-    for line in iter(out.readline, ""):
-        body += line
-        if stream:
-            sys.stdout.write(line)
-            sys.stdout.flush()
-    rc = out.channel.recv_exit_status()
-    tail = err.read().decode("utf-8", "replace")
-    # sudo's password prompt goes to stderr; only surface real errors.
-    tail = "\n".join(l for l in tail.splitlines() if "password for" not in l)
-    if tail.strip() and stream:
-        sys.stderr.write(tail + "\n")
-    return body, tail, rc
+    def ssh(self):
+        if self._ssh is None:
+            try:
+                import paramiko
+            except ImportError:
+                sys.exit("this component needs SSH: run with `uv run --with paramiko python tools/deploy.py ...`")
+            c = paramiko.SSHClient()
+            c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            c.connect(self.host, username=self.user, password=self.password,
+                      timeout=20, allow_agent=False, look_for_keys=False)
+            self._ssh = c
+        return self._ssh
 
+    def sftp(self):
+        if self._sftp is None:
+            self._sftp = self.ssh().open_sftp()
+        return self._sftp
 
-def mkdirs(sftp, path):
-    parts, cur = path.strip("/").split("/"), ""
-    for p in parts:
-        cur += "/" + p
+    def close(self):
+        if self._sftp:
+            self._sftp.close()
+        if self._ssh:
+            self._ssh.close()
+
+    def moonraker(self, path, post=False):
+        req = urllib.request.Request("http://%s:7125%s" % (self.host, path),
+                                     method="POST" if post else "GET")
+        with urllib.request.urlopen(req, timeout=10) as r:
+            return r.read().decode()
+
+    def printing_now(self):
         try:
-            sftp.stat(cur)
-        except IOError:
-            sftp.mkdir(cur)
+            return '"state": "printing"' in self.moonraker("/printer/objects/query?print_stats")
+        except Exception:
+            return False
+
+    def restart_klipper(self):
+        print("firmware-restarting Klipper...")
+        self.moonraker("/printer/firmware_restart", post=True)
+        for _ in range(60):
+            time.sleep(2)
+            try:
+                info = self.moonraker("/printer/info")
+            except Exception:
+                continue
+            if '"state": "ready"' in info:
+                print("Klipper is Ready")
+                return True
+            if '"state": "error"' in info or '"state": "shutdown"' in info:
+                break
+        print("Klipper did not return to Ready - check klippy.log", file=sys.stderr)
+        return False
 
 
-def upload(c):
-    sftp = c.open_sftp()
-    run(c, "rm -rf %s" % STAGE, stream=False)
-    mkdirs(sftp, STAGE)
-    n = 0
-    for top in PAYLOAD:
-        for dirpath, _, files in os.walk(os.path.join(ROOT, top)):
-            rel = os.path.relpath(dirpath, ROOT)
-            remote_dir = posixpath.join(STAGE, rel.replace(os.sep, "/"))
-            mkdirs(sftp, remote_dir)
-            for fn in files:
-                if fn.endswith((".pyc", ".swp")):
-                    continue
-                sftp.put(os.path.join(dirpath, fn),
-                         posixpath.join(remote_dir, fn))
-                n += 1
-    sftp.close()
-    run(c, "chmod +x %s/scripts/*.sh" % STAGE, stream=False)
-    print("uploaded %d files to %s" % (n, STAGE))
+def resolve(names):
+    if not names or names == ["all"]:
+        return [REGISTRY[n] for n in ORDER]
+    out = []
+    for n in names:
+        if n not in REGISTRY:
+            sys.exit("unknown component %r (known: %s)" % (n, ", ".join(ORDER)))
+        out.append(REGISTRY[n])
+    return sorted(out, key=lambda m: ORDER.index(m.NAME))
 
 
 def main():
-    action = sys.argv[1] if len(sys.argv) > 1 else "status"
-    c = connect()
+    ap = argparse.ArgumentParser(description=__doc__.split("\n")[0],
+                                 formatter_class=argparse.RawDescriptionHelpFormatter,
+                                 epilog=__doc__)
+    ap.add_argument("action", choices=["status", "install", "uninstall", "list"])
+    ap.add_argument("components", nargs="*",
+                    help="component names, or 'all' (default: all for status; required for install/uninstall)")
+    ap.add_argument("--no-restart", action="store_true", help="do not restart Klipper at the end")
+    ap.add_argument("--files", nargs="*", default=[], help="config component: only push these files")
+    args = ap.parse_args()
+
+    if args.action == "list":
+        for n in ORDER:
+            m = REGISTRY[n]
+            need = "SSH + sudo" if m.NEEDS_SUDO else ("SSH" if m.NEEDS_SSH else "Moonraker HTTP (stock printer)")
+            print("%-12s %-30s %s" % (n, need, m.DESCRIPTION))
+        return 0
+    if args.action in ("install", "uninstall") and not args.components:
+        sys.exit("say which components (or 'all'): %s" % ", ".join(ORDER))
+
+    ctx = Context(args)
+    comps = resolve(args.components)
+    rc = 0
     try:
-        if action == "install":
-            upload(c)
-            _, _, rc = run(c, "%s/scripts/install.sh" % STAGE, sudo=True)
-            return rc
-        if action == "uninstall":
-            upload(c)
-            _, _, rc = run(c, "%s/scripts/uninstall.sh" % STAGE, sudo=True)
-            return rc
-        if action == "status":
-            run(c, "systemctl status wmp-screen.service --no-pager -n 20 "
-                   "2>&1 | head -30; echo '--- endpoints ---'; "
-                   "curl -sf -m5 -o /dev/null -w 'snapshot %{http_code}\\n' "
-                   "http://127.0.0.1:8975/snapshot.jpg; "
-                   "curl -sf -m5 -o /dev/null -w 'nginx    %{http_code}\\n' "
-                   "http://127.0.0.1/wmp-screen/; "
-                   "curl -sf -m5 http://127.0.0.1:7125/server/webcams/list", sudo=True)
-            return 0
-        sys.exit("unknown action %r (install|uninstall|status)" % action)
+        if args.action != "status" and ctx.printing_now():
+            sys.exit("refusing to touch the printer while a print is in progress")
+        need_restart = False
+        for m in comps:
+            print("=== %s: %s" % (m.NAME, args.action))
+            try:
+                getattr(m, args.action)(ctx)
+                if args.action != "status" and m.RESTART_AFTER == "klipper":
+                    need_restart = True
+            except DeployError as e:
+                print("!! %s: %s" % (m.NAME, e), file=sys.stderr)
+                rc = 1
+        if need_restart and not ctx.no_restart:
+            if not ctx.restart_klipper():
+                rc = 1
+            for m in comps:
+                if m.RESTART_AFTER == "klipper":
+                    print("=== %s: status" % m.NAME)
+                    m.status(ctx)
     finally:
-        c.close()
+        ctx.close()
+    return rc
 
 
 if __name__ == "__main__":
-    sys.exit(main() or 0)
+    sys.exit(main())

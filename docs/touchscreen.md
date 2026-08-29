@@ -15,9 +15,9 @@ the page through a Moonraker webcam entry whose service is `iframe`.
 Needs `uv` on the host; nothing is installed there permanently.
 
 ```bash
-uv run --with paramiko python tools/deploy.py install
-uv run --with paramiko python tools/deploy.py status
-uv run --with paramiko python tools/deploy.py uninstall
+uv run --with paramiko python tools/deploy.py install touchscreen
+uv run --with paramiko python tools/deploy.py status touchscreen
+uv run --with paramiko python tools/deploy.py uninstall touchscreen
 ```
 
 Then open Fluidd. The panel appears as a camera named **Touchscreen**.
@@ -87,6 +87,6 @@ curl -X POST http://<printer>/wmp-screen/api/tap \
 
 | tool | use |
 |---|---|
-| `tools/deploy.py` | push and run install / uninstall / status |
+| `tools/deploy.py` (`touchscreen` component, `tools/components/touchscreen.py`) | push and run install / uninstall / status |
 | `tools/verify_stream.py` | pull frames through nginx and write a PNG |
 | `tools/u1.py` | ad-hoc `shot` / `tap` / `swipe` / `sh` over SSH |

@@ -1,17 +1,8 @@
 # wm_material: expose the WonderMaker touchscreen's per-slot filament material
-# to Klipper macros.
-#
-# The touchscreen app (client) keeps the material of each of the four slots in
-# its own ini file (`[slot] material0..3 = <index>`), and never passes it to
-# the unload macros. This module reads that file and publishes it as a printer
-# object so Jinja can do `printer.wm_material.material1` -> "PETG".
-#
-# Optional: printer.cfg includes `wm_material*.cfg` with a glob, so when this
-# module (and its cfg) are not installed nothing references it and macros fall
-# back to inferring the material from the hotend temperature.
-#
-# Install with `tools/deploy_material.py install` (copies this file into
-# klippy/extras and drops wm_material.cfg into the config dir).
+# to Klipper macros as printer.wm_material.material0..3 (and index0..3,
+# temp0..3, available). Source: the touchscreen's tmt1.ini, [slot]
+# material0..3. Config: [wm_material] ini_path. G-code: WM_MATERIAL_STATUS.
+# Install: tools/deploy.py install material (SSH).
 #
 # Copyright (C) 2026  Wondermaker+ contributors
 # This file may be distributed under the terms of the GNU GPLv3 license.
