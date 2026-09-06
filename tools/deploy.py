@@ -4,6 +4,7 @@ Components (tools/components/):
     config       Klipper config from config/live. Moonraker HTTP only; works on a stock printer.
     touchscreen  camera snapshot service, nginx page, timelapse fixer. SSH + sudo.
     material     wm_material Klipper extra. SSH.
+    preload      LD_PRELOAD patches for the touchscreen client (client-preload/). SSH + sudo.
 
     uv run python tools/deploy.py install config [--files macros.cfg ...]
     uv run python tools/deploy.py status config

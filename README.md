@@ -48,6 +48,10 @@ Highlights:
   without it, from the hotend temperature.
 - **Single-purge load** — loading from the screen no longer purges, docks,
   undocks and purges again.
+- **Wi-Fi stays connected** — the touchscreen client tells wpa_supplicant to
+  stop reconnecting after one failed reconnect, leaving the printer offline
+  until the Wi-Fi page is opened. `client-preload/wifi-fix` patches that out
+  in memory (`tools/deploy.py install preload`, SSH).
 - **Home with the first tool** (off by default) — `START_PRINT` can Z-home and
   mesh with the print's first tool instead of always fetching T0, with tool
   offsets applied relative to it. `PROBE_WITH_INITIAL_TOOL ENABLE=1`.
@@ -89,6 +93,7 @@ with the config area above, under `utils/config_sync.py`.)
 | `config` | Klipper config from `config/live` (`utils/config_sync.py`) | Moonraker HTTP only — works on a stock printer |
 | `touchscreen` | camera snapshot service, nginx page, timelapse-camera fixer | SSH login + sudo |
 | `material` | `wm_material` Klipper extra (material-aware unload) | SSH login |
+| `preload` | LD_PRELOAD patches for the touchscreen client (`client-preload/`): Wi-Fi reconnect fix | SSH login + sudo |
 
 ```bash
 uv run python tools/deploy.py install config                      # no SSH

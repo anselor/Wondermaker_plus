@@ -6,7 +6,7 @@
     RESTART_AFTER  -> "klipper" | None   # deploy.py restarts once at the end
 ctx is a tools.deploy.Context: ssh(), sftp(), moonraker(), host, user, no_restart, files.
 """
-from . import config, material, touchscreen
+from . import config, material, preload, touchscreen
 
-REGISTRY = {m.NAME: m for m in (config, touchscreen, material)}
-ORDER = [config.NAME, touchscreen.NAME, material.NAME]
+REGISTRY = {m.NAME: m for m in (config, touchscreen, material, preload)}
+ORDER = [config.NAME, touchscreen.NAME, material.NAME, preload.NAME]
