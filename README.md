@@ -3,11 +3,13 @@
 Enhancements for the Wondermaker U1 / ZR Ultra (`TM-T1`) toolchanger — a
 CoreXY printer running Klipper, Moonraker, and Fluidd on a Rockchip RK3308.
 
-Three independent parts. Use any of them on their own:
+Built against vendor **System 1.1.08**, with the previous stock configurations
+preserved for comparison. The project includes:
 
 1. **Fluidd touchscreen integration** — the printer's LCD, live and clickable, inside Fluidd.
 2. **Printer config and macro improvements** — fixes and upgrades over the stock Klipper config.
 3. **Resonance testing and analysis** — command-line tools to measure ringing and set input shapers.
+4. **Touchscreen client fixes** — Wi-Fi reconnect, automatic fan requests, and recovery checkpoint corrections applied in memory.
 
 ## Fluidd touchscreen integration
 
@@ -31,6 +33,11 @@ Highlights:
   the bed front, avoiding a toolhead-vs-panel strike and freeing bed space.
 - **Correct filament on resume** — pausing and resuming (including from Fluidd)
   keeps the right tool-to-slot mapping instead of loading the wrong color.
+- **Power-loss recovery with the right coordinates** — references Z at the
+  bottom endstop before tool pickup, restores the print's exact mesh, probing
+  tool and color mapping, and saves uncompensated G-code coordinates so
+  recovery does not apply mesh/tool offsets twice. Requires both `config`
+  and `preload`; see the recovery limits and upgrade instructions below.
 - **Safer pausing** — the paused park position has real clearance from the
   frame, and a `REHOME` command is available for deliberate re-homes.
 - **Faster, cleaner toolchanges** — travel speed is preserved across a
@@ -52,22 +59,41 @@ Highlights:
   stop reconnecting after one failed reconnect, leaving the printer offline
   until the Wi-Fi page is opened. `client-preload/wifi-fix` patches that out
   in memory (`tools/deploy.py install preload`, SSH).
-- **Home with the first tool** (off by default) — `START_PRINT` can Z-home and
+- **Home with the first tool** (on by default) — `START_PRINT` can Z-home and
   mesh with the print's first tool instead of always fetching T0, with tool
-  offsets applied relative to it. `PROBE_WITH_INITIAL_TOOL ENABLE=1`.
+  offsets applied relative to it. Opt out with `PROBE_WITH_INITIAL_TOOL ENABLE=0`.
+- **Scoped cooldown waits** — blob-cleaning cooldowns use standard Klipper
+  upper-only temperature waits, so an undershoot does not force reheating.
+  Later heating waits retain their normal behavior.
+- **Controlled automatic ABS fan requests** — one automatic filter-fan start
+  per print prevents repeated requests from accumulating. Manual touchscreen
+  fan choices, including OFF, take precedence (`preload`).
+- **Reviewable firmware updates** — versioned stock baselines, a three-way
+  config comparison tool, and `status config --diff` show what will change.
 
 The config is tracked as a stock baseline versus a live copy, with every
 change marked in-line. Deploy it with `tools/deploy.py install config` (or
-`utils/config_sync.py` directly): Moonraker HTTP, no SSH; backs up each
-replaced file, restarts Klipper, and never overwrites machine calibration
+`utils/config_sync.py` directly after installing the required extra). Config
+installation uses SSH to install `wmp_recovery.py`, then Moonraker to back up and replace
+config files. It restarts Klipper and preserves machine calibration
 (bed mesh, input shapers, probe offsets, CAN bus IDs, tool offsets).
 
 ```bash
 uv run python tools/deploy.py status config    # what differs from the printer
-uv run python tools/deploy.py install config   # deploy changes
+uv run --with paramiko python tools/deploy.py install config   # deploy config + required extra
 ```
 
 Full details, deployment, and the list of changes: [`config/README.md`](config/README.md).
+
+Two-color prints recovered successfully after power cuts using both T0 and
+T2 probing references, including swapped slicer/tool mappings. Recovery still
+uses the vendor's checkpoint+3 mm wipe/return path, which can collide with
+taller objects, and retains its checkpoint sampling/selection limitations.
+See [recovery behavior and validation](docs/print-mesh-recovery.md).
+
+The experimental chamber-fan cooling moves were removed: three cooldowns per
+condition showed no improvement over the part fan alone.
+[Measurements](docs/cooling-assist.md).
 
 ## Resonance testing and analysis
 
@@ -90,13 +116,14 @@ with the config area above, under `utils/config_sync.py`.)
 
 | component | what | needs |
 |---|---|---|
-| `config` | Klipper config from `config/live` (`utils/config_sync.py`) | Moonraker HTTP only — works on a stock printer |
+| `config` | Klipper config and required native bottom-Z extra | SSH for installation; Moonraker for config transfer/status |
 | `touchscreen` | camera snapshot service, nginx page, timelapse-camera fixer | SSH login + sudo |
 | `material` | `wm_material` Klipper extra (material-aware unload) | SSH login |
-| `preload` | LD_PRELOAD patches for the touchscreen client (`client-preload/`): Wi-Fi reconnect fix | SSH login + sudo |
+| `preload` | Touchscreen Wi-Fi, automatic fan-request and recovery-coordinate fixes | SSH login + sudo |
 
 ```bash
-uv run python tools/deploy.py install config                      # no SSH
+uv run --with paramiko python tools/deploy.py install config       # includes bottom-Z extra
+uv run --with paramiko python tools/deploy.py install preload      # required for corrected recovery checkpoints
 uv run --with paramiko python tools/deploy.py install all
 uv run --with paramiko python tools/deploy.py install material
 uv run --with paramiko python tools/deploy.py status
@@ -108,7 +135,21 @@ Refuses to run during a print. Credentials: `WMP_PRINTER`, `WMP_USER`,
 `WMP_PASS`. New components: add a module with `install/uninstall/status` to
 `tools/components/` and register it in `components/__init__.py`.
 
+Install the vendor's 1.1.08 firmware first, then reapply W+ config and preloads
+before starting a new print. Existing pending recovery records cannot simply
+be reused: the new guards require matching print context and verified G-code
+checkpoint coordinates. See [preload installation and compatibility](client-preload/README.md)
+for migration details. These tools do not flash the vendor firmware.
 
+## Validation
+
+```bash
+uv run --with pytest --with jinja2 --with unicorn python -m pytest -q tests
+```
+
+The final integration passes 125 tests, including macro execution, recovery
+guards and emulated ARM checkpoint loads. Tests requiring extracted vendor
+sources/binaries skip when the local `analysis/` payloads are absent.
 
 - [`docs/orca-print-dialog-integration.md`](docs/orca-print-dialog-integration.md)
   — how to drive the timelapse and bed-leveling toggles from OrcaSlicer.
@@ -126,5 +167,7 @@ variables `WMP_PRINTER`, `WMP_USER`, and `WMP_PASS`.
 | `device/`, `tools/`, `scripts/` | touchscreen bridge code, host tools, install scripts |
 | `config/` | stock vs live Klipper config, and the deploy tool |
 | `utils/` | resonance, verification, and config-sync utilities |
+| `client-preload/`, `klipper_extras/` | touchscreen patches and Klipper extensions |
+| `tests/` | macro, migration, recovery and binary-patch checks |
 | `docs/` | touchscreen, OrcaSlicer, and design notes |
 | `analysis/` | firmware analysis |

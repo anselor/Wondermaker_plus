@@ -7,10 +7,18 @@ GET_POSITION checkpoint technique (see git history of `config/live/macros.cfg`).
 
 ---
 
-## 1. Probe with the print's initial tool instead of T0 — IMPLEMENTED 2026-08-30 (off by default)
+## 1. Probe with the print's initial tool instead of T0 — IMPLEMENTED 2026-08-30 (on by default since 2026-09-13)
 
-See `probe-with-initial-tool` in `config/README.md`. Rollout verification
-(a)–(c) below not yet done.
+See `probe-with-initial-tool` in `config/README.md`. The user reported successful
+testing by themselves and others and requested the enabled default on
+2026-09-13. Explicit saved opt-outs remain effective. The assessment and
+rollout plan below record the original proposal, not outstanding approval
+requirements.
+
+The original power-loss limitation described below is addressed locally as
+of 2026-09-13: recovery restores the recorded physical probing reference and
+a dedicated per-print mesh. See [print-mesh-recovery.md](print-mesh-recovery.md)
+for behavior and the remaining physical validation boundary.
 
 **Problem:** every print start grabs T0, heats it to 140, Z-homes and meshes
 with it, cools it, parks it, then fetches the actual first tool — two extra
@@ -83,3 +91,11 @@ possible start sequence (zero extra toolchanges, zero bed footprint).
 **Rollout plan:** marked change to START_PRINT's purge block; verify with
 one watched print (blob shears cleanly, no stringing to first layer, purge
 volume adequate for good first-layer prime).
+
+
+## 3. Auxiliary-fan-assisted nozzle cooling — REMOVED 2026-09-14
+
+The cooling detours and temporary chamber-fan boost were implemented and
+functionally tested, then removed at the user's request after three runs per
+condition showed no cooldown improvement with the part fan already at 100%.
+See [measurements and rollback scope](cooling-assist.md).

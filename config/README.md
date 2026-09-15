@@ -1,11 +1,14 @@
 # Printer configuration: stock vs live
 
-- **`stock/`** — pristine snapshot of the vendor config, captured after installing touchscreen app **System_1.1.04** (2026-08-19).
-  OS/Klipper image `KLP_IMG_WM_ZRU_V1.0.26`. The prior 1.0.71 stock is kept
-  as `config/stock_1.0.71/` for before/after diffs; analysis in
-  `analysis/fw_1.1.04_diff/`. Re-baseline process is documented there.
-  `printer.cfg` is the pre-tuning backup, so the SAVE_CONFIG block holds the
-  vendor's own calibration values. Never edit this directory.
+- **`stock/`** — latest vendor baseline, **System_1.1.08** (2026-09-13),
+  kept as a real directory. Built from the sanitized installed 1.1.04
+  snapshot and the four verified vendor config deltas from the official
+  packages. Retains the installed model's zru-s include and reference files
+  absent from the System package. SAVE_CONFIG and CAN UUIDs remain sanitized.
+  Previous baselines are archived unchanged in **`stock_1.1.04/`** and
+  **`stock_1.0.71/`**. Provenance and reconciliation:
+  [1.1.08 integration notes](../docs/firmware-1.1.08.md).
+  Never put W+ modifications in stock; make those in live with markers.
 - **`live/`** — what runs on the printer. Started as an exact copy of
   `stock/`; every deliberate change is wrapped in markers:
 
@@ -25,12 +28,25 @@ on-printer `*.wmp-backup*` files.
 
 ## Deploying with config_sync.py
 
-`utils/config_sync.py` moves config between this repo and the printer over
-**Moonraker's HTTP API** — no SSH or credentials needed. It works while the
-rest of the printer keeps running and only restarts Klipper at the end.
+Install the live configuration with:
+
+```bash
+uv run --with paramiko python tools/deploy.py install config
+```
+
+**Installation requires SSH.** The config component first installs the required
+`klipper_extras/wmp_recovery.py` into Klipper's extras directory, then uploads
+configuration over Moonraker and restarts Klipper. The `[wmp_recovery]` section
+in printer.cfg cannot load without that module.
+
+`utils/config_sync.py` transfers config over **Moonraker's HTTP API**. Diff and
+pull need no SSH. Use direct `push` only after the matching required extra has
+been installed; it does not install Python modules. For normal deployment,
+use the config component above.
 
 ```bash
 uv run python utils/config_sync.py diff            # show what differs from the printer
+uv run python utils/config_sync.py diff --patch    # show content differences, printer -> repo
 uv run python utils/config_sync.py push            # upload changed files, then restart Klipper
 uv run python utils/config_sync.py push macros.cfg # push only the named file(s)
 uv run python utils/config_sync.py pull DIR        # download the printer's config to inspect
@@ -53,6 +69,30 @@ On push it:
   never touched.
 
 Target the printer with `WMP_PRINTER` (and `WMP_USER` / `WMP_PASS` for `--ssh`).
+
+`uv run python tools/deploy.py status config --diff` shows the same content
+preview. New files are included; printer.cfg's SAVE_CONFIG and machine-owned
+files are excluded using the same ownership rules as push.
+
+## Reviewing future firmware migrations
+
+Archive the current stock as `stock_<old-version>/` before updating `stock/`
+with verified vendor changes. Keep the new baseline's provenance separate
+from machine-specific preferences. Reconcile W+ edits before deploying.
+The community-inspired helper can review that merge:
+
+```sh
+uv run python tools/update_config_base.py config/stock_1.1.04 config/stock config/live
+uv run python tools/update_config_base.py OLD_STOCK NEW_STOCK LIVE --output /tmp/wmp-candidate
+```
+
+It never changes stock or live, and the output directory must be new.
+Candidates exclude UUID/runtime files and printer.cfg's SAVE_CONFIG. Review
+reported conflicts, added/removed files and lost change markers before
+copying reconciled files into live. Exit 1 means review remains; exit 2 means
+a tool/input error and no candidate is published. A clean textual merge
+does not verify printer motion. The helper does not install firmware or
+automatically rotate/promote baselines.
 
 ## Per-machine calibration is NOT in this repo
 
@@ -78,11 +118,26 @@ shaper values) are documented only in this file.
 
 ## Current modifications
 
+> **1.1.08 reconciliation (2026-09-13).** All active W+ changes below are
+> retained. Adopted vendor physical-heater waits, M104/M109 selection,
+> PAUSE reset-before-shutdown, idle-timeout physical-heater shutdown, and
+> disabled door-button registrations. PAUSE keeps our mapping snapshot
+> before the reset. Camera settings and parameterized calibration temperatures
+> are unchanged. The community XY return now runs after verified success and
+> wiping, with logical-coordinate capture and failure/retry handling
+> ([sequence](../docs/toolchange-return.md)). Calibration and homed idle tool/
+> wipe travel establish a 7 mm minimum; print changes retain their 2 mm lift.
+> Hardware acceptance remains in [the integration notes](../docs/firmware-1.1.08.md).
+> Deployed 2026-09-13: config matched, Klipper Ready, and client patches loaded.
+> Updated 2026-09-14: two-color prints and power-loss recovery passed with
+> T0 and T2 probing references and remapped tools. The chamber-fan cooling
+> experiment was removed after measurement; the final suite passes 125 tests.
+
 > **Status after the 1.1.04 re-baseline (2026-08-19).** The entries below
-> describe each delta's history. On the current 1.1.04 base:
+> describe each delta's history. On that historical 1.1.04 base:
 > **active** — accel-cap, input-shaper values, pause-mapping-snapshot,
 > pause-park-margin, left-edge-purge (supersedes purge-approach-margin),
-> toolchange-feedrate-preserve, toolchange-wipe, u1-tip-shaping, insert-no-autoload, probe-with-initial-tool (off by default), wm-material-include, wipe-speed +
+> toolchange-feedrate-preserve, toolchange-wipe, u1-tip-shaping, insert-no-autoload, probe-with-initial-tool (on by default), wm-material-include, wipe-speed +
 > wipe-feedrate-restore (merged with the vendor's new `wipe_position`),
 > REHOME macro.
 > **dropped (vendor fixed it in 1.1.04)** — skip-forced-rehome-on-resume
@@ -93,9 +148,24 @@ shaper values) are documented only in this file.
 > **deferred** — start-print-chamber (speculative; re-add if printing ABS/ASA).
 > See `analysis/fw_1.1.04_diff/MERGE-PLAN.md` for the full rationale.
 
+### Chamber-fan cooling experiment — removed (2026-09-14)
+The cooling detours, blob relocation and temporary auxiliary-fan boost were
+removed after three runs per condition showed no cooldown improvement over
+the part fan alone. Normal cooling locations and part-fan operation are
+restored; the independent temperature-wait fixes remain.
+[Measurements and rollback scope](../docs/cooling-assist.md).
+
+### explicit-cooldown-wait — `live/offset_calibrate.cfg` (2026-09-13)
+NOZZLE_PREPARE and POP use SET_HEATER_TEMPERATURE plus an upper-only
+TEMPERATURE_WAIT for their final cooldowns. Targets remain 100/102°C with
+the existing +2.5°C tolerance; both commands address the same mapped heater.
+General M109/M190, chamber waits, probing and tool-change bands are unchanged.
+
 ### probe-with-initial-tool — `live/macros.cfg`, `live/printer.cfg`, `live/change_macros.cfg` (ours, 2026-08-30)
-Off by default. Enable per machine with `PROBE_WITH_INITIAL_TOOL ENABLE=1`
-(saved variable; `ENABLE=0` disables; no argument reports).
+On by default as of 2026-09-13, following successful testing reported by the
+user and other users. Disable per machine with `PROBE_WITH_INITIAL_TOOL ENABLE=0`
+(saved variable; `ENABLE=1` re-enables; no argument reports). Existing saved
+preferences are preserved, including an explicit False opt-out.
 
 Stock `START_PRINT` homes Z and meshes with T0, parks it, then fetches
 `INITIAL_TOOL`. When enabled, `START_PRINT` stores the physical tool behind
@@ -106,9 +176,14 @@ behaviour (`t0_offset` is `(0,0,0)`). `probe_tool` is set to 0 when the
 saved default mesh is used (T0 datum), in `G29`, `PRINT_END`,
 `CANCEL_PRINT`, and 2 s after Klipper starts.
 
-Not handled: power-loss recovery re-homes with T0.
-Not yet verified on a real print; check the first layer of a print starting
-on T1–T3, and a control print starting on T0.
+Fresh per-print meshes use the reserved `wmp_print` profile, preserving
+`default`. Saved-default starts also snapshot their mesh to `wmp_print`.
+Power-loss recovery restores the recorded physical probing tool and this
+snapshot. Missing context or changed calibration stops recovery instead of
+guessing a reference. See [print-mesh-recovery](../docs/print-mesh-recovery.md).
+Physical testing was reported by users. The default change and recovery
+integration were deployed on 2026-09-13 and loaded with Klipper Ready;
+the new recovery path still needs physical acceptance.
 
 ### u1-tip-shaping — `live/macros.cfg` (2026-08-29)
 `RETRACT_FILAMENT` (touchscreen unload) and `UNLOAD_FILAMENT` (manual)
@@ -273,3 +348,21 @@ acquitted along the way.
 - The mods repo's whitespace/reformat-only differences in `stock_macros.cfg`
   vs `macros.cfg` (their "stock" file is not actually stock).
 
+
+## Native bottom-Z recovery (2026-09-14)
+
+Unhomed tool selection now establishes Z at the bottom before XY homing or
+pickup. The required `wmp_recovery` extra tracks actual Z-rail homing and
+invalidates its reference when the Z motor is disabled or Klipper restarts.
+Synthetic position assignment cannot create this reference. The two previous
+synthetic lift paths also use native bottom homing when the reference is invalid.
+Recovery G28 reuses that reference, skips normal Z_HOMING, restores the exact
+print mesh and reapplies offsets for the mounted tool relative to the saved
+probing tool. It retains shutdown protection for invalid recovery contexts.
+
+The touchscreen binary is unchanged. Its later checkpoint-Z-plus-3 lift,
+wipe and XY return remain the vendor sequence; this does not guarantee
+clearance over every object on a loaded plate. Interrupted-tool-change
+checkpoint reconciliation remains separate. See
+[recovery details](../docs/print-mesh-recovery.md) and the
+[max-Z measurements](../docs/z-recovery-investigation.md).

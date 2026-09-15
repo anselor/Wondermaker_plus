@@ -1,12 +1,12 @@
 """Deploy tool for everything this repo puts on the printer.
 
 Components (tools/components/):
-    config       Klipper config from config/live. Moonraker HTTP only; works on a stock printer.
+    config       Klipper config and required native bottom-Z extra. SSH for install.
     touchscreen  camera snapshot service, nginx page, timelapse fixer. SSH + sudo.
     material     wm_material Klipper extra. SSH.
     preload      LD_PRELOAD patches for the touchscreen client (client-preload/). SSH + sudo.
 
-    uv run python tools/deploy.py install config [--files macros.cfg ...]
+    uv run --with paramiko python tools/deploy.py install config [--files macros.cfg ...]
     uv run python tools/deploy.py status config
     uv run --with paramiko python tools/deploy.py install all
     uv run --with paramiko python tools/deploy.py install material
@@ -40,6 +40,7 @@ class Context:
         self.user = os.environ.get("WMP_USER", "t13dp")
         self.password = os.environ.get("WMP_PASS", "CHANGE_ME")
         self.no_restart = getattr(args, "no_restart", False)
+        self.diff = getattr(args, "diff", False)
         self.files = getattr(args, "files", []) or []
         self._ssh = None
         self._sftp = None
@@ -118,6 +119,8 @@ def main():
                     help="component names, or 'all' (default: all for status; required for install/uninstall)")
     ap.add_argument("--no-restart", action="store_true", help="do not restart Klipper at the end")
     ap.add_argument("--files", nargs="*", default=[], help="config component: only push these files")
+    ap.add_argument("--diff", action="store_true",
+                    help="config component status: show unified diff content, not just filenames")
     args = ap.parse_args()
 
     if args.action == "list":

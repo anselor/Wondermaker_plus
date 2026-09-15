@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """Sync config/live/ with the printer's Klipper config.
 
-    uv run python utils/config_sync.py diff
+    uv run python utils/config_sync.py diff [--patch]
     uv run python utils/config_sync.py push [FILE ...] [--yes] [--no-restart]
     uv run python utils/config_sync.py pull DIR
     ... any mode with --ssh to use SFTP instead of Moonraker HTTP
 
 diff: show which files differ between config/live/ and the printer.
+      --patch also prints a unified diff of each changed file's content.
 push: upload changed files (all, or just the named ones), keeping a
       timestamped backup of each replaced file on the printer, then
       firmware-restart Klipper and verify it comes back Ready.
@@ -20,7 +21,7 @@ Moonraker is down.
 Runtime-state files (saved_variables.cfg, tmt1.ini, printer-*.cfg backups)
 are never touched.
 """
-import argparse, datetime, fnmatch, io, json, os, sys, time, urllib.error, urllib.request
+import argparse, datetime, difflib, fnmatch, io, json, os, sys, time, urllib.error, urllib.request
 import uuid as uuidlib
 
 HOST = os.environ.get("WMP_PRINTER", "printer.local")
@@ -154,6 +155,25 @@ def changed_files(t):
     return differs, missing
 
 
+def patch_for(t, name):
+    """Content preview (printer -> repo), including missing final newlines."""
+    local = open(os.path.join(LIVE, name), "rb").read()
+    try:
+        remote = t.read(name)
+        source = f"printer/{name}"
+    except FileNotFoundError:
+        remote = b""
+        source = "/dev/null"
+    if name == "printer.cfg":
+        local, remote = body_of(local), body_of(remote)
+    lines = difflib.unified_diff(
+        remote.decode(errors="replace").splitlines(keepends=True),
+        local.decode(errors="replace").splitlines(keepends=True),
+        fromfile=source, tofile=f"repo/{name}")
+    return "".join(line if line.endswith("\n") else
+                   line + "\n\\ No newline at end of file\n" for line in lines)
+
+
 def wait_ready(tries=12, delay=10):
     for _ in range(tries):
         try:
@@ -183,7 +203,9 @@ def main():
     ap.add_argument("--ssh", action="store_true",
                     help="use SFTP instead of the Moonraker HTTP API")
     sub = ap.add_subparsers(dest="mode", required=True)
-    sub.add_parser("diff")
+    d = sub.add_parser("diff")
+    d.add_argument("-p", "--patch", action="store_true",
+                   help="also show a unified diff of each changed file's content")
     p = sub.add_parser("push")
     p.add_argument("files", nargs="*", help="only push these files")
     p.add_argument("--yes", action="store_true")
@@ -252,8 +274,12 @@ def run(t, args):
     if args.mode == "diff":
         for name in differs:
             print(f"M {name}")
+            if args.patch:
+                print(patch_for(t, name), end="")
         for name in missing:
             print(f"+ {name} (not on printer)")
+            if args.patch:
+                print(patch_for(t, name), end="")
         if not differs and not missing:
             print("config/live matches the printer")
         return

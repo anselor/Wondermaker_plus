@@ -15,7 +15,7 @@ import posixpath
 from .touchscreen import run, shq
 
 NAME = "preload"
-DESCRIPTION = "LD_PRELOAD patches for the touchscreen client (client-preload/*): wifi-fix"
+DESCRIPTION = "LD_PRELOAD patches for the touchscreen client: wifi-fix, fan-fix, recovery-fix"
 NEEDS_SSH = True
 NEEDS_SUDO = True
 RESTART_AFTER = None
@@ -70,7 +70,7 @@ def install(ctx):
         rsrc = "%s/%s" % (rdir, os.path.basename(path))
         sftp.put(path, rsrc)
         lib = "%s/lib/libwmp_%s.so" % (home, name)
-        out, err, rc = run(c, "gcc -shared -fPIC -O2 -Wall -o %s %s" % (lib, rsrc), stream=False)
+        out, err, rc = run(c, "gcc -shared -fPIC -O2 -Wall -pthread -o %s %s -ldl" % (lib, rsrc), stream=False)
         if rc != 0:
             raise ctx.DeployError("build of %s failed:\n%s%s" % (name, out, err))
         print("built %s" % lib)
@@ -101,3 +101,7 @@ def status(ctx):
     out, _, _ = run(c, "tail -n 4 /tmp/wmp_wififix.log 2>/dev/null", stream=False)
     if out.strip():
         print("wifi-fix: " + out.strip().replace("\n", "\n          "))
+
+    out, _, _ = run(c, "tail -n 4 /tmp/wmp_fanfix.log 2>/dev/null", stream=False)
+    if out.strip():
+        print("fan-fix:  " + out.strip().replace("\n", "\n          "))
