@@ -1,4 +1,4 @@
-/* 1.1.08 checkpoint coordinates: G-code XYZ, not compensated toolhead XYZ.
+/* Reviewed-client checkpoint coordinates: G-code XYZ, not compensated toolhead XYZ.
  * Guarded in-memory edits only. A hash-bound sidecar identifies new records;
  * unmarked or changed legacy records cannot start automatic recovery.
  */
@@ -16,13 +16,23 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#define WRITER 0x62f4bcU
-#define LOADER 0x62c2a8U
-#define START  0x62d5d8U
-#define FILE_SIZE 61340144
-#define FILE_HASH UINT64_C(0x3872f8647e4366ae)
 #define FNV_INIT UINT64_C(0xcbf29ce484222325)
 #define FORMAT "WMP-GCODE-XYZ-1"
+
+struct profile {
+    const char *version;
+    off_t file_size;
+    uint64_t file_hash;
+    uintptr_t writer, loader, start, send_gcode;
+    size_t start_size;
+};
+static const struct profile profiles[] = {
+    {"1.1.08", 61340144, UINT64_C(0x3872f8647e4366ae),
+     0x62f4bc, 0x62c2a8, 0x62d5d8, 0x61425c, 0x1918},
+    {"1.1.12", 61340216, UINT64_C(0xcef6a2287ca04bc8),
+     0x62f824, 0x62c600, 0x62d930, 0x61434c, 0x1928},
+};
+static const struct profile *active_profile;
 
 static uint64_t fingerprint(uint64_t hash, const void *data, size_t size)
 {
@@ -94,20 +104,24 @@ static int stamp_record(const char *path)
     return ok;
 }
 
-static int identify(FILE *f)
+static const struct profile *identify(FILE *f)
 {
     Elf64_Ehdr eh; struct stat st;
-    if (fstat(fileno(f), &st) || st.st_size != FILE_SIZE ||
+    if (fstat(fileno(f), &st) ||
         fread(&eh, sizeof eh, 1, f) != 1 || memcmp(eh.e_ident, ELFMAG, SELFMAG) ||
         eh.e_ident[EI_CLASS] != ELFCLASS64 || eh.e_ident[EI_DATA] != ELFDATA2LSB ||
-        eh.e_type != ET_EXEC || eh.e_machine != EM_AARCH64) return 0;
+        eh.e_type != ET_EXEC || eh.e_machine != EM_AARCH64) return NULL;
     rewind(f); unsigned char buf[65536]; size_t n; uint64_t hash = FNV_INIT;
     while ((n = fread(buf, 1, sizeof buf, f))) hash = fingerprint(hash, buf, n);
-    return !ferror(f) && hash == FILE_HASH;
+    if (ferror(f)) return NULL;
+    for (size_t i = 0; i < sizeof profiles / sizeof profiles[0]; i++)
+        if (st.st_size == profiles[i].file_size && hash == profiles[i].file_hash)
+            return &profiles[i];
+    return NULL;
 }
 
 struct coordinate_patch { uintptr_t address; unsigned offset; };
-static const struct coordinate_patch coordinates[] = {
+static struct coordinate_patch coordinates[] = {
     {0x62f648, 0x870}, {0x62f660, 0x870}, /* Z, both formatting branches */
     {0x62f6c8, 0x868}, {0x62f72c, 0x86c} /* X and Y */
 };
@@ -198,7 +212,7 @@ static void start_recovery(void)
             uint64_t message[4];
             string_construct(message);
             string_assign(message, "M118 Recovery blocked: saved position needs migration; do not resume this checkpoint unchanged");
-            void (*send_gcode)(void *) = (void *)0x61425c;
+            void (*send_gcode)(void *) = (void *)active_profile->send_gcode;
             send_gcode(message);
             string_destroy(message);
         }
@@ -233,9 +247,10 @@ static void initialize(void)
     if (getenv("WMP_RECOVERYFIX_DISABLE")) { logmsg("disabled by WMP_RECOVERYFIX_DISABLE"); return; }
     FILE *f = fopen("/proc/self/exe", "rb");
     if (!f) return;
-    int recognized = identify(f) && loaded_matches(f, WRITER, 0x15f0) &&
-        loaded_matches(f, LOADER, 0x1330) && loaded_matches(f, START, 0x1918) &&
-        loaded_matches(f, 0x61425c, 16);
+    const struct profile *p = identify(f);
+    int recognized = p && loaded_matches(f, p->writer, 0x15f0) &&
+        loaded_matches(f, p->loader, 0x1330) && loaded_matches(f, p->start, p->start_size) &&
+        loaded_matches(f, p->send_gcode, 16);
     fclose(f);
     if (!recognized) { logmsg("guard failed: unrecognized/modified client; not patching"); return; }
     string_data = dlsym(RTLD_DEFAULT, "_ZNKSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE5c_strEv");
@@ -243,7 +258,11 @@ static void initialize(void)
     string_assign = dlsym(RTLD_DEFAULT, "_ZNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEaSEPKc");
     string_destroy = dlsym(RTLD_DEFAULT, "_ZNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEED1Ev");
     if (!string_data) { logmsg("std::string accessor unavailable; not patching"); return; }
-    const uintptr_t entries[] = {WRITER, LOADER, START};
+    active_profile = p;
+    uintptr_t delta = p->writer - profiles[0].writer;
+    for (size_t i = 0; i < sizeof coordinates / sizeof coordinates[0]; i++)
+        coordinates[i].address += delta;
+    const uintptr_t entries[] = {p->writer, p->loader, p->start};
     const uintptr_t callbacks[] = {(uintptr_t)save_checkpoint, (uintptr_t)load_checkpoint, (uintptr_t)start_recovery};
     void *tramp = mmap(NULL, 96, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     if (tramp == MAP_FAILED) { logmsg("trampoline allocation failed"); return; }
@@ -262,7 +281,7 @@ static void initialize(void)
     /* These functions share one continuous text range; change it atomically
      * before vendor callback/timer threads start, then restore RX.
      */
-    if (protect(LOADER, WRITER + 0x15f0 - LOADER, PROT_READ | PROT_WRITE | PROT_EXEC)) {
+    if (protect(p->loader, p->writer + 0x15f0 - p->loader, PROT_READ | PROT_WRITE | PROT_EXEC)) {
         munmap(tramp, 96); logmsg("text protection failed; not patching"); return;
     }
     original_writer = tramp; original_loader = (void *)((char *)tramp + 32);
@@ -274,11 +293,13 @@ static void initialize(void)
     /* Preserve sub-millimetre XY/tool offsets instead of stock one-decimal
      * rounding. Z's non-integer branch already has six significant digits.
      */
-    const uintptr_t precision[] = {0x62f630, 0x62f6b0, 0x62f714};
+    const uintptr_t precision[] = {p->writer + 0x174, p->writer + 0x1f4, p->writer + 0x258};
     for (size_t i = 0; i < 3; i++) *(uint32_t *)precision[i] = 0x528000c0U; /* mov w0,#6 */
     for (size_t i = 0; i < 3; i++) write_jump((void *)entries[i], callbacks[i]);
-    __builtin___clear_cache((char *)LOADER, (char *)(WRITER + 0x15f0));
-    if (protect(LOADER, WRITER + 0x15f0 - LOADER, PROT_READ | PROT_EXEC))
+    __builtin___clear_cache((char *)p->loader, (char *)(p->writer + 0x15f0));
+    if (protect(p->loader, p->writer + 0x15f0 - p->loader, PROT_READ | PROT_EXEC))
         logmsg("warning: could not restore text RX permissions");
-    logmsg("client 1.1.08: G-code XYZ checkpoint writer and hash-bound recovery guard installed");
+    char message[128];
+    snprintf(message, sizeof message, "client %s: G-code XYZ checkpoint writer and hash-bound recovery guard installed", p->version);
+    logmsg(message);
 }

@@ -8,7 +8,6 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / 'client-preload/recovery-fix/wmp_recoveryfix.c'
-ELF = ROOT / 'analysis/fw_1.1.08_payload/root/home/t13dp/TM_T1/bin/client'
 
 
 @pytest.fixture(scope='module')
@@ -32,7 +31,7 @@ int main(int argc, char **argv) {
     assert(argc == 3);
     if (!strcmp(argv[1], "identify")) {
         FILE *f = fopen(argv[2], "rb"); assert(f);
-        int ok = identify(f); fclose(f); return ok ? 0 : 3;
+        const struct profile *ok = identify(f); fclose(f); return ok ? 0 : 3;
     }
     if (!strcmp(argv[1], "words")) {
         for (size_t i = 0; i < 4; i++) {
@@ -84,15 +83,20 @@ def test_checkpoint_format_and_cached_state_guard(harness, tmp_path):
     subprocess.run([str(harness), 'exercise', str(tmp_path)], check=True)
 
 
-def test_only_reviewed_client_is_patched(harness, tmp_path):
+@pytest.mark.parametrize('version,changed_address', [
+    ('1.1.08', 0x62f650),
+    ('1.1.12', 0x62f9b8),
+])
+def test_only_reviewed_client_is_patched(harness, tmp_path, version, changed_address):
+    elf = ROOT / f'analysis/fw_{version}_payload/root/home/t13dp/TM_T1/bin/client'
     assert subprocess.run([str(harness), 'identify', str(harness)]).returncode == 3
-    if not ELF.exists():
+    if not elf.exists():
         pytest.skip('vendor ELF not present')
-    subprocess.run([str(harness), 'identify', str(ELF)], check=True)
+    subprocess.run([str(harness), 'identify', str(elf)], check=True)
     changed = tmp_path / 'client'
-    shutil.copyfile(ELF, changed)
+    shutil.copyfile(elf, changed)
     with changed.open('r+b') as f:
-        f.seek(0x62f650 - 0x400000)
+        f.seek(changed_address - 0x400000)
         original = f.read(1)
         f.seek(-1, 1)
         f.write(bytes([original[0] ^ 1]))
@@ -118,17 +122,25 @@ def test_arm_coordinate_loads_use_logical_xyz(harness):
         assert emu.reg_read(UC_ARM64_REG_X0) == 0xe645000
 
 
-def test_reviewed_prologues_and_precision_sites():
-    if not ELF.exists():
-        pytest.skip('vendor ELF not present')
-    data = ELF.read_bytes()
-    # All relocated instructions are stack/register operations, never PC relative.
-    expected = {
+@pytest.mark.parametrize('version,expected,precision', [
+    ('1.1.08', {
         0x62f4bc: 'ff433dd1fd7b00a9fd030091f30b00f9',
         0x62c2a8: '0c0882d2ff632ccbfd7b00a9fd030091',
         0x62d5d8: 'ff033ad1fd7b00a9fd030091f30b00f9',
-    }
+    }, [0x62f630, 0x62f6b0, 0x62f714]),
+    ('1.1.12', {
+        0x62f824: 'ff433dd1fd7b00a9fd030091f30b00f9',
+        0x62c600: '0c0882d2ff632ccbfd7b00a9fd030091',
+        0x62d930: 'ff033ad1fd7b00a9fd030091f30b00f9',
+    }, [0x62f998, 0x62fa18, 0x62fa7c]),
+])
+def test_reviewed_prologues_and_precision_sites(version, expected, precision):
+    elf = ROOT / f'analysis/fw_{version}_payload/root/home/t13dp/TM_T1/bin/client'
+    if not elf.exists():
+        pytest.skip('vendor ELF not present')
+    data = elf.read_bytes()
+    # All relocated instructions are stack/register operations, never PC relative.
     for address, prologue in expected.items():
         assert data[address - 0x400000:address - 0x400000 + 16].hex() == prologue
-    for address in [0x62f630, 0x62f6b0, 0x62f714]:
+    for address in precision:
         assert struct.unpack_from('<I', data, address - 0x400000)[0] == 0x52800020

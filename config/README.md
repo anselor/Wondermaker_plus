@@ -1,13 +1,13 @@
 # Printer configuration: stock vs live
 
-- **`stock/`** — latest vendor baseline, **System_1.1.08** (2026-09-13),
-  kept as a real directory. Built from the sanitized installed 1.1.04
-  snapshot and the four verified vendor config deltas from the official
-  packages. Retains the installed model's zru-s include and reference files
+- **`stock/`** — latest vendor baseline, **System_1.1.12** (2026-09-21),
+  kept as a real directory. Built from the sanitized installed 1.1.08
+  snapshot and the verified 1.1.12 door-input delta. Retains the installed
+  model's zru-s include and reference files
   absent from the System package. SAVE_CONFIG and CAN UUIDs remain sanitized.
-  Previous baselines are archived unchanged in **`stock_1.1.04/`** and
-  **`stock_1.0.71/`**. Provenance and reconciliation:
-  [1.1.08 integration notes](../docs/firmware-1.1.08.md).
+  Previous baselines are archived unchanged in **`stock_1.1.08/`**,
+  **`stock_1.1.04/`** and **`stock_1.0.71/`**. Provenance and reconciliation:
+  [1.1.12 integration notes](../docs/firmware-1.1.12.md).
   Never put W+ modifications in stock; make those in live with markers.
 - **`live/`** — what runs on the printer. Started as an exact copy of
   `stock/`; every deliberate change is wrapped in markers:
@@ -99,7 +99,7 @@ from machine-specific preferences. Reconcile W+ edits before deploying.
 The community-inspired helper can review that merge:
 
 ```sh
-uv run python tools/update_config_base.py config/stock_1.1.04 config/stock config/live
+uv run python tools/update_config_base.py config/stock_1.1.08 config/stock config/live
 uv run python tools/update_config_base.py OLD_STOCK NEW_STOCK LIVE --output /tmp/wmp-candidate
 ```
 
@@ -149,6 +149,12 @@ shaper values) are documented only in this file.
 > Updated 2026-09-14: two-color prints and power-loss recovery passed with
 > T0 and T2 probing references and remapped tools. The chamber-fan cooling
 > experiment was removed after measurement; the final suite passes 125 tests.
+
+> **1.1.12 reconciliation (2026-09-21).** The only packaged config change
+> since 1.1.08 re-enables the empty Door_button1/2 registrations on PA7/PB7.
+> Stock and live adopt that explicit vendor reversal. All other W+ config
+> changes remain unchanged; the packaged Klipper tree and macro files are
+> byte-identical to 1.1.08. See the [1.1.12 analysis](../docs/firmware-1.1.12.md).
 
 > **Status after the 1.1.04 re-baseline (2026-08-19).** The entries below
 > describe each delta's history. On that historical 1.1.04 base:

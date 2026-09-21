@@ -58,6 +58,7 @@ def test_unrecognized_executable_is_rejected(harness):
 @pytest.mark.parametrize('version,entry,disconnect,wrong,sites', [
     ('1.1.04', 0x65ffcc, 0x662bcc, 0x6605ec, [0x6604d8, 0x660700, 0x660850]),
     ('1.1.08', 0x6607a8, 0x6633a8, 0x660dc8, [0x660cb4, 0x660edc, 0x66102c]),
+    ('1.1.12', 0x660d10, 0x663910, 0x661330, [0x66121c, 0x661444, 0x661594]),
 ])
 def test_vendor_binary_guards(harness, tmp_path, version, entry, disconnect, wrong, sites):
     elf = ROOT / f'analysis/fw_{version}_payload/root/home/t13dp/TM_T1/bin/client'

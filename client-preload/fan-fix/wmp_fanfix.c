@@ -1,6 +1,6 @@
-/* Bound automatic air-filter requests at their source in the 1.1.08 client.
+/* Bound automatic air-filter requests at their source in reviewed clients.
  * Manual UI/slicer controls remain intact. No tmt1.ini or Klipper fan changes.
- * See docs/firmware-1.1.08.md for the reviewed Ghidra paths and policy.
+ * See docs/firmware-1.1.12.md for the latest reviewed addresses and policy.
  */
 #define _GNU_SOURCE
 #include <elf.h>
@@ -15,13 +15,20 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#define MATERIAL_CHECK 0x61a8ccU
-#define PARSE_AIR_FAN  0x638488U
-#define REDUNDANT_OFF  0x6385c8U
-#define SET_AIR_FAN    0x53fe54U
-#define FILE_SIZE 61340144
-#define FILE_HASH UINT64_C(0x3872f8647e4366ae)
 #define FNV_INIT UINT64_C(0xcbf29ce484222325)
+
+struct profile {
+    const char *version;
+    off_t file_size;
+    uint64_t file_hash;
+    uintptr_t material_check, parse_air_fan, redundant_off, set_air_fan;
+};
+static const struct profile profiles[] = {
+    {"1.1.08", 61340144, UINT64_C(0x3872f8647e4366ae),
+     0x61a8cc, 0x638488, 0x6385c8, 0x53fe54},
+    {"1.1.12", 61340216, UINT64_C(0xcef6a2287ca04bc8),
+     0x61a9bc, 0x6387f0, 0x638930, 0x53ff44},
+};
 
 static uint64_t fingerprint(uint64_t hash, const void *data, size_t size)
 {
@@ -30,20 +37,24 @@ static uint64_t fingerprint(uint64_t hash, const void *data, size_t size)
     return hash;
 }
 
-static int identify(FILE *f)
+static const struct profile *identify(FILE *f)
 {
     Elf64_Ehdr eh;
     struct stat st;
-    if (fstat(fileno(f), &st) || st.st_size != FILE_SIZE ||
+    if (fstat(fileno(f), &st) ||
         fread(&eh, sizeof eh, 1, f) != 1 || memcmp(eh.e_ident, ELFMAG, SELFMAG) ||
         eh.e_ident[EI_CLASS] != ELFCLASS64 || eh.e_ident[EI_DATA] != ELFDATA2LSB ||
-        eh.e_type != ET_EXEC || eh.e_machine != EM_AARCH64) return 0;
+        eh.e_type != ET_EXEC || eh.e_machine != EM_AARCH64) return NULL;
     rewind(f);
     unsigned char buf[65536];
     uint64_t hash = FNV_INIT;
     size_t n;
     while ((n = fread(buf, 1, sizeof buf, f))) hash = fingerprint(hash, buf, n);
-    return !ferror(f) && hash == FILE_HASH;
+    if (ferror(f)) return NULL;
+    for (size_t i = 0; i < sizeof profiles / sizeof profiles[0]; i++)
+        if (st.st_size == profiles[i].file_size && hash == profiles[i].file_hash)
+            return &profiles[i];
+    return NULL;
 }
 
 /* Only known terminal print states re-arm. Pause, missing state, host shutdown
@@ -149,9 +160,9 @@ static void initialize(void)
     if (getenv("WMP_FANFIX_DISABLE")) { logmsg("disabled by WMP_FANFIX_DISABLE"); return; }
     FILE *f = fopen("/proc/self/exe", "rb");
     if (!f) return;
-    int recognized = identify(f);
-    if (recognized) recognized = loaded_matches(f, MATERIAL_CHECK, 436) &&
-        loaded_matches(f, PARSE_AIR_FAN, 396) && loaded_matches(f, SET_AIR_FAN, 192) &&
+    const struct profile *p = identify(f);
+    int recognized = p && loaded_matches(f, p->material_check, 436) &&
+        loaded_matches(f, p->parse_air_fan, 396) && loaded_matches(f, p->set_air_fan, 192) &&
         loaded_matches(f, 0x4b3b94, 48);
     fclose(f);
     if (!recognized) { logmsg("guard failed: unrecognized or modified client; not patching"); return; }
@@ -162,14 +173,14 @@ static void initialize(void)
     void *trampoline = mmap(NULL, 32, PROT_READ | PROT_WRITE,
                             MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     if (trampoline == MAP_FAILED) { logmsg("mmap failed; not patching"); return; }
-    memcpy(trampoline, (const void *)SET_AIR_FAN, 16);
-    write_jump((char *)trampoline + 16, SET_AIR_FAN + 16);
+    memcpy(trampoline, (const void *)p->set_air_fan, 16);
+    write_jump((char *)trampoline + 16, p->set_air_fan + 16);
     __builtin___clear_cache(trampoline, (char *)trampoline + 32);
     if (mprotect(trampoline, 32, PROT_READ | PROT_EXEC)) {
         munmap(trampoline, 32); logmsg("trampoline mprotect failed; not patching"); return;
     }
     original_set_speed = trampoline;
-    const uintptr_t addresses[] = {MATERIAL_CHECK, REDUNDANT_OFF, SET_AIR_FAN};
+    const uintptr_t addresses[] = {p->material_check, p->redundant_off, p->set_air_fan};
     const size_t lengths[] = {16, 4, 16};
     size_t writable = 0;
     for (; writable < 3; writable++) {
@@ -181,14 +192,16 @@ static void initialize(void)
         }
     }
     /* Constructors run before the vendor's timer/callback threads start. */
-    write_jump((void *)MATERIAL_CHECK, (uintptr_t)material_check);
-    write_jump((void *)SET_AIR_FAN, (uintptr_t)explicit_fan_speed);
-    *(volatile uint32_t *)REDUNDANT_OFF = 0xd503201fU;
+    write_jump((void *)p->material_check, (uintptr_t)material_check);
+    write_jump((void *)p->set_air_fan, (uintptr_t)explicit_fan_speed);
+    *(volatile uint32_t *)p->redundant_off = 0xd503201fU;
     for (size_t i = 0; i < 3; i++) {
         __builtin___clear_cache((char *)addresses[i], (char *)(addresses[i] + lengths[i]));
         if (protect(addresses[i], lengths[i], PROT_READ | PROT_EXEC))
             logmsg("warning: could not restore page permissions");
     }
-    logmsg("client 1.1.08: automatic ABS request bounded; redundant status OFF removed");
+    char message[128];
+    snprintf(message, sizeof message, "client %s: automatic ABS request bounded; redundant status OFF removed", p->version);
+    logmsg(message);
 }
 #endif

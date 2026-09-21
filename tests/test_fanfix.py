@@ -21,7 +21,7 @@ int main(int argc, char **argv) {
     if (argc == 2) {
         FILE *f = fopen(argv[1], "rb");
         if (!f) return 2;
-        int ok = identify(f);
+        const struct profile *ok = identify(f);
         fclose(f);
         return ok ? 0 : 3;
     }
@@ -77,22 +77,26 @@ def test_unknown_client_is_rejected(harness):
     assert subprocess.run([str(harness), str(harness)]).returncode == 3
 
 
-def test_actual_1108_guard_and_callback_target(harness, tmp_path):
-    elf = ROOT / 'analysis/fw_1.1.08_payload/root/home/t13dp/TM_T1/bin/client'
-    if not elf.exists(): pytest.skip('local vendor 1.1.08 binary is not present')
+@pytest.mark.parametrize('version,sender,redundant,material', [
+    ('1.1.08', 0x53fe54, 0x6385c8, 0x61a8cc),
+    ('1.1.12', 0x53ff44, 0x638930, 0x61a9bc),
+])
+def test_actual_guard_and_callback_target(harness, tmp_path, version, sender, redundant, material):
+    elf = ROOT / f'analysis/fw_{version}_payload/root/home/t13dp/TM_T1/bin/client'
+    if not elf.exists(): pytest.skip(f'local vendor {version} binary is not present')
     subprocess.run([str(harness), str(elf)], check=True)
     with elf.open('rb') as f:
-        f.seek(0x53fe54 - 0x400000)
+        f.seek(sender - 0x400000)
         assert f.read(16).hex() == 'fd7bb9a9fd030091f30b00f9e02f00b9'
-        f.seek(0x6385c8 - 0x400000)
+        f.seek(redundant - 0x400000)
         word = struct.unpack('<I', f.read(4))[0]
         assert word >> 26 == 0b100101
         displacement = word & 0x3ffffff
         if displacement & 0x2000000: displacement -= 0x4000000
-        assert 0x6385c8 + 4 * displacement == 0x53fe54
+        assert redundant + 4 * displacement == sender
     changed = tmp_path / 'changed-client'
     shutil.copyfile(elf, changed)
     with changed.open('r+b') as f:
-        f.seek(0x61a8cc - 0x400000)
+        f.seek(material - 0x400000)
         f.write(b'\0')
     assert subprocess.run([str(harness), str(changed)]).returncode == 3

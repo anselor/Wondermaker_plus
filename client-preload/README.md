@@ -8,7 +8,7 @@ removing the drop-in restores stock behaviour.
 |---|---|---|
 | `wifi-fix/` | `libwmp_wififix.so` | Keeps wpa_supplicant auto-reconnecting after a failed reconnect (see below) |
 | `fan-fix/` | `libwmp_fan-fix.so` | Limits automatic ABS filter-fan requests and honors manual touchscreen choices |
-| `recovery-fix/` | `libwmp_recovery-fix.so` | Saves G-code XYZ in 1.1.08 checkpoints and rejects unverified coordinate formats before recovery motion |
+| `recovery-fix/` | `libwmp_recovery-fix.so` | Saves G-code XYZ in reviewed checkpoints and rejects unverified coordinate formats before recovery motion |
 
 ## Deploy (SSH + sudo)
 
@@ -29,9 +29,10 @@ The drop-in is regenerated from the lib directory, so libraries from other
 work (for example the screen injection) coexist by being placed there; do not
 add a second drop-in that sets `LD_PRELOAD`, systemd would keep only one.
 
-## Recovery checkpoint coordinates (1.1.08)
+## Recovery checkpoint coordinates (1.1.08 and 1.1.12)
 
-`recovery-fix/wmp_recoveryfix.c` fixes the writer at `0x62f4bc`: stock saves
+`recovery-fix/wmp_recoveryfix.c` fixes the writer at `0x62f4bc` (1.1.08) or
+`0x62f824` (1.1.12): stock saves
 the compensated `toolhead.position` XYZ, then recovery sends those numbers
 as ordinary G-code positions with mesh/tool compensation active again. The
 patch reads the client's `gcode_move.gcode_position` float vector instead,
@@ -82,14 +83,14 @@ Conventions for a library: guard on `/proc/self/exe` basename `client`
 (`start.sh` and child processes also inherit `LD_PRELOAD`); identify the
 reviewed executable before dereferencing fixed addresses, verify the loaded
 instructions before any edits, and patch in the constructor before the
-client's threads start. wifi-fix supports the official **1.1.04 and 1.1.08**
+client's threads start. wifi-fix supports the official **1.1.04, 1.1.08 and 1.1.12**
 clients. It checks ELF architecture/type/layout, file size and a fingerprint
 of the complete processEvent function, then compares its loaded instructions
 against that file. Only already-applied intended NOPs are accepted as changes.
 Unknown binaries or unexpected edits cause the whole patch to be skipped.
 The FNV-1a function fingerprint detects version mismatches; it is not an
 authenticity/signature check. Full vendor SHA-256 hashes are recorded in
-[the integration notes](../docs/firmware-1.1.08.md).
+[the 1.1.12 integration notes](../docs/firmware-1.1.12.md).
 
 ## wifi-fix
 
@@ -107,12 +108,12 @@ which only the Wi-Fi page sends. Observed 2026-09-01 15:04 to 2026-09-07
 
 Fix: NOP three `bl WifiManager::disconnect` sites in `processEvent`:
 
-| Branch | 1.1.04 | 1.1.08 | Action |
-|---|---|---|---|
-| CONN_FAILED / timed out | `0x6604d8` | `0x660cb4` | NOP |
-| WRONG_KEY | `0x6605ec` | `0x660dc8` | Preserve |
-| ASSOC-REJECT | `0x660700` | `0x660edc` | NOP |
-| NETWORK-NOT-FOUND after >3 events | `0x660850` | `0x66102c` | NOP |
+| Branch | 1.1.04 | 1.1.08 | 1.1.12 | Action |
+|---|---|---|---|---|
+| CONN_FAILED / timed out | `0x6604d8` | `0x660cb4` | `0x66121c` | NOP |
+| WRONG_KEY | `0x6605ec` | `0x660dc8` | `0x661330` | Preserve |
+| ASSOC-REJECT | `0x660700` | `0x660edc` | `0x661444` | NOP |
+| NETWORK-NOT-FOUND after >3 events | `0x660850` | `0x66102c` | `0x661594` | NOP |
 
 **Correction (2026-09-13):** Ghidra decompilation and event-string references
 showed that the original 1.1.04 patch mislabeled the last three branches.
@@ -125,9 +126,9 @@ status returns to `Connected` on `CTRL-EVENT-CONNECTED` as before.
 Log: `/tmp/wmp_wififix.log`. `WMP_WIFIFIX_DISABLE=1` in the service
 environment disables the patch without uninstalling.
 
-The guard and instruction choices are checked locally against both ELF
-files; real reconnect and wrong-password behavior still need confirmation
-after installing on 1.1.08. An already-running process needs the normal
+The guard and instruction choices are checked locally against every reviewed
+ELF; real reconnect and wrong-password behavior still need confirmation
+after installing on a new firmware. An already-running process needs the normal
 service restart to load the rebuilt library; do not layer it over the old
 incorrect in-memory patch.
 
@@ -137,7 +138,7 @@ channel and the driver runs in the WORLD regulatory domain
 (`regulatory.db` missing), so that channel is passive-scan only and slow to
 re-find.
 
-## fan-fix (1.1.08)
+## fan-fix (1.1.08 and 1.1.12)
 
 Prevents automatic ABS filter requests from accumulating while Klipper is
 busy. The vendor periodically asks for 100% whenever reported speed is zero;
@@ -157,11 +158,11 @@ speed is already zero and the filter is absent. The filter installed flag
 and Klipper fan driver are unchanged. This fixes the automatic sender; it
 does not impose a global Klipper queue limit.
 
-The complete official 1.1.08 ELF fingerprint and loaded function bytes must
-match before patching. Other versions are skipped. The sender wrapper uses
+The complete official 1.1.08 or 1.1.12 ELF fingerprint and loaded function
+bytes must match before patching. Other versions are skipped. The sender wrapper uses
 a trampoline containing its four verified position-independent prologue
 instructions. Full address/provenance and acceptance details are in
-[the integration notes](../docs/firmware-1.1.08.md).
+[the 1.1.12 integration notes](../docs/firmware-1.1.12.md).
 
 The existing preload installer discovers/builds this library automatically.
 Status includes `/tmp/wmp_fanfix.log`. Set `WMP_FANFIX_DISABLE=1` to disable

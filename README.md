@@ -3,7 +3,7 @@
 Enhancements for the Wondermaker U1 / ZR Ultra (`TM-T1`) toolchanger — a
 CoreXY printer running Klipper, Moonraker, and Fluidd on a Rockchip RK3308.
 
-Built against vendor **System 1.1.08**, with the previous stock configurations
+Built against vendor **System 1.1.12**, with the previous stock configurations
 preserved for comparison. The project includes:
 
 1. **Fluidd touchscreen integration** — the printer's LCD, live and clickable, inside Fluidd.
@@ -141,7 +141,7 @@ Refuses to run during a print. Credentials: `WMP_PRINTER`, `WMP_USER`,
 `WMP_PASS`. New components: add a module with `install/uninstall/status` to
 `tools/components/` and register it in `components/__init__.py`.
 
-Install the vendor's 1.1.08 firmware first, then reapply W+ config and preloads
+Install the vendor's 1.1.12 firmware first, then reapply W+ config and preloads
 before starting a new print. Existing pending recovery records cannot simply
 be reused: the new guards require matching print context and verified G-code
 checkpoint coordinates. See [preload installation and compatibility](client-preload/README.md)
@@ -153,9 +153,20 @@ for migration details. These tools do not flash the vendor firmware.
 uv run --with pytest --with jinja2 --with unicorn python -m pytest -q tests
 ```
 
-The final integration passes 125 tests, including macro execution, recovery
+The final integration passes 139 tests, including macro execution, recovery
 guards and emulated ARM checkpoint loads. Tests requiring extracted vendor
 sources/binaries skip when the local `analysis/` payloads are absent.
+
+## License and disclaimer
+
+This repository does not currently declare a single project-wide software
+license. Files with their own license notices retain those terms, and vendor or
+upstream material remains subject to its owners' terms. Until the project
+owners select a license, no additional permission is granted for
+project-authored material.
+
+See [DISCLAIMER.md](DISCLAIMER.md) for the safety, warranty, affiliation, and
+third-party-material notices.
 
 - [`docs/orca-print-dialog-integration.md`](docs/orca-print-dialog-integration.md)
   — how to drive the timelapse and bed-leveling toggles from OrcaSlicer.

@@ -1,5 +1,5 @@
 /* Keep wpa_supplicant reconnecting after transient failures.
- * Verified vendor clients: 1.1.04 and 1.1.08 (AArch64, non-PIE).
+ * Verified vendor clients: 1.1.04, 1.1.08 and 1.1.12 (AArch64, non-PIE).
  * Preserve WRONG_KEY; patch CONN_FAILED/timed out,
  * ASSOC-REJECT, and NETWORK-NOT-FOUND after its existing retry threshold.
  * See client-preload/README.md for corrected branch mapping and evidence.
@@ -36,6 +36,10 @@ static const struct profile profiles[] = {
       {{0x660cb4, 0x940009bd, "CONN_FAILED/timed out"},
        {0x660edc, 0x94000933, "ASSOC-REJECT"},
        {0x66102c, 0x940008df, "NETWORK-NOT-FOUND"}} },
+    { "1.1.12", 61340216, 0x660d10, UINT64_C(0x33c0a2cc64f97318), 0x661330,
+      {{0x66121c, 0x940009bd, "CONN_FAILED/timed out"},
+       {0x661444, 0x94000933, "ASSOC-REJECT"},
+       {0x661594, 0x940008df, "NETWORK-NOT-FOUND"}} },
 };
 
 static void logmsg(const char *msg)
