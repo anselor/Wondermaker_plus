@@ -1,12 +1,13 @@
 """Deploy tool for everything this repo puts on the printer.
 
 Components (tools/components/):
-    config       Klipper config and required native bottom-Z extra. SSH for install.
+    config       Klipper config + bottom-Z extra (SSH), or --config-only (HTTP).
     touchscreen  camera snapshot service, nginx page, timelapse fixer. SSH + sudo.
     material     wm_material Klipper extra. SSH.
     preload      LD_PRELOAD patches for the touchscreen client (client-preload/). SSH + sudo.
 
     uv run --with paramiko python tools/deploy.py install config [--files macros.cfg ...]
+    uv run python tools/deploy.py install config --config-only [--files macros.cfg ...]
     uv run python tools/deploy.py status config
     uv run --with paramiko python tools/deploy.py install all
     uv run --with paramiko python tools/deploy.py install material
@@ -17,6 +18,7 @@ Components (tools/components/):
 Klipper is restarted once at the end if an installed component needs it
 (--no-restart to skip). Refuses to run during a print.
 Env: WMP_PRINTER (default printer.local), WMP_USER (t13dp), WMP_PASS.
+--config-only requires the matching wmp_recovery.py extra already installed.
 """
 import argparse
 import os
@@ -42,6 +44,7 @@ class Context:
         self.no_restart = getattr(args, "no_restart", False)
         self.diff = getattr(args, "diff", False)
         self.files = getattr(args, "files", []) or []
+        self.config_only = getattr(args, "config_only", False)
         self._ssh = None
         self._sftp = None
 
@@ -119,14 +122,21 @@ def main():
                     help="component names, or 'all' (default: all for status; required for install/uninstall)")
     ap.add_argument("--no-restart", action="store_true", help="do not restart Klipper at the end")
     ap.add_argument("--files", nargs="*", default=[], help="config component: only push these files")
+    ap.add_argument("--config-only", action="store_true",
+                    help="install config via Moonraker HTTP only; requires the matching "
+                         "wmp_recovery.py extra already installed")
     ap.add_argument("--diff", action="store_true",
                     help="config component status: show unified diff content, not just filenames")
     args = ap.parse_args()
+    if args.config_only and (args.action != "install" or args.components != ["config"]):
+        ap.error("--config-only is only valid with 'install config'")
 
     if args.action == "list":
         for n in ORDER:
             m = REGISTRY[n]
             need = "SSH + sudo" if m.NEEDS_SUDO else ("SSH" if m.NEEDS_SSH else "Moonraker HTTP (stock printer)")
+            if n == "config":
+                need = "SSH; --config-only: HTTP"
             print("%-12s %-30s %s" % (n, need, m.DESCRIPTION))
         return 0
     if args.action in ("install", "uninstall") and not args.components:

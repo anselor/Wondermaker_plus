@@ -72,15 +72,18 @@ Highlights:
   config comparison tool, and `status config --diff` show what will change.
 
 The config is tracked as a stock baseline versus a live copy, with every
-change marked in-line. Deploy it with `tools/deploy.py install config` (or
-`utils/config_sync.py` directly after installing the required extra). Config
-installation uses SSH to install `wmp_recovery.py`, then Moonraker to back up and replace
-config files. It restarts Klipper and preserves machine calibration
+change marked in-line. First install with `tools/deploy.py install config`,
+which uses SSH to install `wmp_recovery.py`, then Moonraker HTTP to back up and
+replace config files. For subsequent config updates, use `--config-only` to
+deploy over HTTP without SSH or paramiko; the matching `wmp_recovery.py` must
+already be installed. Both modes restart Klipper and preserve machine calibration
 (bed mesh, input shapers, probe offsets, CAN bus IDs, tool offsets).
 
 ```bash
 uv run python tools/deploy.py status config    # what differs from the printer
 uv run --with paramiko python tools/deploy.py install config   # deploy config + required extra
+uv run python tools/deploy.py install config --config-only    # HTTP-only config update
+uv run python tools/deploy.py install config --config-only --files macros.cfg
 ```
 
 Full details, deployment, and the list of changes: [`config/README.md`](config/README.md).
@@ -116,13 +119,14 @@ with the config area above, under `utils/config_sync.py`.)
 
 | component | what | needs |
 |---|---|---|
-| `config` | Klipper config and required native bottom-Z extra | SSH for installation; Moonraker for config transfer/status |
+| `config` | Klipper config and required native bottom-Z extra | SSH for full installation; `--config-only` updates and status use Moonraker HTTP |
 | `touchscreen` | camera snapshot service, nginx page, timelapse-camera fixer | SSH login + sudo |
 | `material` | `wm_material` Klipper extra (material-aware unload) | SSH login |
 | `preload` | Touchscreen Wi-Fi, automatic fan-request and recovery-coordinate fixes | SSH login + sudo |
 
 ```bash
 uv run --with paramiko python tools/deploy.py install config       # includes bottom-Z extra
+uv run python tools/deploy.py install config --config-only         # HTTP; extra already installed
 uv run --with paramiko python tools/deploy.py install preload      # required for corrected recovery checkpoints
 uv run --with paramiko python tools/deploy.py install all
 uv run --with paramiko python tools/deploy.py install material
@@ -131,6 +135,8 @@ uv run python tools/deploy.py list
 ```
 
 Klipper is restarted once at the end when needed (`--no-restart` to skip).
+`--config-only` applies only to `install config`. Run the full SSH installation
+again whenever `klipper_extras/wmp_recovery.py` changes or vendor firmware removes it.
 Refuses to run during a print. Credentials: `WMP_PRINTER`, `WMP_USER`,
 `WMP_PASS`. New components: add a module with `install/uninstall/status` to
 `tools/components/` and register it in `components/__init__.py`.

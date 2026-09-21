@@ -34,15 +34,28 @@ Install the live configuration with:
 uv run --with paramiko python tools/deploy.py install config
 ```
 
-**Installation requires SSH.** The config component first installs the required
+**Full installation requires SSH.** The config component first installs the required
 `klipper_extras/wmp_recovery.py` into Klipper's extras directory, then uploads
 configuration over Moonraker and restarts Klipper. The `[wmp_recovery]` section
 in printer.cfg cannot load without that module.
 
+For subsequent config updates, deploy over **Moonraker HTTP only**, without SSH
+or paramiko:
+
+```bash
+uv run python tools/deploy.py install config --config-only
+uv run python tools/deploy.py install config --config-only --files macros.cfg
+```
+
+The matching `klipper_extras/wmp_recovery.py` must already be installed.
+`--config-only` skips installing that module; it does not verify its version.
+Run the full SSH installation again when the module changes or a vendor firmware
+update removes it. Add `--no-restart` to upload without restarting Klipper.
+
 `utils/config_sync.py` transfers config over **Moonraker's HTTP API**. Diff and
 pull need no SSH. Use direct `push` only after the matching required extra has
-been installed; it does not install Python modules. For normal deployment,
-use the config component above.
+been installed; it does not install Python modules. The deploy wrapper's
+`--config-only` option uses this same HTTP push path.
 
 ```bash
 uv run python utils/config_sync.py diff            # show what differs from the printer
@@ -58,6 +71,10 @@ On push it:
 - firmware-restarts Klipper and confirms it returns to **Ready** (fails loudly if not),
 - refuses to run while a print is in progress,
 - accepts `--no-restart` (upload only) and `--ssh` (use SFTP if Moonraker is down).
+
+For the SFTP fallback, put `--ssh` before the subcommand:
+`uv run --with paramiko python utils/config_sync.py --ssh push --no-restart`.
+Restart and readiness checks still require Moonraker when `--no-restart` is omitted.
 
 **Your printer-specific calibration is preserved on every push:**
 

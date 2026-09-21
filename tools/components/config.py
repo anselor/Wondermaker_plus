@@ -1,5 +1,5 @@
-"""Component: Klipper config and required bottom-Z extra. Install needs SSH;
-config transfer/status use Moonraker. Install extra before config can restart.
+"""Component: Klipper config and required bottom-Z extra. Full install needs SSH;
+--config-only and status use Moonraker. Install extra before config can restart.
 """
 import os
 import subprocess
@@ -23,9 +23,8 @@ def _sync(args, env_extra=None):
     return subprocess.call([sys.executable, SYNC] + args, env=env)
 
 
-def install(ctx):
-    # This extra is required by [wmp_recovery] in printer.cfg. A config-only
-    # update must install it before config_sync can reload the new section.
+def _install_extra(ctx):
+    # This extra is required by [wmp_recovery] in printer.cfg.
     source = os.path.join(ROOT, 'klipper_extras', 'wmp_recovery.py')
     destination = '/home/%s/klipper/klippy/extras/wmp_recovery.py' % ctx.user
     sftp = ctx.sftp()
@@ -46,6 +45,14 @@ def install(ctx):
             f.write(content)
         sftp.posix_rename(temporary, destination)
         print('installed required extra: %s' % destination)
+
+
+def install(ctx):
+    if getattr(ctx, "config_only", False):
+        print('config-only update via Moonraker HTTP; '
+              'requires the matching wmp_recovery.py extra already installed')
+    else:
+        _install_extra(ctx)
     args = ["push", "--yes"]
     if ctx.no_restart:
         args.append("--no-restart")
