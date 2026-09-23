@@ -213,6 +213,10 @@ the new recovery path still needs physical acceptance.
 call `_TIP_SHAPE_RETRACT`, which sets the unload temperature, runs
 `_TIP_SHAPE_MOVES CLASS=…`, then `M104 S0`, fan 100 %, `post_cool_s` (5 s),
 `WIPE_NOZZLE`. Purge position: `X-13 Y80` (same as `EXTRUDE_FILAMENT`).
+Touchscreen load/unload reaches that point through
+`_WMP_FILAMENT_SERVICE_POSITION`: it requires homed XYZ, rejects an active
+print, raises Z by up to 5 mm, exits the bed along X, then travels along the
+off-bed edge to Y80. Paused runout changes remain supported.
 Net retraction: −57 mm (stock), −67 mm for `petg`.
 
 | class | materials | sequence | source | temp |

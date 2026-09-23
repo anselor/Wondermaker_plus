@@ -92,6 +92,45 @@ def test_tool_wait_never_sets_a_heater(state, target, wait):
         assert m.events[0][0] == 'TEMPERATURE_WAIT' and m.events[0][1]['SENSOR'] == 'extruder3'
 
 
+@pytest.mark.parametrize('state', ['standby', 'paused'])
+@pytest.mark.parametrize('z,expected_lift', [(20, 5), (328, 2), (330, 0)])
+def test_filament_service_position_lifts_then_exits_along_edge(state, z, expected_lift):
+    m = HeaterModel(ROOT / 'config/live')
+    m.p['print_stats']['state'] = state
+    m.p['toolhead'].update({'homed_axes': 'xyz', 'position': {'z': z}})
+    script = m.templates['_WMP_FILAMENT_SERVICE_POSITION'].render(
+        printer=m.p, params={}, hop=5.0, x=-13.0, y=80.0,
+        action_raise_error=lambda message: (_ for _ in ()).throw(ValueError(message)))
+    commands = [line.strip() for line in script.splitlines() if line.strip()]
+    expected = ['G91']
+    if expected_lift:
+        expected.append('G1 Z%s F800' % float(expected_lift))
+    expected += ['G90', 'G1 X-13.0 F6000', 'G1 Y80.0 F6000']
+    assert commands == expected
+
+
+@pytest.mark.parametrize('state,homed,message', [
+    ('printing', 'xyz', 'Pause the print'),
+    ('standby', 'xy', 'Home XYZ'),
+])
+def test_filament_service_position_rejects_unsafe_context(state, homed, message):
+    m = HeaterModel(ROOT / 'config/live')
+    m.p['print_stats']['state'] = state
+    m.p['toolhead'].update({'homed_axes': homed, 'position': {'z': 20}})
+    with pytest.raises(ValueError, match=message):
+        m.templates['_WMP_FILAMENT_SERVICE_POSITION'].render(
+            printer=m.p, params={}, hop=5.0, x=-13.0, y=80.0,
+            action_raise_error=lambda text: (_ for _ in ()).throw(ValueError(text)))
+
+
+@pytest.mark.parametrize('macro', ['EXTRUDE_FILAMENT', 'RETRACT_FILAMENT', 'filament_insert_gcode'])
+def test_filament_purge_paths_use_guarded_service_position(macro):
+    source = (ROOT / 'config/live/macros.cfg').read_text()
+    section = re.search(r'(?ms)^\[gcode_macro %s\].*?(?=^\[|\Z)' % re.escape(macro), source).group()
+    assert '_WMP_FILAMENT_SERVICE_POSITION' in section
+    assert not re.search(r'G[01]\s+X-?13(?:\.0)?\s+Y80', section)
+
+
 
 
 @pytest.mark.parametrize('macro,target,maximum', [('NOZZLE_PREPARE',100,102.5), ('POP',102,104.5)])
