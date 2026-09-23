@@ -17,7 +17,7 @@ Components (tools/components/):
 
 Klipper is restarted once at the end if an installed component needs it
 (--no-restart to skip). Refuses to run during a print.
-Env: WMP_PRINTER (default printer.local), WMP_USER (t13dp), WMP_PASS.
+Connection settings load from the ignored .env file or the process environment.
 --config-only requires the matching wmp_recovery.py extra already installed.
 """
 import argparse
@@ -27,6 +27,7 @@ import time
 import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from local_env import configure_ssh_client, require  # noqa: E402
 from components import REGISTRY, ORDER  # noqa: E402
 
 
@@ -38,9 +39,9 @@ class Context:
     DeployError = DeployError
 
     def __init__(self, args):
-        self.host = os.environ.get("WMP_PRINTER", "printer.local")
-        self.user = os.environ.get("WMP_USER", "t13dp")
-        self.password = os.environ.get("WMP_PASS", "CHANGE_ME")
+        self.host = os.environ.get("WMP_PRINTER")
+        self.user = os.environ.get("WMP_USER")
+        self.password = os.environ.get("WMP_PASS")
         self.no_restart = getattr(args, "no_restart", False)
         self.diff = getattr(args, "diff", False)
         self.files = getattr(args, "files", []) or []
@@ -50,12 +51,15 @@ class Context:
 
     def ssh(self):
         if self._ssh is None:
+            self.host = self.host or require("WMP_PRINTER")
+            self.user = self.user or require("WMP_USER")
+            self.password = self.password or require("WMP_PASS")
             try:
                 import paramiko
             except ImportError:
                 sys.exit("this component needs SSH: run with `uv run --with paramiko python tools/deploy.py ...`")
             c = paramiko.SSHClient()
-            c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            configure_ssh_client(c)
             c.connect(self.host, username=self.user, password=self.password,
                       timeout=20, allow_agent=False, look_for_keys=False)
             self._ssh = c
@@ -73,6 +77,7 @@ class Context:
             self._ssh.close()
 
     def moonraker(self, path, post=False):
+        self.host = self.host or require("WMP_PRINTER")
         req = urllib.request.Request("http://%s:7125%s" % (self.host, path),
                                      method="POST" if post else "GET")
         with urllib.request.urlopen(req, timeout=10) as r:

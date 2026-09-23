@@ -9,7 +9,8 @@ preserved for comparison. The project includes:
 1. **Fluidd touchscreen integration** — the printer's LCD, live and clickable, inside Fluidd.
 2. **Printer config and macro improvements** — fixes and upgrades over the stock Klipper config.
 3. **Resonance testing and analysis** — command-line tools to measure ringing and set input shapers.
-4. **Touchscreen client fixes** — Wi-Fi reconnect, automatic fan requests, and recovery checkpoint corrections applied in memory.
+4. **Touchscreen client fixes** — Wi-Fi reconnect, automatic fan requests,
+   recovery checkpoints, and openACE compatibility applied in memory.
 
 ## Fluidd touchscreen integration
 
@@ -122,7 +123,7 @@ with the config area above, under `utils/config_sync.py`.)
 | `config` | Klipper config and required native bottom-Z extra | SSH for full installation; `--config-only` updates and status use Moonraker HTTP |
 | `touchscreen` | camera snapshot service, nginx page, timelapse-camera fixer | SSH login + sudo |
 | `material` | `wm_material` Klipper extra (material-aware unload) | SSH login |
-| `preload` | Touchscreen Wi-Fi, automatic fan-request and recovery-coordinate fixes | SSH login + sudo |
+| `preload` | Touchscreen Wi-Fi, fan, recovery-coordinate, and openACE compatibility fixes | SSH login + sudo |
 
 ```bash
 uv run --with paramiko python tools/deploy.py install config       # includes bottom-Z extra
@@ -137,8 +138,9 @@ uv run python tools/deploy.py list
 Klipper is restarted once at the end when needed (`--no-restart` to skip).
 `--config-only` applies only to `install config`. Run the full SSH installation
 again whenever `klipper_extras/wmp_recovery.py` changes or vendor firmware removes it.
-Refuses to run during a print. Credentials: `WMP_PRINTER`, `WMP_USER`,
-`WMP_PASS`. New components: add a module with `install/uninstall/status` to
+Refuses to run during a print. Copy `.env.example` to the ignored `.env` file
+and set `WMP_PRINTER`, `WMP_USER`, and `WMP_PASS`; explicitly exported values
+take precedence. New components: add a module with `install/uninstall/status` to
 `tools/components/` and register it in `components/__init__.py`.
 
 Install the vendor's 1.1.12 firmware first, then reapply W+ config and preloads
@@ -153,17 +155,18 @@ for migration details. These tools do not flash the vendor firmware.
 uv run --with pytest --with jinja2 --with unicorn python -m pytest -q tests
 ```
 
-The final integration passes 139 tests, including macro execution, recovery
-guards and emulated ARM checkpoint loads. Tests requiring extracted vendor
+The full suite covers macro execution, recovery guards, release hygiene, and
+emulated ARM checkpoint loads. Tests requiring extracted vendor
 sources/binaries skip when the local `analysis/` payloads are absent.
 
 ## License and disclaimer
 
-This repository does not currently declare a single project-wide software
-license. Files with their own license notices retain those terms, and vendor or
-upstream material remains subject to its owners' terms. Until the project
-owners select a license, no additional permission is granted for
-project-authored material.
+Wondermaker+ project-authored code and documentation are licensed under the
+[GNU General Public License version 3](LICENSE), matching Klipper's license.
+Files with their own license notices retain those terms. Vendor snapshots,
+vendor-derived files, and other third-party material remain subject to their
+respective owners' copyright and license terms; the project license does not
+relicense that material.
 
 See [DISCLAIMER.md](DISCLAIMER.md) for the safety, warranty, affiliation, and
 third-party-material notices.
@@ -174,8 +177,11 @@ third-party-material notices.
 
 ## Connecting to the printer
 
-The tools default to `t13dp@printer.local`. Override with the environment
-variables `WMP_PRINTER`, `WMP_USER`, and `WMP_PASS`.
+Copy `.env.example` to `.env` and set the printer address, SSH user, and SSH
+password. `.env` is ignored by Git. Values explicitly exported in the process
+environment override the local file. SSH verifies known host keys by default;
+add the printer with `ssh-keyscan` after checking its fingerprint, or set
+`WMP_SSH_AUTO_ADD=1` to opt into trust on first use.
 
 ## Repo layout
 

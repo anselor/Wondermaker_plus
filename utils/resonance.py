@@ -22,11 +22,13 @@ and cached in utils/.klippy_cache/ rather than committed to this repo.
 """
 import argparse, datetime, json, os, re, sys, time, urllib.request
 
-HOST = os.environ.get("WMP_PRINTER", "printer.local")
-USER = os.environ.get("WMP_USER", "t13dp")
-PASS = os.environ.get("WMP_PASS", "CHANGE_ME")
-
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(REPO, 'tools'))
+from local_env import configure_ssh_client, require  # noqa: E402
+
+HOST = os.environ.get("WMP_PRINTER")
+USER = os.environ.get("WMP_USER")
+PASS = os.environ.get("WMP_PASS")
 CACHE = os.path.join(REPO, "utils", ".klippy_cache")
 PRINTER_CFG = "/home/t13dp/printer_data/config/printer.cfg"
 
@@ -45,6 +47,8 @@ RATTLE_BANDS = [(60, 80), (115, 135)]
 # ---------------------------------------------------------------- printer io
 
 def moonraker(path, payload=None, timeout=30):
+    global HOST
+    HOST = HOST or require("WMP_PRINTER")
     req = urllib.request.Request(
         f"http://{HOST}{path}",
         data=json.dumps(payload).encode() if payload is not None else None,
@@ -60,8 +64,12 @@ def gcode(script, timeout=400):
 
 def ssh_connect():
     import paramiko
+    global HOST, USER, PASS
+    HOST, USER, PASS = (HOST or require("WMP_PRINTER"),
+                        USER or require("WMP_USER"),
+                        PASS or require("WMP_PASS"))
     c = paramiko.SSHClient()
-    c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    configure_ssh_client(c)
     c.connect(HOST, username=USER, password=PASS, timeout=20)
     return c
 

@@ -9,6 +9,7 @@ removing the drop-in restores stock behaviour.
 | `wifi-fix/` | `libwmp_wififix.so` | Keeps wpa_supplicant auto-reconnecting after a failed reconnect (see below) |
 | `fan-fix/` | `libwmp_fan-fix.so` | Limits automatic ABS filter-fan requests and honors manual touchscreen choices |
 | `recovery-fix/` | `libwmp_recovery-fix.so` | Saves G-code XYZ in reviewed checkpoints and rejects unverified coordinate formats before recovery motion |
+| `openace-compat/` | `libwmp_openace-compat.so` | Sends screen Resume directly to openACE and keeps client physical-heater commands out of openACE's virtual tool namespace |
 
 ## Deploy (SSH + sudo)
 
@@ -169,3 +170,29 @@ Status includes `/tmp/wmp_fanfix.log`. Set `WMP_FANFIX_DISABLE=1` to disable
 it on the next client restart. Local C policy/guard tests pass, and the library
 was built and loaded on the printer. Dedicated ABS automatic-start/manual-override
 hardware acceptance remains outstanding.
+
+## openace-compat (1.1.08 and 1.1.12)
+
+This patch is inactive unless Moonraker's live `/printer/objects/list` response
+contains the exact Klipper object name `openace`. The result is cached for two
+seconds; a failed query is treated as openACE absent. Merely installing the
+files or adding an include does not activate compatibility behavior.
+
+When openACE is active, the touchscreen Resume action bypasses the client's
+`box_modify` channel-match gate and sends `RESUME` to Klipper. openACE's wrapper
+then owns recovery and can reject the request with its own reason. Without the
+object, the original `resume_printing_prepare` function runs unchanged.
+
+The client has no virtual-tool context: every `M104/M109 T0..T3` it constructs
+uses `T` as a physical head number. While openACE is active, the patch converts
+those simple commands at the client's G-code dispatcher into an explicit
+`SET_HEATER_TEMPERATURE HEATER=extruderN`; M109 adds a matching ±2.5 C
+`TEMPERATURE_WAIT`. Commands without both `S` and `T`, heads outside 0..3, or
+unknown parameters pass through unchanged. Sliced-file commands never traverse
+the touchscreen dispatcher and remain under openACE's virtual routing.
+
+The complete client hash and both patched functions are checked against the
+reviewed ELF before either entry is changed. The original functions remain
+available through verified, position-independent prologue trampolines. Set
+`WMP_OPENACE_COMPAT_DISABLE=1` in the service environment to disable the patch
+on the next client restart.

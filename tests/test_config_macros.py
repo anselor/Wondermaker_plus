@@ -8,6 +8,12 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def test_openace_include_is_carried_by_managed_printer_config():
+    source = (ROOT / 'config/live/printer.cfg').read_text()
+    assert '[include openace*.cfg]' in source
+    assert '[include openace' not in (ROOT / 'config/live/zru-s.cfg').read_text()
+
+
 def templates(directory):
     env = jinja2.Environment('{%', '%}', '{', '}', undefined=jinja2.StrictUndefined)
     out = {}
@@ -208,3 +214,42 @@ def test_start_print_respects_string_adaptive_parameter(adaptive,expected):
         adaptive_mesh_enable=True, action_respond_info=lambda *a:'')
     commands = [line.strip() for line in script.splitlines() if line.strip().startswith('BED_MESH_CALIBRATE')]
     assert commands == [expected]
+
+
+def test_start_print_uses_openace_virtual_to_physical_probe_lookup():
+    m = HeaterModel(ROOT / 'config/live', mapping=(2, 1, 0, 3))
+    m.p['configfile']['settings']['printer'] = {
+        'max_velocity': 600, 'max_accel': 10000}
+    m.p['openace'] = {'tool_extruder_index': {'0': 3}}
+    script = m.templates['START_PRINT'].render(
+        printer=m.p,
+        params={'BED': '60', 'EXTRUDER': '220', 'INITIAL_TOOL': '0'},
+        adaptive_mesh_enable=True,
+        action_respond_info=lambda *a: '',
+        action_raise_error=lambda message: (_ for _ in ()).throw(ValueError(message)))
+    assert 'SAVE_VARIABLE VARIABLE=probe_tool VALUE=3' in script
+    assert 'SET_HEATER_TEMPERATURE HEATER=extruder3 TARGET=140' in script
+    assert 'TEMPERATURE_WAIT SENSOR=extruder3 MINIMUM=137.5 MAXIMUM=142.5' in script
+    assert 'M109 S140 T0' not in script
+
+
+def test_start_print_rejects_missing_openace_probe_mapping():
+    m = HeaterModel(ROOT / 'config/live')
+    m.p['configfile']['settings']['printer'] = {
+        'max_velocity': 600, 'max_accel': 10000}
+    m.p['openace'] = {'tool_extruder_index': {}}
+    with pytest.raises(ValueError, match='did not publish a physical head'):
+        m.templates['START_PRINT'].render(
+            printer=m.p,
+            params={'BED': '60', 'EXTRUDER': '220', 'INITIAL_TOOL': '0'},
+            adaptive_mesh_enable=True,
+            action_respond_info=lambda *a: '',
+            action_raise_error=lambda message: (_ for _ in ()).throw(ValueError(message)))
+
+
+def test_vendor_resume_clears_native_pause_state_before_sd_resume():
+    source = (ROOT / 'config/live/macros.cfg').read_text()
+    section = re.search(
+        r'(?ms)^\[gcode_macro RESUME\].*?(?=^\[|\Z)', source).group()
+    commands = [line.strip() for line in section.splitlines()]
+    assert commands.index('CLEAR_PAUSE') < commands.index('M24')

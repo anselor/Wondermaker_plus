@@ -12,8 +12,9 @@ import sys
 import time
 import urllib.request
 import zlib
+from local_env import require
 
-HOST = os.environ.get("WMP_PRINTER", "printer.local")
+HOST = require("WMP_PRINTER")
 BASE = "http://%s/wmp-screen" % HOST
 W, H = 800, 480
 FRAME_BYTES = W * H * 4

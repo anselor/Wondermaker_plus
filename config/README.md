@@ -192,12 +192,17 @@ preferences are preserved, including an explicit False opt-out.
 
 Stock `START_PRINT` homes Z and meshes with T0, parks it, then fetches
 `INITIAL_TOOL`. When enabled, `START_PRINT` stores the physical tool behind
-`INITIAL_TOOL` (via `box_modify_t*`) in the `probe_tool` saved variable and
-heats it; `Z_HOMING` grabs `_CHANGE_TOOL T={probe_tool}`; `_OFFSET_SET`
+`INITIAL_TOOL` in the `probe_tool` saved variable and heats it directly by
+physical heater name; `Z_HOMING` grabs `_CHANGE_TOOL T={probe_tool}`; `_OFFSET_SET`
 applies `offset(tool) − offset(probe_tool)`. `probe_tool = 0` is stock
 behaviour (`t0_offset` is `(0,0,0)`). `probe_tool` is set to 0 when the
 saved default mesh is used (T0 datum), in `G29`, `PRINT_END`,
 `CANCEL_PRINT`, and 2 s after Klipper starts.
+
+When the live Klipper object `openace` exists, START_PRINT resolves the virtual
+`INITIAL_TOOL` through `printer.openace.tool_extruder_index`; otherwise it uses
+the vendor `box_modify_t*` lookup. A present openACE object with no published
+entry aborts startup rather than probing with a guessed head.
 
 Fresh per-print meshes use the reserved `wmp_print` profile, preserving
 `default`. Saved-default starts also snapshot their mesh to `wmp_print`.
@@ -255,6 +260,12 @@ path.
 ### wm-material-include — `live/printer.cfg` (2026-08-29)
 `[include wm_material*.cfg]`. The glob matches nothing when the module is
 not installed, so `printer.cfg` works with or without it.
+
+### openace-include — `live/printer.cfg` (2026-09-23)
+`[include openace*.cfg]` keeps the optional openACE configuration attached
+through WM+ deployments. It is part of WM+'s managed `printer.cfg` snapshot;
+an include added only to the printer's live copy would be lost when that
+snapshot is deployed. The glob matches nothing on systems without openACE.
 
  — `live/macros.cfg` (ours, 2026-08-17)
 Stock `PAUSE` resets the logical→physical tool mapping (`box_modify_t0..3`)
@@ -332,6 +343,17 @@ becomes a formality.
 Pause park moved Y1 → Y20 (1 mm front margin invited strikes); `REHOME`
 macro forces a real XY re-home while paused (the homing gate otherwise
 blocks all paused-state G28s, including deliberate recovery).
+
+### openACE pause/resume compatibility — `live/macros.cfg`, client preload (ours, 2026-09-23)
+The compatibility preload activates only when Moonraker's live object list
+contains `openace`. It then sends a screen Resume directly to Klipper instead
+of applying the client's `box_modify` channel-match gate. It also converts the
+client's physical `M104/M109 T0..T3` requests to explicit heater commands;
+sliced-file M104/M109 never passes through that dispatcher and remains virtual.
+The vendor PAUSE/RESUME macros likewise address their saved per-head
+temperatures by physical heater name. RESUME clears native pause bookkeeping
+before its final M24, preventing `pause_resume.is_paused` from remaining true
+after the file continues.
 
 ### left-edge-purge — `live/macros.cfg` START_PRINT (ours, 2026-08-19; supersedes purge-approach-margin)
 Purge line moved from the bed front to the plate's left edge (X0,

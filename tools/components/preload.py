@@ -15,7 +15,7 @@ import posixpath
 from .touchscreen import run, shq
 
 NAME = "preload"
-DESCRIPTION = "LD_PRELOAD patches for the touchscreen client: wifi-fix, fan-fix, recovery-fix"
+DESCRIPTION = "LD_PRELOAD patches for the touchscreen client"
 NEEDS_SSH = True
 NEEDS_SUDO = True
 RESTART_AFTER = None
@@ -103,7 +103,8 @@ def status(ctx):
     print("loaded:   %s" % (out.strip().replace("\n", " ") or "none"))
     for label, path in (("wifi-fix", "/tmp/wmp_wififix.log"),
                         ("fan-fix", "/tmp/wmp_fanfix.log"),
-                        ("recovery-fix", "/tmp/wmp_recoveryfix.log")):
+                        ("recovery-fix", "/tmp/wmp_recoveryfix.log"),
+                        ("openace-compat", "/tmp/wmp_openace_compat.log")):
         if pid:
             command = "grep -F %s %s 2>/dev/null | tail -n 1" % (shq("[pid %s]" % pid), path)
             out, _, _ = run(c, command, stream=False)

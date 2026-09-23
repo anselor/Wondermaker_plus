@@ -8,8 +8,9 @@ usage: u1.py tap X Y [out.png]
        u1.py sh 'command'
 """
 import sys, struct, zlib, time, os, paramiko
+from local_env import configure_ssh_client, require
 
-HOST, USER, PASS = "printer.local", "t13dp", "CHANGE_ME"
+HOST, USER, PASS = require("WMP_PRINTER"), require("WMP_USER"), require("WMP_PASS")
 W, H, BPP = 800, 480, 4
 REMOTE = "/tmp/u1_tap.py"
 LOCAL = os.path.join(os.path.dirname(os.path.abspath(__file__)), "u1_tap_remote.py")
@@ -17,7 +18,7 @@ LOCAL = os.path.join(os.path.dirname(os.path.abspath(__file__)), "u1_tap_remote.
 
 def connect():
     c = paramiko.SSHClient()
-    c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    configure_ssh_client(c)
     c.connect(HOST, username=USER, password=PASS, timeout=15,
               allow_agent=False, look_for_keys=False)
     return c

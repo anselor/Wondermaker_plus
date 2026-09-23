@@ -5,10 +5,9 @@ to a staging directory and runs scripts/install.sh or uninstall.sh.
 import os
 import posixpath
 import sys
+from local_env import require
 
-HOST = os.environ.get("WMP_PRINTER", "printer.local")
-USER = os.environ.get("WMP_USER", "t13dp")
-PASS = os.environ.get("WMP_PASS", "CHANGE_ME")
+PASS = os.environ.get("WMP_PASS")
 STAGE = "/tmp/wondermaker_plus"
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -22,7 +21,8 @@ def shq(s):
 
 def run(c, cmd, sudo=False, stream=True):
     if sudo:
-        cmd = "echo %s | sudo -S bash -c %s" % (PASS, shq(cmd))
+        password = PASS or require("WMP_PASS")
+        cmd = "echo %s | sudo -S bash -c %s" % (password, shq(cmd))
     _, out, err = c.exec_command(cmd, timeout=300, get_pty=False)
     body = ""
     for line in iter(out.readline, ""):
