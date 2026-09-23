@@ -60,12 +60,23 @@ Served under `/wmp-screen/`:
 | endpoint | purpose |
 |---|---|
 | `GET /` | the interactive page |
-| `GET /stream.bin` | compressed frame stream (zero length is a heartbeat) |
+| `GET /stream.bin` | zlib-compressed full/changed-row frame stream (zero length is a heartbeat) |
 | `GET /snapshot.jpg` | one-shot JPEG (debug) |
 | `GET /api/state` | armed flag, backlight, sequence, viewer count |
 | `POST /api/tap` | `{"x":45,"y":404}` |
 | `POST /api/swipe` | `{"x1":..,"y1":..,"x2":..,"y2":..}` |
 | `POST /api/arm` | `{"armed":false}` to block input |
+
+The bridge captures at no more than 5 FPS while the screen is changing and
+falls back to 2 FPS when quiet. Each update sends only changed full-width row
+runs, split across the top status, main content, and bottom-control bands so
+independent animations do not pull the quiet area between them into the
+payload. A new or lagging viewer receives a full baseline. Large changes also
+fall back to a full frame.
+
+The browser closes its stream when the iframe is hidden or offscreen and
+reconnects with a fresh baseline when visible again. With no viewers the
+server stops reading the framebuffer entirely.
 
 ```bash
 curl -X POST http://<printer>/wmp-screen/api/tap \

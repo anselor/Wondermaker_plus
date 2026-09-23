@@ -38,13 +38,23 @@ FRAME_BYTES = WIDTH * HEIGHT * BPP
 BIND_HOST = os.environ.get("WMP_HOST", "127.0.0.1")
 BIND_PORT = int(os.environ.get("WMP_PORT", "8975"))
 ZLIB_LEVEL = int(os.environ.get("WMP_ZLIB_LEVEL", "3"))
-IDLE_HZ = float(os.environ.get("WMP_IDLE_HZ", "4"))
-BUSY_HZ = float(os.environ.get("WMP_BUSY_HZ", "10"))
+IDLE_HZ = float(os.environ.get("WMP_IDLE_HZ", "2"))
+BUSY_HZ = min(5.0, float(os.environ.get("WMP_BUSY_HZ", "5")))
 BUSY_WINDOW = float(os.environ.get("WMP_BUSY_WINDOW", "3"))
 HEARTBEAT_S = float(os.environ.get("WMP_HEARTBEAT", "10"))
 ARMED = os.environ.get("WMP_ARMED", "1") not in ("0", "false", "no")
 
 MAGIC = b"WMPF"
+FRAME_MAGIC = b"WMP2"
+FRAME_FULL, FRAME_ROWS = 0, 1
+FRAME_HEADER = struct.Struct(">4sBH")
+ROW_HEADER = struct.Struct(">HH")
+
+# Keep independently animated UI areas separate. Deltas still inspect every
+# row, but a clock/status change at the top and a control change at the bottom
+# do not pull the quiet main panel into one large rectangle.
+ROW_BANDS = ((0, 96), (96, 384), (384, HEIGHT))
+DELTA_FULL_THRESHOLD = 0.70
 
 # linux/input-event-codes.h
 EV_SYN, EV_KEY, EV_ABS = 0x00, 0x01, 0x03
@@ -175,6 +185,9 @@ class Screen:
                              mmap.PROT_READ)
         self.cond = threading.Condition()
         self.blob = None
+        self.raw = None
+        self.full_blob = None
+        self.full_seq = -1
         self.seq = 0
         self.last_change = 0.0
         self.viewers = 0
@@ -207,11 +220,14 @@ class Screen:
                 self.map.seek(0)
                 raw = self.map.read(FRAME_BYTES)
                 if raw != self._prev:
-                    blob = zlib.compress(raw, ZLIB_LEVEL)
+                    blob = encode_update(raw, self._prev)
                     self._prev = raw
                     self._busy_until = time.time() + BUSY_WINDOW
                     with self.cond:
+                        self.raw = raw
                         self.blob = blob
+                        self.full_blob = None
+                        self.full_seq = -1
                         self.seq += 1
                         self.frames += 1
                         self.last_change = time.time()
@@ -224,13 +240,80 @@ class Screen:
 
     def wait_for(self, last_seq, timeout):
         with self.cond:
-            if self.seq == last_seq:
-                self.cond.wait(timeout)
+            deadline = time.monotonic() + timeout
+            while self.seq == last_seq:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                self.cond.wait(remaining)
             return self.blob, self.seq
 
     def latest(self):
         with self.cond:
             return self.blob, self.seq
+
+    def full(self):
+        """Return a full baseline for a new viewer or a skipped delta."""
+        with self.cond:
+            if self.raw is None:
+                return None, self.seq
+            if self.full_blob is None or self.full_seq != self.seq:
+                self.full_blob = encode_full(self.raw)
+                self.full_seq = self.seq
+            return self.full_blob, self.seq
+
+
+def _changed_row_runs(raw, previous):
+    """Return padded full-width row runs, kept inside UI layout bands."""
+    if previous is None or len(previous) != len(raw):
+        return []
+    stride = WIDTH * BPP
+    runs = []
+    for band_start, band_end in ROW_BANDS:
+        changed = []
+        for y in range(band_start, band_end):
+            start = y * stride
+            if raw[start:start + stride] != previous[start:start + stride]:
+                changed.append(y)
+        if not changed:
+            continue
+        start = last = changed[0]
+        for y in changed[1:]:
+            if y <= last + 3:       # absorb two quiet anti-aliasing rows
+                last = y
+                continue
+            runs.append((max(band_start, start - 1), min(band_end, last + 2)))
+            start = last = y
+        runs.append((max(band_start, start - 1), min(band_end, last + 2)))
+    # Padding can make neighboring runs overlap. Merge only within a band.
+    merged = []
+    for start, end in runs:
+        if merged and start <= merged[-1][1] and any(
+                start >= b0 and end <= b1 and merged[-1][0] >= b0
+                for b0, b1 in ROW_BANDS):
+            merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+        else:
+            merged.append((start, end))
+    return merged
+
+
+def encode_full(raw):
+    return zlib.compress(FRAME_HEADER.pack(FRAME_MAGIC, FRAME_FULL, 0) + raw,
+                         ZLIB_LEVEL)
+
+
+def encode_update(raw, previous):
+    runs = _changed_row_runs(raw, previous)
+    changed_rows = sum(end - start for start, end in runs)
+    if not runs or changed_rows >= HEIGHT * DELTA_FULL_THRESHOLD:
+        return encode_full(raw)
+    stride = WIDTH * BPP
+    headers = b"".join(ROW_HEADER.pack(start, end - start)
+                       for start, end in runs)
+    pixels = b"".join(raw[start * stride:end * stride]
+                      for start, end in runs)
+    packet = FRAME_HEADER.pack(FRAME_MAGIC, FRAME_ROWS, len(runs)) + headers + pixels
+    return zlib.compress(packet, ZLIB_LEVEL)
 
 
 class Snapshotter:
@@ -386,7 +469,7 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(jpeg)
 
     def _stream(self):
-        """Length-prefixed zlib frames: 'WMPF' + uint32 length + payload.
+        """Length-prefixed zlib full/changed-row frames.
 
         A zero length is a heartbeat, which keeps proxies from timing out a
         screen that simply is not changing.
@@ -406,6 +489,10 @@ class Handler(BaseHTTPRequestHandler):
                     self.wfile.write(MAGIC + struct.pack(">I", 0))
                     self.wfile.flush()
                     continue
+                if last_seq < 0 or seq != last_seq + 1:
+                    blob, seq = self.screen.full()
+                    if blob is None:
+                        continue
                 last_seq = seq
                 self.wfile.write(MAGIC + struct.pack(">I", len(blob)))
                 self.wfile.write(blob)

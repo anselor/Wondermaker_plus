@@ -18,6 +18,34 @@ BASE = "http://%s/wmp-screen" % HOST
 W, H = 800, 480
 FRAME_BYTES = W * H * 4
 MAGIC = b"WMPF"
+FRAME_MAGIC = b"WMP2"
+
+
+def apply_packet(packet, frame):
+    if len(packet) < 7 or packet[:4] != FRAME_MAGIC:
+        raise ValueError("bad frame packet")
+    mode, count = struct.unpack(">BH", packet[4:7])
+    if mode == 0:
+        raw = packet[7:]
+        if len(raw) != FRAME_BYTES:
+            raise ValueError("full frame has %d bytes" % len(raw))
+        return bytearray(raw), "full"
+    if mode != 1 or frame is None:
+        raise ValueError("delta without baseline")
+    pos = 7
+    rows = []
+    for _ in range(count):
+        if pos + 4 > len(packet): raise ValueError("truncated row header")
+        rows.append(struct.unpack(">HH", packet[pos:pos + 4])); pos += 4
+    stride = W * 4
+    for y, height in rows:
+        size = height * stride
+        if y + height > H or pos + size > len(packet):
+            raise ValueError("invalid row delta")
+        frame[y * stride:(y + height) * stride] = packet[pos:pos + size]
+        pos += size
+    if pos != len(packet): raise ValueError("trailing delta data")
+    return frame, "delta/%d" % count
 
 
 def png(raw_bgra, path):
@@ -64,14 +92,14 @@ def main():
             if n == 0:
                 beats += 1
                 continue
-            raw = zlib.decompress(payload)
-            if len(raw) != FRAME_BYTES:
-                sys.exit("FAIL: inflated %d bytes, expected %d"
-                         % (len(raw), FRAME_BYTES))
+            packet = zlib.decompress(payload)
+            try:
+                last, kind = apply_packet(packet, last)
+            except ValueError as exc:
+                sys.exit("FAIL: %s" % exc)
             got += 1
-            last = raw
-            print("  frame %d: %d compressed -> %d raw (%.1f%% of raw)"
-                  % (got, n, len(raw), 100.0 * n / len(raw)))
+            print("  frame %d: %s, %d compressed -> %d packet bytes (%.1f%% of raw)"
+                  % (got, kind, n, len(packet), 100.0 * n / FRAME_BYTES))
     resp.close()
 
     if not got:

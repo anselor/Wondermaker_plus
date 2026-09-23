@@ -63,7 +63,8 @@
 <script>
 (function () {
   "use strict";
-  var DEV_W = 800, DEV_H = 480, DRAG_PX = 18, MAGIC = 0x574d5046; // "WMPF"
+  var DEV_W = 800, DEV_H = 480, BPP = 4, DRAG_PX = 18,
+      MAGIC = 0x574d5046, FRAME_MAGIC = 0x574d5032; // "WMPF", "WMP2"
 
   var cv = document.getElementById("screen"),
       ctx = cv.getContext("2d"),
@@ -76,7 +77,9 @@
 
   var imgData = ctx.createImageData(DEV_W, DEV_H),
       outPix = new Uint32Array(imgData.data.buffer),
-      armed = true, down = null, frames = 0, live = false;
+      armed = true, down = null, frames = 0, live = false,
+      visible = !document.hidden, intersecting = true,
+      aborter = null, reconnectTimer = null, fallbackTimer = null;
 
   function api(path, body) {
     return fetch(path, {
@@ -87,14 +90,38 @@
   }
 
   // ---- frame decode -----------------------------------------------------
-  // Wire format is raw BGRA deflated by the server; swizzle to RGBA in place.
-  function paint(bgra) {
-    var src = new Uint32Array(bgra.buffer, bgra.byteOffset, bgra.length >> 2);
+  function paintRows(bgra, y, height) {
+    var src = new Uint32Array(bgra.buffer, bgra.byteOffset, bgra.length >> 2),
+        offset = y * DEV_W;
     for (var i = 0; i < src.length; i++) {
       var v = src[i];
-      outPix[i] = 0xFF000000 | ((v & 0xFF) << 16) | (v & 0xFF00) | ((v >>> 16) & 0xFF);
+      outPix[offset + i] = 0xFF000000 | ((v & 0xFF) << 16) |
+                           (v & 0xFF00) | ((v >>> 16) & 0xFF);
     }
-    ctx.putImageData(imgData, 0, 0);
+    ctx.putImageData(imgData, 0, 0, 0, y, DEV_W, height);
+  }
+
+  function paint(packet) {
+    var dv = new DataView(packet.buffer, packet.byteOffset, packet.byteLength);
+    if (packet.length < 7 || dv.getUint32(0) !== FRAME_MAGIC) return;
+    var mode = dv.getUint8(4), count = dv.getUint16(5), pos = 7;
+    if (mode === 0) {
+      if (packet.length !== pos + DEV_W * DEV_H * BPP) return;
+      paintRows(packet.subarray(pos), 0, DEV_H);
+    } else if (mode === 1) {
+      var rows = [], data = pos + count * 4;
+      if (data > packet.length) return;
+      for (var r = 0; r < count; r++, pos += 4) {
+        rows.push([dv.getUint16(pos), dv.getUint16(pos + 2)]);
+      }
+      for (var j = 0; j < rows.length; j++) {
+        var y = rows[j][0], height = rows[j][1], bytes = DEV_W * height * BPP;
+        if (y + height > DEV_H || data + bytes > packet.length) return;
+        paintRows(packet.subarray(data, data + bytes), y, height);
+        data += bytes;
+      }
+      if (data !== packet.length) return;
+    } else { return; }
     frames++;
     dead.classList.remove("show");
   }
@@ -107,8 +134,12 @@
 
   // ---- stream -----------------------------------------------------------
   function connect() {
+    clearTimeout(reconnectTimer);
+    if (!visible || !intersecting || aborter) return;
     if (!window.DecompressionStream) { return fallback(); }
-    var buf = new Uint8Array(0);
+    var buf = new Uint8Array(0), decode = Promise.resolve(),
+        controller = new AbortController();
+    aborter = controller;
 
     function append(chunk) {
       var n = new Uint8Array(buf.length + chunk.length);
@@ -123,11 +154,14 @@
         if (buf.length < 8 + len) return;
         var payload = buf.slice(8, 8 + len);
         buf = buf.slice(8 + len);
-        if (len > 0) inflate(payload).then(paint).catch(function () {});
+        if (len > 0) {
+          decode = decode.then(function (p) { return inflate(p).then(paint); }
+                               .bind(null, payload)).catch(function () {});
+        }
       }
     }
 
-    fetch("stream.bin", { cache: "no-store" }).then(function (res) {
+    fetch("stream.bin", { cache: "no-store", signal: controller.signal }).then(function (res) {
       if (!res.ok || !res.body) throw new Error("stream " + res.status);
       live = true;
       var reader = res.body.getReader();
@@ -140,16 +174,38 @@
       })();
     }).catch(function () {
       live = false;
-      dead.classList.add("show");
-      setTimeout(connect, 1500);
+      if (visible && intersecting) dead.classList.add("show");
+    }).finally(function () {
+      if (aborter === controller) aborter = null;
+      if (visible && intersecting && !aborter)
+        reconnectTimer = setTimeout(connect, 1500);
     });
+  }
+
+  function updateVisibility() {
+    visible = !document.hidden;
+    if (!visible || !intersecting) {
+      clearTimeout(reconnectTimer);
+      if (aborter) aborter.abort();
+      live = false;
+    } else connect();
+  }
+  document.addEventListener("visibilitychange", updateVisibility);
+  if (window.IntersectionObserver) {
+    new IntersectionObserver(function (entries) {
+      intersecting = !!entries[0].isIntersecting;
+      updateVisibility();
+    }).observe(document.documentElement);
   }
 
   // Older browsers without DecompressionStream get slow JPEG polling.
   function fallback() {
+    if (!visible || !intersecting || fallbackTimer) return;
     var im = new Image();
     im.onload = function () { ctx.drawImage(im, 0, 0); frames++; dead.classList.remove("show"); };
-    setInterval(function () { im.src = "snapshot.jpg?t=" + Date.now(); }, 3000);
+    fallbackTimer = setInterval(function () {
+      if (visible && intersecting) im.src = "snapshot.jpg?t=" + Date.now();
+    }, 3000);
     im.src = "snapshot.jpg";
   }
 
