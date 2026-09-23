@@ -244,6 +244,14 @@ __attribute__((constructor))
 #endif
 static void initialize(void)
 {
+#ifndef WMP_RECOVERYFIX_TEST
+    char exe[512];
+    ssize_t n = readlink("/proc/self/exe", exe, sizeof exe - 1);
+    if (n <= 0 || n == sizeof exe - 1) return;
+    exe[n] = 0;
+    const char *base = strrchr(exe, '/');
+    if (strcmp(base ? base + 1 : exe, "client")) return;
+#endif
     if (getenv("WMP_RECOVERYFIX_DISABLE")) { logmsg("disabled by WMP_RECOVERYFIX_DISABLE"); return; }
     FILE *f = fopen("/proc/self/exe", "rb");
     if (!f) return;

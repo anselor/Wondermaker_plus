@@ -95,13 +95,19 @@ def status(ctx):
     print("drop-in:  %s" % (out.strip().replace("\n", " ") if out.strip() else "absent"))
     out, _, _ = run(c, "ls %s/lib/libwmp_*.so 2>/dev/null" % _home(ctx), stream=False)
     print("libs:     %s" % (out.strip().replace("\n", " ") or "none"))
-    out, _, _ = run(c, "pid=$(pidof client); [ -n \"$pid\" ] && grep -o '/home/[^ ]*libwmp_[^ ]*' /proc/$pid/maps | sort -u",
-                    sudo=True, stream=False)
+    pid, _, _ = run(c, "pidof client", stream=False)
+    pid = pid.strip().split()[0] if pid.strip() else ""
+    print("client:   %s" % ("pid " + pid if pid else "not running"))
+    out, _, _ = run(c, "[ -n %s ] && grep -o '/home/[^ ]*libwmp_[^ ]*' /proc/%s/maps | sort -u" %
+                    (shq(pid), shq(pid)), sudo=True, stream=False)
     print("loaded:   %s" % (out.strip().replace("\n", " ") or "none"))
-    out, _, _ = run(c, "tail -n 4 /tmp/wmp_wififix.log 2>/dev/null", stream=False)
-    if out.strip():
-        print("wifi-fix: " + out.strip().replace("\n", "\n          "))
-
-    out, _, _ = run(c, "tail -n 4 /tmp/wmp_fanfix.log 2>/dev/null", stream=False)
-    if out.strip():
-        print("fan-fix:  " + out.strip().replace("\n", "\n          "))
+    for label, path in (("wifi-fix", "/tmp/wmp_wififix.log"),
+                        ("fan-fix", "/tmp/wmp_fanfix.log"),
+                        ("recovery-fix", "/tmp/wmp_recoveryfix.log")):
+        if pid:
+            command = "grep -F %s %s 2>/dev/null | tail -n 1" % (shq("[pid %s]" % pid), path)
+            out, _, _ = run(c, command, stream=False)
+        else:
+            out = ""
+        result = out.strip() or "no entry for current client"
+        print(("%-14s" % (label + ":")) + result)
