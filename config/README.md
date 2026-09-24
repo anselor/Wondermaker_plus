@@ -162,6 +162,7 @@ shaper values) are documented only in this file.
 > pause-park-margin, left-edge-purge (supersedes purge-approach-margin),
 > toolchange-feedrate-preserve, toolchange-wipe, u1-tip-shaping, insert-no-autoload, probe-with-initial-tool (on by default), wm-material-include, wipe-speed +
 > wipe-feedrate-restore (merged with the vendor's new `wipe_position`),
+> print-end-clearance-and-wipe,
 > REHOME macro.
 > **dropped (vendor fixed it in 1.1.04)** — skip-forced-rehome-on-resume
 > (binary-verified: the resume path no longer force-homes; keeping our gate
@@ -298,16 +299,13 @@ in parallel with bed heating (explicitly 0 when unused), and wait for
 chamber temperature after the bed reaches target. Imported as three minimal
 marked insertions rather than the mods repo's full START_PRINT rewrite.
 
-### print-end-rewrite — `live/macros.cfg` (imported from WonderMaker-ZR-Ultra-S-Mods, adapted)
-Stock `PRINT_END` can execute twice (slicer end-gcode + vendor UI) and moves
-without checking which tool is physically attached or whether axes are
-homed — it can crash the carriage into a docked tool. The imported version
-adds a duplicate-call guard (`already_ran`, re-armed by START_PRINT),
-detects the physically attached tool via `_check_current_extruder_value`,
-parks it with `PARK_CURRENT_TOOL`, skips motion on unhomed axes, and runs
-`M84` last (it clears Klipper's homed state). Deviation from the mods repo:
-we kept stock's `SDCARD_RESET_FILE` call, which their version dropped
-without explanation.
+### print-end-clearance-and-wipe — `live/macros.cfg` (ours, 2026-09-24)
+Stock `PRINT_END` lowers the bed only 10 mm, then moves to the wipe station
+without actually wiping. The live macro lowers it by up to 50 mm, clamped to
+the configured bottom Z-endstop coordinate using the physical toolhead
+position, and then runs `WIPE_NOZZLE`. The head finishes over the left-side
+brush instead of over the part. The wipe is skipped unless XYZ remains homed.
+Set `variable_bed_drop` on `PRINT_END` to tune the clearance.
 
 ### toolchange-wipe — `live/change_macros.cfg` (imported from WonderMaker-ZR-Ultra-S-Mods)
 After a successful T0–T3 toolchange, wipe the freshly picked-up nozzle

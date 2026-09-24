@@ -253,3 +253,50 @@ def test_vendor_resume_clears_native_pause_state_before_sd_resume():
         r'(?ms)^\[gcode_macro RESUME\].*?(?=^\[|\Z)', source).group()
     commands = [line.strip() for line in section.splitlines()]
     assert commands.index('CLEAR_PAUSE') < commands.index('M24')
+
+
+@pytest.mark.parametrize('physical_z,gcode_z,expected_target', [
+    (20., 19.7, 69.7),
+    (275., 274.7, 299.7),
+    (300., 299.7, None),
+    (304., 303.7, None),
+])
+def test_print_end_bed_drop_is_clamped_to_bottom_endstop(
+        physical_z, gcode_z, expected_target):
+    m = HeaterModel(ROOT / 'config/live')
+    m.p['configfile']['settings'].update({
+        'printer': {'max_velocity': 600, 'max_accel': 10000},
+        'stepper_z': {'position_endstop': 300},
+    })
+    m.p['toolhead'].update({
+        'homed_axes': 'xyz',
+        'position': {'z': physical_z},
+    })
+    m.p['gcode_move'] = {
+        'gcode_position': {'z': gcode_z},
+        'position': {'z': physical_z},
+    }
+    script = m.templates['PRINT_END'].render(
+        printer=m.p, params={}, bed_drop=50.)
+    z_moves = [line.strip() for line in script.splitlines()
+               if re.match(r'\s*G1 Z', line)]
+    if expected_target is None:
+        assert z_moves == []
+    else:
+        assert z_moves == [f'G1 Z{expected_target} F3000']
+    assert 'WIPE_NOZZLE' in script
+
+
+def test_print_end_skips_wipe_without_all_axes_homed():
+    m = HeaterModel(ROOT / 'config/live')
+    m.p['configfile']['settings'].update({
+        'printer': {'max_velocity': 600, 'max_accel': 10000},
+        'stepper_z': {'position_endstop': 300},
+    })
+    m.p['toolhead'].update({'homed_axes': 'z', 'position': {'z': 20.}})
+    m.p['gcode_move'] = {
+        'gcode_position': {'z': 20.}, 'position': {'z': 20.}}
+    script = m.templates['PRINT_END'].render(
+        printer=m.p, params={}, bed_drop=50.)
+    assert 'G1 Z70.0 F3000' in script
+    assert 'WIPE_NOZZLE' not in script
