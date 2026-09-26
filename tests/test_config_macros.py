@@ -300,3 +300,37 @@ def test_print_end_skips_wipe_without_all_axes_homed():
         printer=m.p, params={}, bed_drop=50.)
     assert 'G1 Z70.0 F3000' in script
     assert 'WIPE_NOZZLE' not in script
+
+
+@pytest.mark.parametrize('material_class,armed_pull,earlier_pull', [
+    ('soft', 'G1 E-27 F2700', None),
+    ('petg', 'G1 E-40 F3600', None),
+    ('abs', 'G1 E-35 F3300', 'G1 E-35 F3000'),
+    ('pla', 'G1 E-35 F3300', 'G1 E-35 F3000'),
+])
+def test_openace_rollback_assist_arms_at_final_tip_shaping_pull(
+        material_class, armed_pull, earlier_pull):
+    m = HeaterModel(ROOT / 'config/live')
+    m.p['openace'] = {}
+    script = m.templates['_TIP_SHAPE_MOVES'].render(
+        printer=m.p, params={'CLASS': material_class},
+        cooling_moves=3, cooling_len=10,
+        cooling_speed_list=[300, 240, 150], stamp_len=35)
+    commands = [line.strip() for line in script.splitlines() if line.strip()]
+    hook = commands.index('_OPENACE_ROLLBACK_ASSIST_ON')
+    assert commands.count('_OPENACE_ROLLBACK_ASSIST_ON') == 1
+    assert commands[hook - 1] == 'M400'
+    assert commands[hook + 1].startswith(armed_pull)
+    if earlier_pull:
+        assert next(i for i, command in enumerate(commands)
+                    if command.startswith(earlier_pull)) < hook
+
+
+@pytest.mark.parametrize('material_class', ['soft', 'petg', 'abs', 'pla'])
+def test_tip_shaping_has_no_openace_hook_without_openace(material_class):
+    m = HeaterModel(ROOT / 'config/live')
+    script = m.templates['_TIP_SHAPE_MOVES'].render(
+        printer=m.p, params={'CLASS': material_class},
+        cooling_moves=3, cooling_len=10,
+        cooling_speed_list=[300, 240, 150], stamp_len=35)
+    assert '_OPENACE_ROLLBACK_ASSIST_ON' not in script

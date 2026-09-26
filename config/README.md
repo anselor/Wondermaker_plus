@@ -225,6 +225,15 @@ print, raises Z by up to 5 mm, exits the bed along X, then travels along the
 off-bed edge to Y80. Paused runout changes remain supported.
 Net retraction: −57 mm (stock), −67 mm for `petg`.
 
+openACE: right before the fast pull that takes the filament out of the hotend
+(the second one for `pla`/`abs`, the first for `soft`/`petg`), each class runs
+`M400` and `{% if 'openace' in printer %}_OPENACE_ROLLBACK_ASSIST_ON{% endif %}`.
+During an openACE unload that puts the ACE into retract assist, so it takes up
+the filament the extruder pulls back; without it the fast pulls push that
+filament back up the tube and pop the cover off the head (seen 2026-09-20 and
+2026-09-25). The hook does nothing without openACE, or outside an openACE
+unload. Moves and speeds are unchanged.
+
 | class | materials | sequence | source | temp |
 |---|---|---|---|---|
 | `pla` | PLA, PVA, Marble, PA, PC | purge, fast pull, slow pull, re-plunge, fast pull, slow pull, extract | Snapmaker U1 1.6.0 `CONTROL_RETRACT_ACTION` (`docs/reference/snapmaker-u1-unload-macros.cfg`) | 250 (PA 280, PC 300) |
