@@ -91,10 +91,11 @@
 
   // ---- frame decode -----------------------------------------------------
   function paintRows(bgra, y, height) {
-    var src = new Uint32Array(bgra.buffer, bgra.byteOffset, bgra.length >> 2),
+    // The seven-byte packet header leaves pixels unaligned for Uint32Array.
+    var src = new DataView(bgra.buffer, bgra.byteOffset, bgra.byteLength),
         offset = y * DEV_W;
-    for (var i = 0; i < src.length; i++) {
-      var v = src[i];
+    for (var i = 0; i < bgra.length / BPP; i++) {
+      var v = src.getUint32(i * BPP, true);
       outPix[offset + i] = 0xFF000000 | ((v & 0xFF) << 16) |
                            (v & 0xFF00) | ((v >>> 16) & 0xFF);
     }
@@ -156,7 +157,10 @@
         buf = buf.slice(8 + len);
         if (len > 0) {
           decode = decode.then(function (p) { return inflate(p).then(paint); }
-                               .bind(null, payload)).catch(function () {});
+                               .bind(null, payload)).catch(function (err) {
+            console.error("Screen frame decode failed", err);
+            say("Screen frame decode failed; see browser console");
+          });
         }
       }
     }

@@ -194,3 +194,10 @@ add the printer with `ssh-keyscan` after checking its fingerprint, or set
 | `tests/` | macro, migration, recovery and binary-patch checks |
 | `docs/` | touchscreen, OrcaSlicer, and design notes |
 | `analysis/` | firmware analysis |
+
+## Firmware release tags
+
+Use a firmware-specific tag for repeatable installation: `fw-<version>-r<revision>`.
+The first 1.1.12 hotfix is **`fw-1.1.12-r1`**. Its complete configuration targets
+System 1.1.12; later firmware configurations will have their own tags. See
+[release compatibility and upgrade commands](docs/releases.md).

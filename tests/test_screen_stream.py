@@ -101,3 +101,42 @@ def test_wait_for_ignores_notifications_until_frame_changes():
         screen.cond.notify_all()
     waiter.join(1.0)
     assert result == [(b'new', 8)]
+
+
+def test_browser_paints_real_unaligned_full_and_row_packets(tmp_path):
+    """Execute the actual JS renderer against packets made by the Python bridge."""
+    import shutil
+    import subprocess
+    import pytest
+    if not shutil.which('node'):
+        pytest.skip('node required for browser renderer check')
+    page = (ROOT / 'device/www/index.html').read_text()
+    renderer = page[page.index('  function paintRows('):page.index('  function inflate(')]
+    raw = bytes([0x12, 0x34, 0x56, 0]) * (SCREEN.WIDTH * SCREEN.HEIGHT)
+    full = zlib.decompress(SCREEN.encode_full(raw))
+    updated = bytearray(raw)
+    updated[800 * 4:800 * 4 + 4] = bytes([0xaa, 0xbb, 0xcc, 0])
+    delta = zlib.decompress(SCREEN.encode_update(bytes(updated), raw))
+    paths = [tmp_path / 'full.bin', tmp_path / 'delta.bin']
+    paths[0].write_bytes(full)
+    paths[1].write_bytes(delta)
+    script = '''const assert = require('assert'), fs = require('fs');
+var DEV_W=800, DEV_H=480, BPP=4, FRAME_MAGIC=0x574d5032;
+var outPix=new Uint32Array(DEV_W*DEV_H), imgData={}, frames=0;
+var drawn=[], ctx={putImageData: (...args)=>drawn.push(args)}, dead={classList:{remove:()=>{}}};
+''' + renderer + '''
+for (const path of process.argv.slice(2)) {
+  const bytes=fs.readFileSync(path);
+  // Give the packet an arbitrary nonzero offset as real browser buffers can have.
+  const packet=new Uint8Array(bytes.length+2); packet.set(bytes,2);
+  paint(packet.subarray(2));
+}
+assert.equal(frames,2);
+assert.equal(outPix[0],0xff123456);
+assert.equal(outPix[800],0xffaabbcc);
+assert.equal(outPix[801],0xff123456);
+assert.equal(drawn.length,2);
+'''
+    js = tmp_path / 'render.js'
+    js.write_text(script)
+    subprocess.run(['node', str(js), *map(str, paths)], check=True)
