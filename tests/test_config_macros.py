@@ -1,11 +1,30 @@
 """Render actual macro templates; interpret only heater and variable commands."""
 import copy
 import re
+import shlex
 from pathlib import Path
 import jinja2
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_unload_temperature_message_survives_gcode_comment_parsing():
+    model = HeaterModel(ROOT / 'config/live')
+    model.p['configfile']['settings']['extruder3'] = {'max_temp': 350}
+    script = model.templates['_TIP_SHAPE_RETRACT'].render(
+        printer=model.p, params={'MATERIAL': 'PLA', 'DRY_RUN': '1'},
+        unload_temp_min=250, unload_temps={'PLA': 250})
+    command = next(line.strip() for line in script.splitlines()
+                   if 'RESPOND MSG="Unload temperature' in line)
+    # Klipper's extended-command parser ends arguments at a comment delimiter,
+    # even inside quotes, then passes the remaining arguments to shlex.
+    arguments = shlex.split(command.split(';', 1)[0])
+    assert arguments == [
+        'RESPOND',
+        'MSG=Unload temperature for extruder3 (slot T3): 250 C, screen target was 220 C',
+    ]
+    assert 'M109' not in script  # exercise reporting without heating or movement
 
 
 def test_openace_include_is_carried_by_managed_printer_config():

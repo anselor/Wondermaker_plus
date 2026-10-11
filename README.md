@@ -47,7 +47,7 @@ uv run python tools/deploy.py status config --diff
 ## Install or update
 
 Install **vendor firmware 1.1.13 first**. WM+ does not install vendor firmware.
-Use the published `fw-1.1.13-r1` tag for this firmware; `fw-1.1.12-r1` remains
+Use the published `fw-1.1.13-r2` tag for this firmware; `fw-1.1.12-r1` remains
 available for vendor firmware 1.1.12.
 After a firmware update, reapply WM+ configuration and touchscreen patches
 before printing.

@@ -6,7 +6,7 @@ A tag identifies a complete WM+ snapshot for a specific vendor firmware:
 fw-<vendor-version>-r<WM+-revision>
 fw-1.1.12-r1
 fw-1.1.12-r2
-fw-1.1.13-r1
+fw-1.1.13-r2
 ```
 
 Revisions start at 1 for each firmware and increase for fixes or improvements.
@@ -111,3 +111,34 @@ Set your printer connection in ignored `.env`, and install only while idle.
 Hard-refresh the touchscreen page after updating. Read the
 [1.1.13 analysis](firmware-1.1.13.md) and
 [head-configuration guard limits](head-communication-recovery.md) for details.
+
+## fw-1.1.13-r2 — unload temperature message fix
+
+Fixes an unload failure introduced in `fw-1.1.13-r1`, affecting users both with
+and without openACE. When tip shaping needs to change the nozzle temperature,
+its `RESPOND` message contained a semicolon inside quotes. Klipper treats that
+semicolon as a comment delimiter, leaving an unterminated quote and rejecting
+the command. The message now uses a comma. Heating and retraction logic are
+unchanged.
+
+The regression test renders the actual temperature-adjustment branch and parses
+the message with Klipper's comment-delimiter and quoted-argument behavior. The
+test uses `DRY_RUN`, so it does not heat or move hardware. All 229 project and
+material-helper tests passed locally. This hotfix has not been deployed to the
+maintainer's printer; the installation and hardware limits recorded for `r1`
+still apply.
+
+Existing `fw-1.1.13-r1` installations can update only the affected macro file
+while idle, from a clean checkout with printer connection settings in `.env`:
+
+```bash
+git fetch origin --tags
+git switch --detach fw-1.1.13-r2
+uv run --with paramiko python tools/deploy.py install config --files macros.cfg
+uv run python tools/deploy.py status config
+```
+
+This performs config preflight, keeps the recovery helper current, backs up the
+replaced macro file, and restarts Klipper. First-time users on vendor firmware
+1.1.13 can follow the README for a full installation from this tag. Users on
+vendor firmware 1.1.12 should keep using `fw-1.1.12-r1`.
