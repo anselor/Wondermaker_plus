@@ -1,5 +1,5 @@
 /* Keep wpa_supplicant reconnecting after transient failures.
- * Verified vendor clients: 1.1.04, 1.1.08 and 1.1.12 (AArch64, non-PIE).
+ * Verified vendor clients: 1.1.04, 1.1.08, 1.1.12 and 1.1.13 (AArch64, non-PIE).
  * Preserve WRONG_KEY; patch CONN_FAILED/timed out,
  * ASSOC-REJECT, and NETWORK-NOT-FOUND after its existing retry threshold.
  * See client-preload/README.md for corrected branch mapping and evidence.
@@ -40,6 +40,10 @@ static const struct profile profiles[] = {
       {{0x66121c, 0x940009bd, "CONN_FAILED/timed out"},
        {0x661444, 0x94000933, "ASSOC-REJECT"},
        {0x661594, 0x940008df, "NETWORK-NOT-FOUND"}} },
+    { "1.1.13", 61340216, 0x660cfc, UINT64_C(0x4c5b0e42b09fd41b), 0x66131c,
+      {{0x661208, 0x940009bd, "CONN_FAILED/timed out"},
+       {0x661430, 0x94000933, "ASSOC-REJECT"},
+       {0x661580, 0x940008df, "NETWORK-NOT-FOUND"}} },
 };
 
 static void logmsg(const char *msg)
@@ -126,11 +130,11 @@ static void wmp_wififix_init(void)
     const struct profile *p = f ? identify(f, code) : NULL;
     if (f) fclose(f);
     if (!p) {
-        logmsg("version guard failed: unrecognized client, not patching");
+        logmsg("Patch skipped: unsupported screen client; check firmware compatibility");
         return;
     }
     if (!matches_memory(p, code, (const unsigned char *)p->entry)) {
-        logmsg("version guard failed: loaded function differs, not patching");
+        logmsg("Patch skipped: running screen code differs from the supported file; check other patches");
         return;
     }
     long page_size = sysconf(_SC_PAGESIZE);
@@ -138,16 +142,16 @@ static void wmp_wififix_init(void)
     uintptr_t first = p->entry & ~((uintptr_t)page_size - 1);
     uintptr_t end = (p->entry + CODE_SIZE + page_size - 1) & ~((uintptr_t)page_size - 1);
     if (mprotect((void *)first, end - first, PROT_READ | PROT_WRITE | PROT_EXEC)) {
-        logmsg("mprotect failed, not patching");
+        logmsg("Patch skipped: could not make screen code writable (mprotect failed)");
         return;
     }
     for (size_t i = 0; i < SITE_COUNT; i++)
         *(volatile uint32_t *)p->sites[i].addr = NOP;
     __builtin___clear_cache((char *)first, (char *)end);
     if (mprotect((void *)first, end - first, PROT_READ | PROT_EXEC))
-        logmsg("warning: could not restore executable page permissions");
+        logmsg("Warning: could not restore executable memory permissions; inspect the patch log before printing");
     char msg[160];
-    snprintf(msg, sizeof msg, "client %s: 3 transient-failure disconnect sites patched; WRONG_KEY preserved", p->version);
+    snprintf(msg, sizeof msg, "client %s: Wi-Fi retries enabled for temporary failures; wrong-password handling preserved", p->version);
     logmsg(msg);
 }
 #endif

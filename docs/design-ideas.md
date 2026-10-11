@@ -1,101 +1,46 @@
-# Design ideas (documented, not yet implemented)
+# Earlier design ideas and decisions
 
-Status log for improvements we've analyzed but deliberately not built yet.
-Context and evidence live in the 2026-08 tuning sessions; supporting
-verification tooling: `utils/resonance.py`, `utils/config_sync.py`, and the
-GET_POSITION checkpoint technique (see git history of `config/live/macros.cfg`).
+This page records proposals from August–September 2026. It is a history of decisions,
+not a list of features waiting for approval. Current behavior is documented in the
+[configuration guide](../config/README.md).
 
----
+## Probe with the first print tool: implemented
 
-## 1. Probe with the print's initial tool instead of T0 — IMPLEMENTED 2026-08-30 (on by default since 2026-09-13)
+Implemented August 30, 2026; enabled by default September 13 after users reported
+successful tests. A saved opt-out remains available.
 
-See `probe-with-initial-tool` in `config/README.md`. The user reported successful
-testing by themselves and others and requested the enabled default on
-2026-09-13. Explicit saved opt-outs remain effective. The assessment and
-rollout plan below record the original proposal, not outstanding approval
-requirements.
+Previously, startup fetched T0 for probing even when another head would print first.
+Using the first printing head can avoid extra swaps and heating. Startup records the
+physical probing head, and printing offsets are calculated relative to it. A
+saved-default mesh still uses T0. End/cancel reset the idle reference to T0.
 
-The original power-loss limitation described below is addressed locally as
-of 2026-09-13: recovery restores the recorded physical probing reference and
-a dedicated per-print mesh. See [print-mesh-recovery.md](print-mesh-recovery.md)
-for behavior and the remaining physical validation boundary.
+The original proposal identified power-loss recovery as incompatible because the
+vendor rehomed with T0. The later recovery implementation saves and restores the
+print's probing head and separate mesh. September 14 physical recovery tests covered
+T0 and T2 references; see [the recovery guide](print-mesh-recovery.md).
 
-**Problem:** every print start grabs T0, heats it to 140, Z-homes and meshes
-with it, cools it, parks it, then fetches the actual first tool — two extra
-toolchanges and a wasted heat cycle (~2 min/print, plus dock and heater wear).
+Early estimates of time savings and implementation confidence were proposal
+assumptions, not measured results. Actual savings depend on the attached head and
+which head prints first. The rollout used a toggle, a T0 control print, a print
+starting with T2, and instrumented startup checks.
 
-**Proposal:** probe with `INITIAL_TOOL`.
-- `START_PRINT` records `probe_tool = INITIAL_TOOL` (saved variable) and
-  heats that tool to 140 instead of T0.
-- `Z_HOMING` grabs `T{probe_tool}` instead of the hardcoded `T0`.
-- `_OFFSET_SET` applies `offset(tool) − offset(probe_tool)` instead of
-  `offset(tool)`. With `probe_tool = 0` this is bit-for-bit stock behavior —
-  the design's key safety property.
-- `probe_tool` forced to 0 whenever the saved default mesh is loaded (datum
-  consistency: the default mesh was probed with T0 via G29), and reset in
-  `PRINT_END` / `CANCEL_PRINT`.
+## Left-edge purge: implemented
 
-**Confidence assessment (2026-08-18):**
-- ~85% the math works first try. Evidence: per-tool offsets verified exact
-  and repeatable (±0.006 mm across dozens of instrumented toolchanges); the
-  Z offsets were measured through the same load-cell probe the scheme uses,
-  so no new systematic; the probe is bed-side and tool-agnostic; docking is
-  positionally byte-clean on all four docks.
-- ~70% no vendor-coupling surprise (`Z_HOMING`'s `_LEVELING_TRIGGER_S` /
-  `STEPPER_DIAG_ENABLE` neighborhood — vendor code has repeatedly surprised).
-- Failure mode is a visible first-layer error on opted-in prints, caught by
-  supervision; not catastrophic.
-- Known incompatibility: power-loss recovery re-homes with T0 and would mix
-  datums mid-print — document, don't fix.
+Implemented August 19, 2026. Startup purges on the plate at X0, Y100–150. X-2 was
+observed to be off the lip, so the final route keeps the nozzle on the plate for
+priming. It avoids the front panel and leaves the main printing area clear.
 
-**Rollout plan:** implement behind a toggle (default off = stock). Verify
-with (a) a supervised first layer on a print starting T2, (b) an
-instrumented control print on T0 (must be identical to stock), (c) the
-GET_POSITION checkpoint technique through the modified start.
+The stock Y-1 route could strike the front panel. An earlier Y2 workaround provided
+clearance but still occupied the front edge. The original proposal instead suggested
+an off-bed purge at X-13 Y80 followed by wiping. That variant was not needed.
 
----
+The proposed off-bed variant would have required checks for purge waste handling,
+adequate priming, and strings across the bed. Those checks explain the tradeoff;
+they do not describe the installed on-plate purge.
 
-## 2. Purge off the left bed edge instead of the front — IMPLEMENTED 2026-08-19
+## Auxiliary-fan cooling: removed
 
-**Implemented variant** (user refinement): the purge LINE stays *on the bed*
-at X0 (the plate's left edge; X-2 proved just off the lip) running Y100→150, so the
-nozzle still gets the on-bed priming drag; the off-bed blob-purge variant
-below was not needed. See `left-edge-purge` in `live/macros.cfg`.
-
-**Problem:** the start purge line occupies the bed's front edge. Stock put
-it at Y-1 where the toolhead shroud strikes the front panel (root cause of
-the shifted-print saga); our fix moved it to Y2, which is safe but consumes
-~2 mm of printable front Y and leaves a stripe on the plate.
-
-**Proposal:** purge into the machine's existing left-side service area
-(off-bed at negative X), like the vendor's own filament-load flow:
-- `START_PRINT` purge becomes: move to ~X-13/Y80 (the exact spot
-  `EXTRUDE_FILAMENT` already purges), extrude the priming volume, then
-  `WIPE_NOZZLE` (X-13 column, strokes at Y240–275) to shear the blob, then
-  proceed to print.
-- Frees the entire bed front; eliminates front-geometry risk categorically;
-  no purge stripe to peel; debris lands where the vendor's own load flow
-  already drops it.
-
-**Trade-offs:** loses the visual first-extrusion stripe and the bed-drag
-tip clean — the wiper covers the latter; the former is a minor diagnostic.
-Verify the X-13/Y80 area actually has clearance/waste handling for a
-priming-line-sized purge (~20 mm of filament), not just load blobs, and
-that the purge amount doesn't string across the bed corner en route to the
-print's first move.
-
-**Synergy:** combines naturally with idea 1 — the initial tool is already
-mounted and hot; purge-left + wipe + straight to first layer is the minimal
-possible start sequence (zero extra toolchanges, zero bed footprint).
-
-**Rollout plan:** marked change to START_PRINT's purge block; verify with
-one watched print (blob shears cleanly, no stringing to first layer, purge
-volume adequate for good first-layer prime).
-
-
-## 3. Auxiliary-fan-assisted nozzle cooling — REMOVED 2026-09-14
-
-The cooling detours and temporary chamber-fan boost were implemented and
-functionally tested, then removed at the user's request after three runs per
-condition showed no cooldown improvement with the part fan already at 100%.
-See [measurements and rollback scope](cooling-assist.md).
+The cooling detour and temporary fan boost were implemented and functionally tested.
+They were removed September 14, 2026 after repeated cooldown measurements found no
+improvement with the part fan already at 100%. The independent cooldown-wait fixes
+remain. See [the measurements](cooling-assist.md).

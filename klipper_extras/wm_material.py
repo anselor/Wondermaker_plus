@@ -105,10 +105,10 @@ class WMMaterial:
     def cmd_STATUS(self, gcmd):
         st = self.get_status(None)
         if not st["available"]:
-            gcmd.respond_info("wm_material: %s not readable" % self.ini_path)
+            gcmd.respond_info("Material settings unavailable: cannot read %s" % self.ini_path)
             return
-        gcmd.respond_info("wm_material: " + ", ".join(
-            "T%d=%s(%d)" % (s, st["material%d" % s], st["index%d" % s])
+        gcmd.respond_info("Slot materials: " + ", ".join(
+            "T%d: %s" % (s, st["material%d" % s])
             for s in range(SLOTS)))
 
 

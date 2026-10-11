@@ -37,6 +37,7 @@ struct profile {
 static const struct profile profiles[] = {
     {"1.1.08", 61340144, UINT64_C(0x3872f8647e4366ae), 0x51a73c, 0x61425c},
     {"1.1.12", 61340216, UINT64_C(0xcef6a2287ca04bc8), 0x51a7b4, 0x61434c},
+    {"1.1.13", 61340216, UINT64_C(0x3ed764ac9cdaa82d), 0x51a7b4, 0x614338},
 };
 
 static uint64_t fingerprint(uint64_t hash, const void *data, size_t size)
@@ -204,7 +205,7 @@ static void resume_prepare(void)
         original_resume();
         return;
     }
-    logmsg("openace detected: screen Resume sent directly to Klipper");
+    logmsg("openACE detected: screen Resume sent to Klipper for openACE to handle");
     send_text("RESUME");
 }
 
@@ -256,14 +257,14 @@ static void initialize(void)
     exe[n] = 0;
     const char *base = strrchr(exe, '/');
     if (strcmp(base ? base + 1 : exe, "client")) return;
-    if (getenv("WMP_OPENACE_COMPAT_DISABLE")) { logmsg("disabled by environment"); return; }
+    if (getenv("WMP_OPENACE_COMPAT_DISABLE")) { logmsg("Disabled by WMP_OPENACE_COMPAT_DISABLE"); return; }
     FILE *f = fopen("/proc/self/exe", "rb");
     if (!f) return;
     const struct profile *p = identify(f);
     int recognized = p && loaded_matches(f, p->resume_prepare, 3128) &&
         loaded_matches(f, p->run_gcode, 404);
     fclose(f);
-    if (!recognized) { logmsg("guard failed: unrecognized or modified client; not patching"); return; }
+    if (!recognized) { logmsg("Patch skipped: unsupported or modified screen client; check firmware compatibility"); return; }
 
     string_data = dlsym(RTLD_DEFAULT,
         "_ZNKSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE5c_strEv");
@@ -274,29 +275,29 @@ static void initialize(void)
     string_destroy = dlsym(RTLD_DEFAULT,
         "_ZNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEED1Ev");
     if (!string_data || !string_construct || !string_assign || !string_destroy) {
-        logmsg("std::string methods unavailable; not patching"); return;
+        logmsg("Patch skipped: required screen string functions are unavailable"); return;
     }
 
     original_resume = make_trampoline(p->resume_prepare);
     original_run_gcode = make_trampoline(p->run_gcode);
     if (!original_resume || !original_run_gcode) {
-        logmsg("trampoline creation failed; not patching"); return;
+        logmsg("Patch skipped: could not preserve the original screen entry code"); return;
     }
     uintptr_t addresses[] = {p->resume_prepare, p->run_gcode};
     for (size_t i = 0; i < 2; i++)
         if (protect(addresses[i], 16, PROT_READ | PROT_WRITE | PROT_EXEC)) {
-            logmsg("mprotect failed; not patching"); return;
+            logmsg("Patch skipped: could not make screen code writable (mprotect failed)"); return;
         }
     write_jump((void *)p->resume_prepare, (uintptr_t)resume_prepare);
     write_jump((void *)p->run_gcode, (uintptr_t)run_gcode);
     for (size_t i = 0; i < 2; i++) {
         __builtin___clear_cache((char *)addresses[i], (char *)addresses[i] + 16);
         if (protect(addresses[i], 16, PROT_READ | PROT_EXEC))
-            logmsg("warning: could not restore page permissions");
+            logmsg("Warning: could not restore executable memory permissions; inspect the patch log before printing");
     }
     char message[128];
     snprintf(message, sizeof message,
-        "client %s: openace-gated Resume and physical heater routing installed", p->version);
+        "client %s: openACE compatibility loaded; Resume and heater routing change when openACE is detected", p->version);
     logmsg(message);
 }
 #endif

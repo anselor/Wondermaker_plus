@@ -63,6 +63,7 @@ def test_unknown_client_is_rejected(harness):
 @pytest.mark.parametrize('version,resume,run_gcode', [
     ('1.1.08', 0x51A73C, 0x61425C),
     ('1.1.12', 0x51A7B4, 0x61434C),
+    ('1.1.13', 0x51A7B4, 0x614338),
 ])
 def test_reviewed_client_guard_and_position_independent_prologues(
         harness, tmp_path, version, resume, run_gcode):

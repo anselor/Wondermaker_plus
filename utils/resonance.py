@@ -1,24 +1,20 @@
 #!/usr/bin/env python3
-"""Resonance calibration workflow for the Wondermaker U1.
+"""Measure printer vibration and apply input-shaper settings.
 
+Run on your computer with connection details in .env:
     uv run --with paramiko --with numpy python utils/resonance.py analysis
-    uv run --with paramiko --with numpy python utils/resonance.py analysis --offline resonance/2026-08-15
+    uv run --with paramiko --with numpy python utils/resonance.py analysis --offline DIR
     uv run --with paramiko --with numpy python utils/resonance.py apply --dry-run
-    uv run --with paramiko --with numpy python utils/resonance.py apply [--accel N] [--yes]
+    uv run --with paramiko --with numpy python utils/resonance.py apply
 
-analysis: homes the printer, runs four TEST_RESONANCES sweeps (both CoreXY
-belt diagonals, X, Y), archives the raw accelerometer CSVs under
-resonance/<date>/, and reports belt imbalance, rattle bands, and per-axis
-shaper fits next to what the printer currently has configured.
+Analysis homes the printer and runs four vibration sweeps. It saves CSV files
+under resonance/<date>/ and reports belt comparisons, possible rattles, and
+predicted input-shaper results. --offline analyzes saved files without a connection.
 
-apply: picks the lightest shaper per axis under a residual-vibration
-threshold from the newest archived dataset and writes it into printer.cfg's
-SAVE_CONFIG block. Non-destructive: timestamped backups on the printer and
-locally, a confirm prompt, and post-restart verification with automatic
-rollback if Klipper does not come back.
-
-Klipper's own analysis code (GPL) is fetched from the printer on first run
-and cached in utils/.klippy_cache/ rather than committed to this repo.
+Apply uses the newest measurements unless --data is supplied. It backs up config,
+asks for confirmation, writes settings, restarts Klipper, and checks the result.
+It restores the backup if Klipper does not return to Ready.
+See utils/README.md for interpretation and limitations.
 """
 import argparse, datetime, json, os, re, sys, time, urllib.request
 
@@ -217,7 +213,7 @@ def latest_files(directory):
 def run_sweeps(outdir):
     state, pstate = printer_state()
     if pstate == "printing":
-        sys.exit("printer is printing; refusing to run sweeps")
+        sys.exit("A print is running. Finish or cancel it before vibration sweeps.")
     print(f"printer state: {state}; homing...")
     home()
     tag = datetime.datetime.now().strftime("%H%M%S")
@@ -233,7 +229,7 @@ def run_sweeps(outdir):
             sftp.get(f"/tmp/{name}", os.path.join(outdir, name))
             pulled += 1
     ssh.close()
-    print(f"  pulled {pulled} CSVs into {outdir}")
+    print(f"  Downloaded {pulled} measurement CSV files to {outdir}")
     if pulled != len(SWEEPS):
         sys.exit(f"expected {len(SWEEPS)} raw files, got {pulled}")
     return latest_files(outdir)
@@ -273,7 +269,7 @@ def analyze(files, current=None):
         tension_pct = abs((max(fa, fb) / min(fa, fb)) ** 2 - 1) * 100
         print(f"belt A (1,1):  main peak {fa:5.1f} Hz  (power {pa:.2e})")
         print(f"belt B (1,-1): main peak {fb:5.1f} Hz  (power {pb:.2e})")
-        print(f"gap: {gap:.1f} Hz  ->  ~{tension_pct:.0f}% tension difference"
+        print(f"gap: {gap:.1f} Hz  ->  ~{tension_pct:.0f}% estimated tension difference"
               f"  [{'IMBALANCED — adjust the looser (lower-Hz) belt' if gap > IMBALANCE_FLAG_HZ else 'OK'}]")
         ratio = max(pa, pb) / min(pa, pb)
         if ratio > 2.0:
@@ -406,11 +402,11 @@ def apply_mode(args):
         assert f"shaper_type_{axis} = {new[f'shaper_type_{axis}']}" in edited
     with sftp.open(PRINTER_CFG, "w") as f:
         f.write(edited)
-    print("printer.cfg written; restarting Klipper...")
+    print("Updated printer.cfg; restarting Klipper...")
     moonraker("/printer/firmware_restart", {}, timeout=120)
     time.sleep(20)
     if not wait_ready(tries=10, delay=10):
-        print("Klipper did not come back — restoring backup!")
+        print("Klipper did not return to Ready; restoring the configuration backup.")
         ssh.exec_command(f"cp {backup_remote} {PRINTER_CFG}")[1].channel.recv_exit_status()
         moonraker("/printer/firmware_restart", {}, timeout=120)
         ssh.close()
@@ -435,11 +431,11 @@ def main():
     a = sub.add_parser("analysis", help="run sweeps (or reuse CSVs) and report")
     a.add_argument("--offline", metavar="DIR",
                    help="skip the printer; analyze existing CSVs in DIR")
-    p = sub.add_parser("apply", help="write best-fit shapers to printer.cfg")
-    p.add_argument("--data", metavar="DIR", help="dataset dir (default: newest)")
+    p = sub.add_parser("apply", help="write chosen input-shaper settings to printer.cfg")
+    p.add_argument("--data", metavar="DIR", help="measurement directory (default: newest)")
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--accel", type=int, help="also set [printer] max_accel")
-    p.add_argument("--yes", action="store_true", help="skip confirm prompt")
+    p.add_argument("--yes", action="store_true", help="apply without a confirmation prompt")
     args = ap.parse_args()
 
     if args.mode == "analysis":

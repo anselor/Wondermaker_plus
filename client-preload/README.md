@@ -1,198 +1,186 @@
-# client-preload: LD_PRELOAD patches for the touchscreen client
+# Touchscreen fixes
 
-Libraries loaded into the vendor touchscreen binary (`client`,
-`makerbase-client.service`) at start. The on-disk binary is never modified;
-removing the drop-in restores stock behaviour.
+The `preload` component fixes behaviors in the vendor's touchscreen program:
+Wi-Fi reconnection, repeated automatic filter-fan requests, saved recovery
+coordinates, and openACE compatibility. A new locally tested head-configuration
+guard blocks the vendor's destructive response to communication timeouts.
 
-| directory | library | what |
-|---|---|---|
-| `wifi-fix/` | `libwmp_wififix.so` | Keeps wpa_supplicant auto-reconnecting after a failed reconnect (see below) |
-| `fan-fix/` | `libwmp_fan-fix.so` | Limits automatic ABS filter-fan requests and honors manual touchscreen choices |
-| `recovery-fix/` | `libwmp_recovery-fix.so` | Saves G-code XYZ in reviewed checkpoints and rejects unverified coordinate formats before recovery motion |
-| `openace-compat/` | `libwmp_openace-compat.so` | Sends screen Resume directly to openACE and keeps client physical-heater commands out of openACE's virtual tool namespace |
+It loads small libraries when `makerbase-client.service` starts. The libraries
+patch the running program in memory; the vendor executable on disk stays unchanged.
+This loading mechanism is called `LD_PRELOAD`.
 
-## Deploy (SSH + sudo)
+## Compatibility
+
+| Patch | Supported System versions |
+|---|---|
+| `wifi-fix` | 1.1.04, 1.1.08, 1.1.12, 1.1.13 |
+| `fan-fix`, `recovery-fix`, `openace-compat`, `head-config-guard` | 1.1.08, 1.1.12, 1.1.13 |
+
+Each patch checks the executable and the instructions it will replace. Unknown or
+unexpectedly modified clients are skipped. A library appearing in the process's
+loaded-library list does not prove its patch was applied; check its current log.
+On 2026-10-10, the 1.1.13 configuration and four existing patches were installed
+and verified with Klipper Ready and four heads. Printing and calibration acceptance
+remain pending. `head-config-guard` was subsequently deployed on the same date;
+its current-process log and live callback jump were verified. Its behavior during
+a real communication fault has not yet been observed.
+See [head communication recovery](../docs/head-communication-recovery.md) for its
+limits; it preserves configuration while retaining Klipper shutdown and manual recovery.
+
+## Install, check, and remove
+
+Run on your computer with the connection settings from the
+[project README](../README.md):
 
 ```bash
+uv run --with paramiko python tools/deploy.py install preload --preflight-only
 uv run --with paramiko python tools/deploy.py install preload
 uv run --with paramiko python tools/deploy.py status preload
 uv run --with paramiko python tools/deploy.py uninstall preload
 ```
 
-`install` uploads each `client-preload/<name>/*.c`, builds it on the printer
-(`gcc`, present on the stock image) to `~/wmp/lib/libwmp_<name>.so`, writes
-`/etc/systemd/system/makerbase-client.service.d/wmp-preload.conf` with
-`LD_PRELOAD` listing every `~/wmp/lib/libwmp_*.so`, and restarts the client
-(the screen restarts, about 10 s). Not run during a print.
+Installation requires SSH and sudo. It uploads C sources to `~/wmp/src/`, compiles
+libraries in `~/wmp/lib/`, and sets `LD_PRELOAD` in
+`/etc/systemd/system/makerbase-client.service.d/wmp-preload.conf`.
+The screen service restarts to load them, usually taking about ten seconds.
+Installation refuses running or paused prints.
 
-Adding a library: create `client-preload/<name>/<name>.c` and run `install`.
-The drop-in is regenerated from the lib directory, so libraries from other
-work (for example the screen injection) coexist by being placed there; do not
-add a second drop-in that sets `LD_PRELOAD`, systemd would keep only one.
+Status shows the installed service override, library files, running client, loaded
+libraries, and the latest patch log entries for that client process. Read those
+entries after each firmware upgrade. Removal deletes the WM+ override and these
+built libraries, then restarts the client.
 
-## Recovery checkpoint coordinates (1.1.08 and 1.1.12)
+Logs and optional disable switches:
 
-`recovery-fix/wmp_recoveryfix.c` fixes the writer at `0x62f4bc` (1.1.08) or
-`0x62f824` (1.1.12): stock saves
-the compensated `toolhead.position` XYZ, then recovery sends those numbers
-as ordinary G-code positions with mesh/tool compensation active again. The
-patch reads the client's `gcode_move.gcode_position` float vector instead,
-converts to double for the existing formatter, and preserves six decimal
-places for XY (and the integer-Z formatting branch). The other Z branch
-retains the vendor's six significant digits. E, file position, heater/fan
-targets and the vendor A/B selection policy are unchanged.
+| Patch | Log | Environment variable |
+|---|---|---|
+| Wi-Fi | `/tmp/wmp_wififix.log` | `WMP_WIFIFIX_DISABLE` |
+| Fan | `/tmp/wmp_fanfix.log` | `WMP_FANFIX_DISABLE` |
+| Recovery | `/tmp/wmp_recoveryfix.log` | `WMP_RECOVERYFIX_DISABLE` |
+| openACE | `/tmp/wmp_openace_compat.log` | `WMP_OPENACE_COMPAT_DISABLE` |
 
-The complete stock ELF size/FNV fingerprint and the loaded writer, loader,
-recovery entry and sender prologue are checked before patching. All three
-entry trampolines relocate only position-independent stack/register operations.
-No new code is written to the client ELF on disk. The library uses libdl for
-the native std::string accessor and console message construction.
+Setting a disable variable in the screen service's environment takes effect on its
+next restart. The code checks whether the variable exists, so remove it to re-enable
+the patch; setting it to `0` still disables it.
 
-Each changed A/B file gets a sibling `.wmp-coordinates` sidecar containing
-`WMP-GCODE-XYZ-1` and an FNV fingerprint of the entire file. Data is synced
-before the marker is atomically published. This fingerprint detects stale or
-changed records, not malicious tampering. An unchanged writer call cannot mark
-a legacy record. A missing, stale or malformed sidecar blocks recovery before
-the vendor start function sends motion; the reason is recorded in
-`/tmp/wmp_recoveryfix.log` and reported to the printer console. The loader's
-selected-file hash is checked again at Continue, so editing disk records also
-requires refreshing the cached recovery state. A power failure between data
-and marker publication can leave an unverified checkpoint; the guard rejects
-it rather than changing the vendor's A/B choice silently.
+## Wi-Fi reconnection
 
-Existing pending checkpoints require evidence-based migration before deploying
-this component. Back up A/B, `plr.ini`, saved variables and the current preload
-installation. Recover logical coordinates from a matching pre-cut snapshot or
-a separately validated coordinate conversion; never label raw coordinates as
-G-code merely because the library is now installed. Stop the touchscreen
-service while installing corrected records and markers, then restart it to
-reload. Do not cancel the recovery prompt or change mesh/calibration to mask
-a coordinate mismatch. See [the investigation](../docs/print-mesh-recovery.md).
+The observed fault leaves the printer offline after a brief connection failure
+until someone opens its Wi-Fi page. The vendor client requests a disconnect after
+some failed reconnect attempts, which tells the Wi-Fi service to stop retrying.
 
-The fix does not synchronize the vendor's separately sampled file position and
-motion state, solve every interrupted-tool-change checkpoint, or change its
-checkpoint+3 wipe/return sequence. Tests cover real C guard callbacks, corrupted
-and stale markers/cached state, ELF guards and emulated AArch64 coordinate
-loads. The guard harness also ran on the printer's ARM CPU before deployment.
-Run the full suite including ARM emulation with:
+WM+ removes that disconnect request for timeout, association rejection, and repeated
+network-not-found events. A wrong-password disconnect remains. The Wi-Fi service
+can keep scanning and reconnect by itself.
+
+The September 13, 2026 correction fixed an older patch that mistakenly disabled
+the wrong-password branch and missed network-not-found. Rebuild and restart the
+service to replace that older in-memory patch. Real reconnection and wrong-password
+behavior still need confirmation on a newly supported firmware.
+
+The original investigation also found roaming between two access points and slower
+rediscovery on a DFS channel. This patch does not change those network conditions.
+
+## Automatic filter-fan requests
+
+The vendor repeatedly asks for full filter-fan speed during ABS printing when
+reported speed is zero. If Klipper is busy, stale status can trigger more requests
+before the first one runs.
+
+WM+ permits one automatic fan-start request per print. A fan already running uses
+that allowance too. Manual touchscreen fan choices take priority, including Off
+before the first automatic request. Pause/resume does not renew the allowance;
+a known finished/cancelled/error/standby state with Klipper ready prepares the next
+print. Slicer fan commands remain unchanged.
+
+The patch also removes a redundant Off request when the filter is absent and its
+reported speed is already zero. It does not disable the filter or limit all Klipper
+commands. Local tests cover the request policy; a dedicated ABS automatic-start
+and manual-override test on the printer remains pending.
+
+## Recovery coordinates
+
+The stock client saves positions that already include bed-mesh and tool-offset
+corrections. Recovery treats them as ordinary G-code coordinates and applies those
+corrections again, potentially returning at the wrong height or XY position.
+
+WM+ saves the logical G-code XYZ position instead. It leaves extrusion, file
+position, heater/fan targets, and the vendor's choice between its two checkpoint
+files unchanged. Corrected recovery requires both this patch and the `config`
+component's saved mesh, tool mapping, and bottom-Z helper.
+
+Each corrected checkpoint gets a `.wmp-coordinates` companion file containing
+`WMP-GCODE-XYZ-1` and a fingerprint of the checkpoint contents. Recovery checks that
+marker before motion and checks the cached selected record again when Continue is
+pressed. A missing, stale, or malformed marker blocks recovery and reports why.
+The fingerprint detects changed files; it is not protection against deliberate
+tampering.
+
+Checkpoint data is synced before the marker is published. Power loss between those
+steps can leave an unverified checkpoint, which is rejected. The patch does not
+silently choose a different checkpoint to bypass that check.
+
+### Upgrading with an interrupted print
+
+Installing the patch does not make an old checkpoint valid. A print started before
+the matching WM+ recovery configuration can also lack its saved mesh/tool information.
+Do not update expecting such a print to resume automatically.
+
+If preserving a pending print, first back up both A/B checkpoint files, `plr.ini`,
+saved variables, and the existing patch installation. Coordinate migration requires
+matching pre-cut position evidence or a separately verified conversion. Never add
+a marker to old coordinates simply to make recovery accept them.
+
+Stop the touchscreen service while installing corrected records and markers, then
+restart it so the client reloads them. Do not cancel the recovery prompt or change
+calibration to hide a mismatch. This is an investigation procedure, not a routine
+upgrade step; see the [recovery record](../docs/print-mesh-recovery.md).
+
+The vendor's checkpoint sampling and 3 mm recovery-return clearance remain limits.
+The patch does not synchronize file position with motion, fix every interrupted
+tool change, or make a detached part recoverable.
+
+## openACE compatibility
+
+This patch acts only when Moonraker reports a running Klipper object named `openace`.
+Installed files alone do not activate it. Detection is cached for two seconds;
+a failed query is treated as openACE absent.
+
+With openACE active, screen Resume goes directly to Klipper so openACE can handle
+or reject it. Without openACE, the vendor's normal resume preparation runs.
+
+The screen addresses heater T0–T3 as physical heads; openACE uses virtual tool
+numbers. WM+ converts simple screen-generated `M104/M109` commands containing
+both `S` and `T` to an explicit physical heater command. M109 also waits within
+±2.5°C. Commands with unknown parameters or out-of-range heads pass through.
+Sliced-file commands do not use this screen dispatcher and keep openACE routing.
+
+## Maintainer reference
+
+Adding a patch requires one C file in `client-preload/<name>/`. Installation finds
+and builds it automatically. The generated service override includes every
+`~/wmp/lib/libwmp_*.so`. Do not add another override setting `LD_PRELOAD`, since one
+setting can replace the other.
+
+Each library must identify the `client` executable before using fixed addresses,
+check loaded instructions before editing, and patch before client threads start.
+The fan, recovery, and openACE checks use full-file FNV-1a fingerprints; Wi-Fi checks
+executable layout and the complete event-handler function. These identify reviewed
+builds, not publisher authenticity. Official SHA-256 values are recorded in the
+[firmware notes](../docs/README.md#firmware-comparisons).
+
+Recovery writes float G-code coordinates through the vendor's double formatter.
+XY and the integer-Z branch keep six decimal places; the other Z branch retains
+six significant digits. Hooks preserve verified position-independent entry
+instructions and use libdl for C++ string access. Firmware-specific addresses live
+in the source profiles and firmware comparison notes.
+
+Run local policy, compatibility, marker, and ARM-emulation tests with:
 
 ```bash
 uv run --with pytest --with jinja2 --with unicorn python -m pytest -q tests
 ```
 
-Conventions for a library: guard on `/proc/self/exe` basename `client`
-(`start.sh` and child processes also inherit `LD_PRELOAD`); identify the
-reviewed executable before dereferencing fixed addresses, verify the loaded
-instructions before any edits, and patch in the constructor before the
-client's threads start. wifi-fix supports the official **1.1.04, 1.1.08 and 1.1.12**
-clients. It checks ELF architecture/type/layout, file size and a fingerprint
-of the complete processEvent function, then compares its loaded instructions
-against that file. Only already-applied intended NOPs are accepted as changes.
-Unknown binaries or unexpected edits cause the whole patch to be skipped.
-The FNV-1a function fingerprint detects version mismatches; it is not an
-authenticity/signature check. Full vendor SHA-256 hashes are recorded in
-[the 1.1.12 integration notes](../docs/firmware-1.1.12.md).
-
-## wifi-fix
-
-Symptom: the printer drops off Wi-Fi and stays off until the Wi-Fi page is
-opened on the screen; the boot itself connects fine.
-
-Cause (client 1.1.04, from `client_log.txt` and the binary): after a roam or
-short drop, the client's `WifiManager::checkAndRecoverConnection` issues one
-reconnect. If it fails (`Connect_failed`, typically 4 s later),
-`WifiManager::processEvent` calls `WifiManager::disconnect()`, which sends
-`DISCONNECT` to wpa_supplicant. wpa_supplicant then stops all automatic
-reconnection until it receives `RECONNECT`/`REASSOCIATE`/`SELECT_NETWORK`,
-which only the Wi-Fi page sends. Observed 2026-09-01 15:04 to 2026-09-07
-05:33 (six days offline).
-
-Fix: NOP three `bl WifiManager::disconnect` sites in `processEvent`:
-
-| Branch | 1.1.04 | 1.1.08 | 1.1.12 | Action |
-|---|---|---|---|---|
-| CONN_FAILED / timed out | `0x6604d8` | `0x660cb4` | `0x66121c` | NOP |
-| WRONG_KEY | `0x6605ec` | `0x660dc8` | `0x661330` | Preserve |
-| ASSOC-REJECT | `0x660700` | `0x660edc` | `0x661444` | NOP |
-| NETWORK-NOT-FOUND after >3 events | `0x660850` | `0x66102c` | `0x661594` | NOP |
-
-**Correction (2026-09-13):** Ghidra decompilation and event-string references
-showed that the original 1.1.04 patch mislabeled the last three branches.
-It patched WRONG_KEY and left NETWORK-NOT-FOUND unchanged. Both supported
-profiles now use the corrected sites above. The network-not-found retry
-counter/threshold and configuration restoration remain intact.
-
-wpa_supplicant keeps scanning and re-associates by itself; the client's
-status returns to `Connected` on `CTRL-EVENT-CONNECTED` as before.
-Log: `/tmp/wmp_wififix.log`. `WMP_WIFIFIX_DISABLE=1` in the service
-environment disables the patch without uninstalling.
-
-The guard and instruction choices are checked locally against every reviewed
-ELF; real reconnect and wrong-password behavior still need confirmation
-after installing on a new firmware. An already-running process needs the normal
-service restart to load the rebuilt library; do not layer it over the old
-incorrect in-memory patch.
-
-Contributing factors, not changed here: two AP units broadcast the SSID at
-near-equal signal on 5200 and 5560 MHz (roaming flaps); 5560 is a DFS
-channel and the driver runs in the WORLD regulatory domain
-(`regulatory.db` missing), so that channel is passive-scan only and slow to
-re-find.
-
-## fan-fix (1.1.08 and 1.1.12)
-
-Prevents automatic ABS filter requests from accumulating while Klipper is
-busy. The vendor periodically asks for 100% whenever reported speed is zero;
-stale reports can repeatedly trigger this path before the first request runs.
-
-The replacement permits one automatic fan-on request per print. It consumes
-that allowance before sending (or if the fan is already running), so later
-manual OFF stays effective. Pause/resume does not re-arm. Explicit touchscreen
-fan commands during a print suppress automation immediately and still execute
-the unchanged vendor sender, preserving user speed choices even before the
-first automatic check. Slicer fan control is unchanged. A host that is not
-ready receives no automatic requests. Known terminal print states re-arm for
-the next print once the host is ready.
-
-Also removes a redundant OFF request from the status parser when reported
-speed is already zero and the filter is absent. The filter installed flag
-and Klipper fan driver are unchanged. This fixes the automatic sender; it
-does not impose a global Klipper queue limit.
-
-The complete official 1.1.08 or 1.1.12 ELF fingerprint and loaded function
-bytes must match before patching. Other versions are skipped. The sender wrapper uses
-a trampoline containing its four verified position-independent prologue
-instructions. Full address/provenance and acceptance details are in
-[the 1.1.12 integration notes](../docs/firmware-1.1.12.md).
-
-The existing preload installer discovers/builds this library automatically.
-Status includes `/tmp/wmp_fanfix.log`. Set `WMP_FANFIX_DISABLE=1` to disable
-it on the next client restart. Local C policy/guard tests pass, and the library
-was built and loaded on the printer. Dedicated ABS automatic-start/manual-override
-hardware acceptance remains outstanding.
-
-## openace-compat (1.1.08 and 1.1.12)
-
-This patch is inactive unless Moonraker's live `/printer/objects/list` response
-contains the exact Klipper object name `openace`. The result is cached for two
-seconds; a failed query is treated as openACE absent. Merely installing the
-files or adding an include does not activate compatibility behavior.
-
-When openACE is active, the touchscreen Resume action bypasses the client's
-`box_modify` channel-match gate and sends `RESUME` to Klipper. openACE's wrapper
-then owns recovery and can reject the request with its own reason. Without the
-object, the original `resume_printing_prepare` function runs unchanged.
-
-The client has no virtual-tool context: every `M104/M109 T0..T3` it constructs
-uses `T` as a physical head number. While openACE is active, the patch converts
-those simple commands at the client's G-code dispatcher into an explicit
-`SET_HEATER_TEMPERATURE HEATER=extruderN`; M109 adds a matching ±2.5 C
-`TEMPERATURE_WAIT`. Commands without both `S` and `T`, heads outside 0..3, or
-unknown parameters pass through unchanged. Sliced-file commands never traverse
-the touchscreen dispatcher and remain under openACE's virtual routing.
-
-The complete client hash and both patched functions are checked against the
-reviewed ELF before either entry is changed. The original functions remain
-available through verified, position-independent prologue trampolines. Set
-`WMP_OPENACE_COMPAT_DISABLE=1` in the service environment to disable the patch
-on the next client restart.
+Vendor-binary checks need locally extracted files and skip without them. Earlier
+libraries built and loaded on the printer's ARM CPU, and the recovery marker tests
+also ran there. These results do not replace hardware checks for a new firmware.

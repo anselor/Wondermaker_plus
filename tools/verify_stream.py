@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""End-to-end check of the screen bridge, exercised through nginx.
+"""Check the touchscreen stream and save its last frame as a PNG.
 
-Reads N frames off /wmp-screen/stream.bin exactly as the browser does, inflates
-them, and writes the last one out as a PNG so the result can be eyeballed.
+Run on your computer with WMP_PRINTER set in .env:
+    uv run python tools/verify_stream.py [frames] [out.png]
 
-usage: uv run --with paramiko python tools/verify_stream.py [frames] [out.png]
+Reads compressed screen frames through the printer web server at
+/wmp-screen/stream.bin. Reports invalid frames or missing updates.
 """
 import os
 import struct
@@ -24,7 +25,7 @@ FRAME_MAGIC = b"WMP2"
 
 def apply_packet(packet, frame):
     if len(packet) < 7 or packet[:4] != FRAME_MAGIC:
-        raise ValueError("bad frame packet")
+        raise ValueError("Invalid frame packet header")
     mode, count = struct.unpack(">BH", packet[4:7])
     if mode == 0:
         raw = packet[7:]
@@ -32,7 +33,7 @@ def apply_packet(packet, frame):
             raise ValueError("full frame has %d bytes" % len(raw))
         return bytearray(raw), "full"
     if mode != 1 or frame is None:
-        raise ValueError("delta without baseline")
+        raise ValueError("Changed-row update arrived before a full frame")
     pos = 7
     rows = []
     for _ in range(count):
@@ -79,13 +80,15 @@ def main():
 
     buf, got, beats, last = b"", 0, 0, None
     while got < want and time.time() - t0 < 60:
-        chunk = resp.read(16384)
+        # A quiet screen may send a baseline smaller than this buffer, followed
+        # only by heartbeats. Do not wait for 16 KiB before decoding that frame.
+        chunk = resp.read1(16384)
         if not chunk:
             break
         buf += chunk
         while len(buf) >= 8:
             if buf[:4] != MAGIC:
-                sys.exit("FAIL: bad magic %r - framing is broken" % buf[:4])
+                sys.exit("FAIL: Unexpected stream header %r; the frame stream is invalid" % buf[:4])
             n = struct.unpack(">I", buf[4:8])[0]
             if len(buf) < 8 + n:
                 break

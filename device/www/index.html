@@ -54,8 +54,8 @@
   <div id="overlay"></div>
   <div id="dead">Connecting to screen&hellip;</div>
   <div id="bar">
-    <button id="arm" title="Enable or block touch input">&hellip;</button>
-    <span id="status">connecting</span>
+    <button id="arm" title="Enable or block remote taps and swipes">&hellip;</button>
+    <span id="status">Connecting to printer screen…</span>
     <span class="spacer"></span>
     <span id="coords"></span>
   </div>
@@ -86,7 +86,12 @@
       method: body ? "POST" : "GET",
       headers: body ? { "Content-Type": "application/json" } : undefined,
       body: body ? JSON.stringify(body) : undefined
-    }).then(function (r) { return r.json(); });
+    }).then(function (r) {
+      return r.json().then(function (data) {
+        if (!r.ok) throw new Error(data.error || "Printer request failed (HTTP " + r.status + ")");
+        return data;
+      });
+    });
   }
 
   // ---- frame decode -----------------------------------------------------
@@ -260,12 +265,12 @@
     var dist = Math.hypot(up.cx - start.cx, up.cy - start.cy);
     if (dist >= DRAG_PX) {
       api("api/swipe", { x1: start.x, y1: start.y, x2: up.x, y2: up.y })
-        .then(function (r) { say(r.woke ? "swiped (woke screen)" : "swiped"); })
-        .catch(function () { say("swipe failed"); });
+        .then(function (r) { say(r.woke ? "Swipe sent; screen awakened" : "Swipe sent"); })
+        .catch(function (err) { say(err instanceof TypeError ? "Swipe failed; check the printer connection" : err.message || "Swipe failed; check the printer connection"); });
     } else {
       api("api/tap", { x: start.x, y: start.y })
-        .then(function (r) { say(r.woke ? "tapped (woke screen)" : "tapped " + r.x + "," + r.y); })
-        .catch(function () { say("tap failed"); });
+        .then(function (r) { say(r.woke ? "Tap sent; screen awakened" : "Tap sent to " + r.x + "," + r.y); })
+        .catch(function (err) { say(err instanceof TypeError ? "Tap failed; check the printer connection" : err.message || "Tap failed; check the printer connection"); });
     }
   });
 
@@ -280,8 +285,8 @@
   }
   armBtn.addEventListener("click", function () {
     api("api/arm", { armed: !armed }).then(function (s) {
-      armed = !!s.armed; paintArm(); say(armed ? "input enabled" : "input blocked");
-    });
+      armed = !!s.armed; paintArm(); say(armed ? "Remote touch enabled" : "Remote touch blocked");
+    }).catch(function (err) { say(err instanceof TypeError ? "Could not change remote touch; check the printer connection" : err.message || "Could not change remote touch; check the printer connection"); });
   });
 
   var sayTimer = null;
@@ -298,8 +303,8 @@
       armed = !!s.armed;
       paintArm();
       if (!bar.classList.contains("show")) {
-        statusEl.textContent = (!live ? "offline"
-          : s.backlight === 0 ? "screen asleep" : "live") + " · " + frames + " frames";
+        statusEl.textContent = (!live ? "Screen disconnected"
+          : s.backlight === 0 ? "Screen asleep" : "Screen connected");
       }
     }).catch(function () {});
   }

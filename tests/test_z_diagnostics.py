@@ -98,7 +98,7 @@ def test_native_home_failure_restores_driver_mode_without_return_motion():
 def test_incompatible_homing_configuration_rejected(field, value):
     diag, calls, _, settings = harness()
     settings['stepper_z'][field] = value
-    with pytest.raises(ValueError, match='inspected Wondermaker'):
+    with pytest.raises(ValueError, match='supported Wondermaker Z configuration'):
         diag.cmd_max_test(Gcmd())
     assert all(c[0] == 'register' for c in calls)
 

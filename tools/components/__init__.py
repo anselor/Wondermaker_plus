@@ -1,5 +1,6 @@
 """Components for tools/deploy.py. Each module exposes:
     NAME, DESCRIPTION, NEEDS_SSH (bool), NEEDS_SUDO (bool)
+    preflight(ctx) -> None (validate installation prerequisites without deploying)
     install(ctx)   -> None   (raise DeployError on failure)
     uninstall(ctx) -> None
     status(ctx)    -> None   (prints)

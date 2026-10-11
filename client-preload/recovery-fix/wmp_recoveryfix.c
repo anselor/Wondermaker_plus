@@ -31,6 +31,8 @@ static const struct profile profiles[] = {
      0x62f4bc, 0x62c2a8, 0x62d5d8, 0x61425c, 0x1918},
     {"1.1.12", 61340216, UINT64_C(0xcef6a2287ca04bc8),
      0x62f824, 0x62c600, 0x62d930, 0x61434c, 0x1928},
+    {"1.1.13", 61340216, UINT64_C(0x3ed764ac9cdaa82d),
+     0x62f810, 0x62c5ec, 0x62d91c, 0x614338, 0x1928},
 };
 static const struct profile *active_profile;
 
@@ -182,7 +184,7 @@ static void save_checkpoint(void *name, double z, int filepos, double e)
      * checkpoint merely because this function was called with the same Z/pos.
      */
     if (known && file_hash(path, &after) && (!existed || before != after)) {
-        if (!stamp_record(path)) logmsg("checkpoint format marker write failed; recovery will reject this record");
+        if (!stamp_record(path)) logmsg("Could not save checkpoint verification; recovery will reject this record");
     }
     pthread_mutex_unlock(&record_lock);
 }
@@ -194,8 +196,8 @@ static void load_checkpoint(void *name)
     loaded_valid = checkpoint_path(name, loaded_path) && verify_record(loaded_path, &loaded_hash);
     original_loader(name);
     loaded_valid = loaded_valid && verify_record(loaded_path, &after) && after == loaded_hash;
-    logmsg(loaded_valid ? "loaded verified G-code XYZ checkpoint" :
-                         "loaded legacy/unverified checkpoint; Continue will be blocked");
+    logmsg(loaded_valid ? "Loaded a verified G-code position checkpoint" :
+                         "Loaded an unverified checkpoint; Continue is blocked until coordinates are verified");
     pthread_mutex_unlock(&record_lock);
 }
 
@@ -206,19 +208,19 @@ static void start_recovery(void)
     int ok = loaded_valid && verify_record(loaded_path, &hash) && hash == loaded_hash;
     pthread_mutex_unlock(&record_lock);
     if (!ok) {
-        logmsg("RECOVERY BLOCKED before motion: checkpoint lacks matching G-code XYZ format marker; migrate or start a new print");
+        logmsg("Recovery blocked before motion: checkpoint verification is missing or stale. Start a new print or follow the WM+ migration guide.");
         if (string_construct && string_assign && string_destroy) {
             /* Verified 32-byte C++11 string ABI; use libstdc++ operations. */
             uint64_t message[4];
             string_construct(message);
-            string_assign(message, "M118 Recovery blocked: saved position needs migration; do not resume this checkpoint unchanged");
+            string_assign(message, "M118 Recovery blocked: saved coordinates are unverified. Start a new print or follow the WM+ checkpoint migration guide.");
             void (*send_gcode)(void *) = (void *)active_profile->send_gcode;
             send_gcode(message);
             string_destroy(message);
         }
         return;
     }
-    logmsg("starting recovery from verified G-code XYZ checkpoint");
+    logmsg("Starting recovery from a verified G-code position checkpoint");
     original_start();
 }
 
@@ -260,12 +262,12 @@ static void initialize(void)
         loaded_matches(f, p->loader, 0x1330) && loaded_matches(f, p->start, p->start_size) &&
         loaded_matches(f, p->send_gcode, 16);
     fclose(f);
-    if (!recognized) { logmsg("guard failed: unrecognized/modified client; not patching"); return; }
+    if (!recognized) { logmsg("Patch skipped: unsupported or modified screen client; check firmware compatibility"); return; }
     string_data = dlsym(RTLD_DEFAULT, "_ZNKSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE5c_strEv");
     string_construct = dlsym(RTLD_DEFAULT, "_ZNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEC1Ev");
     string_assign = dlsym(RTLD_DEFAULT, "_ZNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEaSEPKc");
     string_destroy = dlsym(RTLD_DEFAULT, "_ZNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEED1Ev");
-    if (!string_data) { logmsg("std::string accessor unavailable; not patching"); return; }
+    if (!string_data) { logmsg("Patch skipped: screen string-access function is unavailable"); return; }
     active_profile = p;
     uintptr_t delta = p->writer - profiles[0].writer;
     for (size_t i = 0; i < sizeof coordinates / sizeof coordinates[0]; i++)
@@ -273,7 +275,7 @@ static void initialize(void)
     const uintptr_t entries[] = {p->writer, p->loader, p->start};
     const uintptr_t callbacks[] = {(uintptr_t)save_checkpoint, (uintptr_t)load_checkpoint, (uintptr_t)start_recovery};
     void *tramp = mmap(NULL, 96, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-    if (tramp == MAP_FAILED) { logmsg("trampoline allocation failed"); return; }
+    if (tramp == MAP_FAILED) { logmsg("Patch skipped: could not allocate memory for the saved entry code"); return; }
     for (size_t i = 0; i < 3; i++) {
         /* All three guarded prologues are position-independent; no PC-relative
          * loads/branches are relocated. Loader includes its frame-size MOV.
@@ -284,13 +286,13 @@ static void initialize(void)
     }
     __builtin___clear_cache(tramp, (char *)tramp + 96);
     if (mprotect(tramp, 96, PROT_READ | PROT_EXEC)) {
-        munmap(tramp, 96); logmsg("trampoline protection failed"); return;
+        munmap(tramp, 96); logmsg("Patch skipped: could not make the saved entry code executable"); return;
     }
     /* These functions share one continuous text range; change it atomically
      * before vendor callback/timer threads start, then restore RX.
      */
     if (protect(p->loader, p->writer + 0x15f0 - p->loader, PROT_READ | PROT_WRITE | PROT_EXEC)) {
-        munmap(tramp, 96); logmsg("text protection failed; not patching"); return;
+        munmap(tramp, 96); logmsg("Patch skipped: could not make screen code writable"); return;
     }
     original_writer = tramp; original_loader = (void *)((char *)tramp + 32);
     original_start = (void *)((char *)tramp + 64);
@@ -306,8 +308,8 @@ static void initialize(void)
     for (size_t i = 0; i < 3; i++) write_jump((void *)entries[i], callbacks[i]);
     __builtin___clear_cache((char *)p->loader, (char *)(p->writer + 0x15f0));
     if (protect(p->loader, p->writer + 0x15f0 - p->loader, PROT_READ | PROT_EXEC))
-        logmsg("warning: could not restore text RX permissions");
+        logmsg("Warning: could not restore read/execute memory permissions; inspect the patch log before printing");
     char message[128];
-    snprintf(message, sizeof message, "client %s: G-code XYZ checkpoint writer and hash-bound recovery guard installed", p->version);
+    snprintf(message, sizeof message, "client %s: G-code recovery coordinates and checkpoint verification enabled", p->version);
     logmsg(message);
 }

@@ -321,6 +321,10 @@ def test_openace_rollback_assist_arms_at_final_tip_shaping_pull(
     assert commands.count('_OPENACE_ROLLBACK_ASSIST_ON') == 1
     assert commands[hook - 1] == 'M400'
     assert commands[hook + 1].startswith(armed_pull)
+    off = commands.index('_OPENACE_ROLLBACK_ASSIST_OFF')
+    assert commands[off - 1] == 'M400'
+    assert hook < off == len(commands) - 1
+    assert commands.count('_OPENACE_ROLLBACK_ASSIST_OFF') == 1
     if earlier_pull:
         assert next(i for i, command in enumerate(commands)
                     if command.startswith(earlier_pull)) < hook
@@ -334,3 +338,4 @@ def test_tip_shaping_has_no_openace_hook_without_openace(material_class):
         cooling_moves=3, cooling_len=10,
         cooling_speed_list=[300, 240, 150], stamp_len=35)
     assert '_OPENACE_ROLLBACK_ASSIST_ON' not in script
+    assert '_OPENACE_ROLLBACK_ASSIST_OFF' not in script

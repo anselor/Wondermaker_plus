@@ -415,7 +415,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if path in ("/api/tap", "/api/swipe"):
                 if not Handler.armed:
-                    return self._json({"error": "input disarmed"}, 403)
+                    return self._json({"error": "Remote touch is blocked; enable Touch on in the panel"}, 403)
                 d = self._read_json()
                 if path == "/api/tap":
                     res = self.touch.tap(d["x"], d["y"])
@@ -460,7 +460,7 @@ class Handler(BaseHTTPRequestHandler):
     def _snapshot(self):
         jpeg = self.snapshotter.get()
         if not jpeg:
-            return self._json({"error": "encode failed"}, 503)
+            return self._json({"error": "Could not create a JPEG screenshot"}, 503)
         self.send_response(200)
         self.send_header("Content-Type", "image/jpeg")
         self.send_header("Content-Length", str(len(jpeg)))
@@ -505,7 +505,7 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     if not os.access(FB_DEV, os.R_OK) or not os.access(TOUCH_DEV, os.W_OK):
-        log("FATAL: need read on %s and write on %s (run as root)"
+        log("Cannot start: need read access to %s and write access to %s. Run the bridge service as root."
             % (FB_DEV, TOUCH_DEV))
         return 1
 

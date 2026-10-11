@@ -3,10 +3,9 @@
 Wondermaker+ is an independent community project. It is not affiliated with,
 endorsed by, or supported by Wondermaker, Makerbase, or their suppliers.
 
-The changes in this repository modify 3D-printer configuration and, for some
-features, inject code into the printer's touchscreen process. Incorrect or
-incompatible changes can cause unexpected motion, heating, print failure, loss
-of recovery data, or loss of connectivity. Review changes before installing
+WM+ changes printer configuration. Some features also load code into the running
+touchscreen program. Incorrect or incompatible changes can cause unexpected
+motion, heating, print failure, loss of recovery data, or loss of connectivity. Review changes before installing
 them, keep backups of the original firmware and configuration, and supervise
 the first tests with a safe way to remove power.
 

@@ -1,11 +1,9 @@
 #!/bin/bash
 # Install the Wondermaker+ screen bridge. Runs ON the printer, as root.
 #
-# Touches exactly four things, all reversible by uninstall.sh:
-#   1. creates  /opt/wondermaker_plus/
-#   2. creates  /etc/systemd/system/wmp-screen.service
-#   3. inserts  one `include` line into the fluidd nginx site (backed up first)
-#   4. adds     an `iframe` webcam entry to Moonraker's database
+# Creates the screen bridge files and two services, adds the Fluidd nginx
+# include and Moonraker camera entry, and selects the print camera for timelapse.
+# Uninstall removes the bridge; it does not restore the old timelapse setting.
 set -euo pipefail
 
 PREFIX=/opt/wondermaker_plus
@@ -22,11 +20,11 @@ SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 say() { echo "==> $*"; }
 die() { echo "!! $*" >&2; exit 1; }
 
-[ "$(id -u)" = 0 ] || die "must run as root"
-[ -f "$SRC/device/wmp_screen.py" ] || die "payload not found under $SRC/device"
+[ "$(id -u)" = 0 ] || die "Run this printer-side script as root."
+[ -f "$SRC/device/wmp_screen.py" ] || die "Screen bridge files are missing under $SRC/device."
 
 # --- 1. payload ------------------------------------------------------------
-say "installing payload to $PREFIX"
+say "copying screen bridge files to $PREFIX"
 mkdir -p "$PREFIX/backup"
 cp -a "$SRC/device/wmp_screen.py" "$SRC/device/nginx-screen.conf" \
       "$SRC/device/timelapse-camera-fix.sh" "$PREFIX/"
@@ -38,13 +36,13 @@ date -u +"installed %Y-%m-%dT%H:%M:%SZ" >> "$PREFIX/installed-against.txt"
 
 # --- 2. nginx --------------------------------------------------------------
 if grep -qF "$MARKER" "$NGINX_SITE"; then
-    say "nginx already patched, leaving it alone"
+    say "screen include already exists in nginx"
 else
     say "backing up $NGINX_SITE"
     cp -a "$NGINX_SITE" "$PREFIX/backup/fluidd.orig"
     md5sum "$NGINX_SITE" > "$PREFIX/backup/fluidd.orig.md5"
 
-    say "inserting include into fluidd server block"
+    say "adding the screen page to the Fluidd web-server configuration"
     python3 - "$NGINX_SITE" "$INCLUDE_LINE" <<'PY'
 import sys
 path, line = sys.argv[1], sys.argv[2]
@@ -64,7 +62,7 @@ PY
 fi
 
 # --- 3. service ------------------------------------------------------------
-say "installing systemd unit"
+say "installing the screen bridge service"
 cp -a "$SRC/device/wmp-screen.service" "$UNIT"
 systemctl daemon-reload
 systemctl enable wmp-screen.service >/dev/null 2>&1 || true
@@ -94,14 +92,14 @@ curl -sf -m 5 -X POST "$MOONRAKER/server/webcams/item" \
          \"flip_horizontal\": false,
          \"flip_vertical\": false,
          \"rotation\": 0}" >/dev/null \
-    || echo "!! moonraker registration failed (add the webcam by hand in Fluidd)"
+    || echo "!! Could not register Touchscreen with Moonraker. Add an iframe camera in Fluidd using /wmp-screen/."
 
 # --- 5. timelapse camera fixer --------------------------------------------
 # Registering the Touchscreen webcam above is exactly what makes the vendor
 # timelapse fall back to the LCD mirror, so fix it here: a oneshot unit that
 # forces the timelapse camera back to the real webcam on every boot, plus
 # once now.
-say "installing timelapse-camera fixer (so timelapses record the print, not the LCD)"
+say "setting timelapse recording to the print camera"
 cp -a "$SRC/device/wmp-timelapse-camera.service" "$TL_UNIT"
 systemctl daemon-reload
 systemctl enable wmp-timelapse-camera.service >/dev/null 2>&1 || true
@@ -116,4 +114,4 @@ curl -sf -m 5 -o /dev/null -w "    local  /snapshot.jpg -> HTTP %{http_code}\n" 
     http://127.0.0.1:8975/snapshot.jpg || echo "    local snapshot FAILED"
 curl -sf -m 5 -o /dev/null -w "    nginx  /wmp-screen/  -> HTTP %{http_code}\n" \
     http://127.0.0.1/wmp-screen/ || echo "    nginx proxy FAILED"
-say "done - open Fluidd and look for the '$WEBCAM_NAME' camera"
+say "installation steps finished; review the checks above, then open Fluidd and look for the '$WEBCAM_NAME' camera"

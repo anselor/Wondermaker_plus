@@ -1,6 +1,6 @@
 /* Bound automatic air-filter requests at their source in reviewed clients.
  * Manual UI/slicer controls remain intact. No tmt1.ini or Klipper fan changes.
- * See docs/firmware-1.1.12.md for the latest reviewed addresses and policy.
+ * See docs/firmware-1.1.13.md for the latest reviewed addresses and policy.
  */
 #define _GNU_SOURCE
 #include <elf.h>
@@ -28,6 +28,8 @@ static const struct profile profiles[] = {
      0x61a8cc, 0x638488, 0x6385c8, 0x53fe54},
     {"1.1.12", 61340216, UINT64_C(0xcef6a2287ca04bc8),
      0x61a9bc, 0x6387f0, 0x638930, 0x53ff44},
+    {"1.1.13", 61340216, UINT64_C(0x3ed764ac9cdaa82d),
+     0x61a9a8, 0x6387dc, 0x63891c, 0x53ff30},
 };
 
 static uint64_t fingerprint(uint64_t hash, const void *data, size_t size)
@@ -132,7 +134,7 @@ static void material_check(void)
     }
     if (should_start(&spent, terminal, printing, ready, eligible, *(const float *)0xe645894)) {
         original_set_speed(100);
-        logmsg("automatic ABS filter-on requested; no retry during this print");
+        logmsg("Requested automatic ABS filter-fan start; no further automatic requests this print");
     }
     pthread_mutex_unlock(&dispatch_lock);
 }
@@ -171,19 +173,19 @@ static void initialize(void)
         loaded_matches(f, p->parse_air_fan, 396) && loaded_matches(f, p->set_air_fan, 192) &&
         loaded_matches(f, 0x4b3b94, 48);
     fclose(f);
-    if (!recognized) { logmsg("guard failed: unrecognized or modified client; not patching"); return; }
+    if (!recognized) { logmsg("Patch skipped: unsupported or modified screen client; check firmware compatibility"); return; }
     /* The guarded sender starts with four position-independent instructions:
      * stp x29,x30,[sp,#-112]!; mov x29,sp; str x19,[sp,#16]; str w0,[sp,#44].
      * Preserve them in a trampoline, followed by a jump to the untouched body.
      */
     void *trampoline = mmap(NULL, 32, PROT_READ | PROT_WRITE,
                             MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-    if (trampoline == MAP_FAILED) { logmsg("mmap failed; not patching"); return; }
+    if (trampoline == MAP_FAILED) { logmsg("Patch skipped: could not allocate memory (mmap failed)"); return; }
     memcpy(trampoline, (const void *)p->set_air_fan, 16);
     write_jump((char *)trampoline + 16, p->set_air_fan + 16);
     __builtin___clear_cache(trampoline, (char *)trampoline + 32);
     if (mprotect(trampoline, 32, PROT_READ | PROT_EXEC)) {
-        munmap(trampoline, 32); logmsg("trampoline mprotect failed; not patching"); return;
+        munmap(trampoline, 32); logmsg("Patch skipped: could not make the saved entry code executable (mprotect failed)"); return;
     }
     original_set_speed = trampoline;
     const uintptr_t addresses[] = {p->material_check, p->redundant_off, p->set_air_fan};
@@ -193,8 +195,8 @@ static void initialize(void)
         if (protect(addresses[writable], lengths[writable], PROT_READ | PROT_WRITE | PROT_EXEC)) {
             for (size_t j = 0; j < writable; j++)
                 if (protect(addresses[j], lengths[j], PROT_READ | PROT_EXEC))
-                    logmsg("warning: could not restore page permissions");
-            munmap(trampoline, 32); logmsg("mprotect failed; not patching"); return;
+                    logmsg("Warning: could not restore executable memory permissions; inspect the patch log before printing");
+            munmap(trampoline, 32); logmsg("Patch skipped: could not make screen code writable (mprotect failed)"); return;
         }
     }
     /* Constructors run before the vendor's timer/callback threads start. */
@@ -204,10 +206,10 @@ static void initialize(void)
     for (size_t i = 0; i < 3; i++) {
         __builtin___clear_cache((char *)addresses[i], (char *)(addresses[i] + lengths[i]));
         if (protect(addresses[i], lengths[i], PROT_READ | PROT_EXEC))
-            logmsg("warning: could not restore page permissions");
+            logmsg("Warning: could not restore executable memory permissions; inspect the patch log before printing");
     }
     char message[128];
-    snprintf(message, sizeof message, "client %s: automatic ABS request bounded; redundant status OFF removed", p->version);
+    snprintf(message, sizeof message, "client %s: automatic ABS fan start limited to once per print; redundant Off request removed", p->version);
     logmsg(message);
 }
 #endif

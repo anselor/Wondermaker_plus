@@ -86,6 +86,7 @@ def test_checkpoint_format_and_cached_state_guard(harness, tmp_path):
 @pytest.mark.parametrize('version,changed_address', [
     ('1.1.08', 0x62f650),
     ('1.1.12', 0x62f9b8),
+    ('1.1.13', 0x62f9a4),
 ])
 def test_only_reviewed_client_is_patched(harness, tmp_path, version, changed_address):
     elf = ROOT / f'analysis/fw_{version}_payload/root/home/t13dp/TM_T1/bin/client'
@@ -103,18 +104,19 @@ def test_only_reviewed_client_is_patched(harness, tmp_path, version, changed_add
     assert subprocess.run([str(harness), 'identify', str(changed)]).returncode == 3
 
 
-def test_arm_coordinate_loads_use_logical_xyz(harness):
+@pytest.mark.parametrize('writer', [0x62f4bc, 0x62f824, 0x62f810])
+def test_arm_coordinate_loads_use_logical_xyz(harness, writer):
     unicorn = pytest.importorskip('unicorn')
     from unicorn.arm64_const import UC_ARM64_REG_D0, UC_ARM64_REG_X0
     words = subprocess.check_output([str(harness), 'words', '-'])
     emu = unicorn.Uc(unicorn.UC_ARCH_ARM64, unicorn.UC_MODE_ARM)
-    emu.mem_map(0x62f000, 0x1000)
+    emu.mem_map(0x62f000, 0x2000)
     emu.mem_map(0xe645000, 0x1000)
     # Same physical point, with nonzero tool offset plus bed compensation.
     emu.mem_write(0xe645460, struct.pack('<4d', 188.078125, 252.032813, 4.29526255, 123))
     logical = [188.0, 252.3, 4.8, 8.9]
     emu.mem_write(0xe645868, struct.pack('<4f', *logical))
-    for index, (address, axis) in enumerate([(0x62f648, 2), (0x62f660, 2), (0x62f6c8, 0), (0x62f72c, 1)]):
+    for index, (address, axis) in enumerate([(writer + 0x18c, 2), (writer + 0x1a4, 2), (writer + 0x20c, 0), (writer + 0x270, 1)]):
         emu.mem_write(address, words[index * 12:index * 12 + 12])
         emu.emu_start(address, address + 12)
         result = struct.unpack('<d', struct.pack('<Q', emu.reg_read(UC_ARM64_REG_D0)))[0]
@@ -133,6 +135,11 @@ def test_arm_coordinate_loads_use_logical_xyz(harness):
         0x62c600: '0c0882d2ff632ccbfd7b00a9fd030091',
         0x62d930: 'ff033ad1fd7b00a9fd030091f30b00f9',
     }, [0x62f998, 0x62fa18, 0x62fa7c]),
+    ('1.1.13', {
+        0x62f810: 'ff433dd1fd7b00a9fd030091f30b00f9',
+        0x62c5ec: '0c0882d2ff632ccbfd7b00a9fd030091',
+        0x62d91c: 'ff033ad1fd7b00a9fd030091f30b00f9',
+    }, [0x62f984, 0x62fa04, 0x62fa68]),
 ])
 def test_reviewed_prologues_and_precision_sites(version, expected, precision):
     elf = ROOT / f'analysis/fw_{version}_payload/root/home/t13dp/TM_T1/bin/client'
@@ -144,3 +151,16 @@ def test_reviewed_prologues_and_precision_sites(version, expected, precision):
         assert data[address - 0x400000:address - 0x400000 + 16].hex() == prologue
     for address in precision:
         assert struct.unpack_from('<I', data, address - 0x400000)[0] == 0x52800020
+
+
+def test_1113_recovery_coordinate_sources_still_need_conversion():
+    elf = ROOT / 'analysis/fw_1.1.13_payload/root/home/t13dp/TM_T1/bin/client'
+    if not elf.exists():
+        pytest.skip('vendor ELF not present')
+    data = elf.read_bytes()
+    # ADRP/ADD still address compensated double[4] at 0xe645460, not
+    # the logical float[4] vector at 0xe645868 used by coordinate_words.
+    for offset, load in [(0x18c, '000840fd'), (0x1a4, '000840fd'),
+                         (0x20c, '000040fd'), (0x270, '000440fd')]:
+        address = 0x62f810 + offset - 0x400000
+        assert data[address:address + 12].hex() == 'a00007d000801191' + load

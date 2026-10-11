@@ -1,73 +1,70 @@
-# Explicit XY return after toolchange
+# Return to the print after a tool change
 
-Implemented in `config/live/change_macros.cfg` for the 1.1.08 rebase.
-Stock baselines are unchanged. Deployed on 2026-09-13 with Klipper Ready;
-offline sequence tests pass. Physical motion validation remains outstanding.
+WM+ returns the new tool to the saved print position after successful pickup,
+offset setup, and wiping. It keeps a 2 mm lift during the return, then lowers to
+the original printing height. The XY return runs at 200 mm/s.
+
+The sequence was added for firmware 1.1.08 and loaded September 13, 2026. Later
+two-color print trials exercised normal tool changes in both directions; see
+[the recovery test record](print-mesh-recovery.md#physical-test-record).
+The local tests cover failure paths without deliberately causing failed pickups
+on the printer.
+
+## When the return runs
+
+It requires a running print, `START_PRINT.print_body_ready=True`, and
+`_CHANGE_TOOL.save_position=1`. Startup, idle/paused selection, same-tool calls,
+and calls without position saving do not return to a saved print point.
+
+The startup check matters because Klipper already reports “printing” while it
+runs `START_PRINT`. Without it, a tool change after meshing could return to the
+last probe position.
 
 ## Sequence
 
-1. `_CHANGE_TOOL` calls `_WMP_TOOL_RETURN_BEGIN` once before checks/docking.
-   It reads `printer.print_stats.state` and `_CHANGE_TOOL.save_position`
-   explicitly. For a real printing toolchange with save_position=1 and
-   START_PRINT.print_body_ready=True, it
-   captures the original G-code XYZ, coordinate modes, feedrate and override.
-2. Require homed XYZ and room for the 2 mm print lift, including offset
-   transitions. Raise once and retain that lift through retries.
-3. Dock/pick up, verify success, apply the new offsets and flow, activate
-   the extruder, wait for its existing target, and wipe.
-4. `_WMP_TOOL_RETURN_FINISH` evaluates after those commands execute.
-   On success while still printing/unpaused, maintain at least original
-   Z+2, return XY at 200 mm/s, then lower to the original logical Z.
-5. Consume the pending return and restore the caller's modes/feedrate/
-   override without changing the new tool's flow or issuing any E movement.
+1. `_WMP_TOOL_RETURN_BEGIN` saves logical G-code XYZ, coordinate modes, feedrate,
+   and speed override before docking.
+2. Check that XYZ is homed and enough Z travel remains for the 2 mm lift,
+   including tool-offset changes. Lift once and keep it through retries.
+3. Pick up the tool, verify success, apply its offsets and flow, activate its
+   extruder, wait for its existing temperature target, and wipe.
+4. `_WMP_TOOL_RETURN_FINISH` checks the resulting live state. If still printing
+   and unpaused after success, return XY with at least 2 mm clearance, then lower Z.
+5. Clear the pending return and restore modes, feedrate, and speed override.
+   Keep the new tool's flow setting and issue no extrusion move.
 
-The return uses the new tool's coordinate transform. No full
-`RESTORE_GCODE_STATE` is used for the toolchange. The existing wipe's local
-state restore remains valid because it runs after new-tool setup.
+A terminal failure clears the retry flag, does not wipe or return, and leaves
+the lift in place. A later tool change captures a new destination. Starting a new
+change also resets any unfinished return information.
 
-Startup, manual/paused, same-tool and save_position=0 operations do not return
-to a print position. print_stats is already "printing" during START_PRINT;
-the body-ready gate prevents a post-mesh toolchange from returning to the
-last mesh point. Homed idle tool selection establishes the calibration
-minimum of 7 mm even for the already-loaded tool; the display sends T0
-before PROBE_CALIBRATE. Printing retains its separate 2 mm relative lift.
+Homed idle selection establishes a separate minimum 7 mm clearance, even when
+selecting the mounted head. This covers the screen's T0 command before offset
+calibration. Printing keeps its relative 2 mm lift.
 
-Terminal failure clears the retry flag so `_CHECK_CHANGE_TOOL_AGAIN`
-cannot mistake the vendor's subsequently cleared fail_flag for success.
-A failed change never wipes or returns and leaves its print lift in place.
-A later change captures a new destination. An interrupted macro cannot run
-a stale finish automatically; the next `_CHANGE_TOOL` resets its context.
+## Why the coordinates are saved explicitly
 
-## Why the contributed SAVE/RESTORE needed reconciliation
+A full `RESTORE_GCODE_STATE` can apply the old tool's coordinates or flow to the
+new tool. In the reviewed vendor implementation, it saves raw coordinates but
+does not restore the XYZ base/homing coordinates. For example, logical X100 with
+old offset +1 saves raw X101; applying a new +3 offset before restoring can yield
+logical X98. Restoring earlier produces a different wrong result.
 
-The vendor's bare printer_state/save_position names were undefined in
-`_CHANGING_TOOL`. Enabling them alone returns before success/offset/wipe
-handling. The proposed MOVE_SPEED=12000 is mm/s; the stated 200 mm/s intent
-corresponds to G1 F12000.
+WM+ saves logical coordinates and restores only the needed modes and speed.
+The wipe's local save/restore remains valid because it happens after new-tool setup.
 
-Tests executing the extracted vendor state methods establish that SAVE
-stores raw coordinates, while RESTORE does not restore XYZ base/homing
-coordinates. Logical X100 with old offset +1 saves raw X101: restoring it
-before applying new offset +3 produces logical X101; restoring after the
-new offset produces X98. Full RESTORE also overwrites the new tool's flow
-factor with the old tool's factor. Capturing logical coordinates and
-restoring only the needed modes avoids these problems.
+The earlier contributed return also used undefined variable names and returned
+before success and wipe handling. Its `MOVE_SPEED=12000` was in mm/s;
+200 mm/s corresponds to `G1 F12000`, since G-code feedrate is in mm/min.
 
-## Validation
+## Tests and practical limits
 
-`tests/test_toolchange_return.py` expands the actual nested Jinja macros
-at execution time. Hardware contact checks and heater waits are stubbed.
-Cases include success, retry-success, terminal pickup/sequence failures,
-logical coordinates across different offsets, retained new-tool flow,
-absolute/relative modes, speed overrides, no-return paths, missing homing,
-Z limits, and a new change following a failed one. Additional cases cover
-calibration clearance and idle same-tool selection before offset moves.
+`tests/test_toolchange_return.py` expands nested macros in execution order. It
+covers successful and retried changes, terminal failures, changed offsets, flow
+preservation, coordinate modes, overrides, no-return cases, missing homing,
+Z limits, and the next change after a failure. Heater waits and hardware contacts
+are simulated. Three vendor-method checks require local firmware extracts.
 
-The three vendor-method checks require the local extracted firmware source
-and skip when it is unavailable. The remaining sequence checks run without
-firmware artifacts.
-
-Supervised acceptance remains: a normal small print with a toolchange,
-checking pickup → wipe → XY return → Z descent, clearance and resumed
-extrusion. Retain surrounding slicer G-code and klippy.log if behavior
-needs investigation. Failed pickups are tested offline, not induced.
+For a new firmware or geometry, observe a normal small tool-changing print:
+pickup, wipe, XY return, Z descent, then extrusion. Local sequence tests cannot
+measure physical clearance. Save surrounding slicer commands and `klippy.log`
+if motion needs investigation.

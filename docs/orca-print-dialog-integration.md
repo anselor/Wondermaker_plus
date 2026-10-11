@@ -1,65 +1,78 @@
-# Adding the touchscreen's print-start options to OrcaSlicer
+# Set print-start options from OrcaSlicer
 
-Captured live from the WonderMaker U1 touchscreen (`TM_T1/bin/client`)
-starting a print over its Moonraker websocket, 2026-08-18. Everything below
-is plain Moonraker API / gcode — Orca can reproduce it with its existing
-"send gcode on print start" hooks or a post-processing script.
+The printer's bed-leveling and timelapse options can be sent as G-code before
+`START_PRINT`. OrcaSlicer's normal Moonraker upload-and-print flow needs no change.
+The commands below were observed from the U1 touchscreen on August 18, 2026.
 
-## What the screen sends when you press "start print"
+## Bed leveling
 
+Send one of these before `START_PRINT`, for example in machine start G-code:
+
+```gcode
+G30
 ```
-_SET_TIMELAPSE_SETUP ENABLE=True VERBOSE=False PARK_ENABLE=False PARK_POS=back_left
-                     CUSTOM_POS_X=10.0 CUSTOM_POS_Y=10.0 CUSTOM_POS_DZ=0.0
-                     TRAVEL_SPEED=100 RETRACT_SPEED=15 EXTRUDE_SPEED=15 RETRACT_DI...
-HYPERLAPSE ACTION=STOP          # clear any stale hyperlapse session
-G30                             # leveling toggle ON  (G31 = OFF)
+
+`G30` requests a fresh mesh. Use `G31` instead to load the saved default mesh.
+The fresh mesh may use slicer-supplied bounds, native adaptive probing, or the
+full configured area. With WM+, both choices keep a separate recovery copy;
+see [mesh handling](print-mesh-recovery.md#bed-mesh-and-tool-reference).
+
+## Timelapse
+
+Enable recording at print start:
+
+```gcode
+_SET_TIMELAPSE_SETUP ENABLE=True VERBOSE=False PARK_ENABLE=False
+HYPERLAPSE ACTION=STOP
+```
+
+Add this to OrcaSlicer's layer-change custom G-code:
+
+```gcode
+TIMELAPSE_TAKE_FRAME
+```
+
+The installed `moonraker-timelapse` component uses layer-macro mode and automatic
+rendering at print end. `TIMELAPSE_RENDER` renders on demand. Output is saved under
+`~/printer_data/timelapse/`. `HYPERLAPSE ACTION=STOP` clears an earlier interval-based
+recording session; the observed screen sequence sends it before starting a print.
+
+To disable recording, use `_SET_TIMELAPSE_SETUP ENABLE=False`.
+The screen sends its setup command when the timelapse toggle changes, so set it
+explicitly when you want the slicer to choose the behavior.
+
+## Camera selection
+
+The vendor's timelapse lookup expects a camera name, but the screen stores a camera
+UUID. The failed lookup falls back to the first webcam, which can be WM+'s
+Touchscreen panel. That records the LCD rather than the print.
+
+The WM+ touchscreen installation resets the timelapse camera to the print camera
+on boot. You can also set it manually; replace `camera` if your camera has a
+different name:
+
+```bash
+curl -X POST 'http://<printer>/machine/timelapse/settings?camera=camera'
+```
+
+Using the screen's camera picker afterward can override this again. The vendor's
+snapshot-URL settings API raised `UnboundLocalError` in the reviewed version, so
+changing that URL through the API is not a workaround.
+
+## Observed screen commands
+
+The captured sequence ended with:
+
+```gcode
+HYPERLAPSE ACTION=STOP
+G30
 SDCARD_PRINT_FILE FILENAME="<file>.gcode"
 ```
 
-(The `_SET_TIMELAPSE_SETUP` line is actually sent whenever the timelapse
-toggle changes, not only at start.)
+The screen's setup also supplied parking coordinates and movement settings, with
+parking disabled. Enable parking only if you want a head move for each frame;
+those settings belong to `_SET_TIMELAPSE_SETUP`.
 
-## The two toggles
-
-### Bed leveling toggle -> `G30` / `G31`
-Vendor macros (in stock `macros.cfg`): `G30` sets
-`adaptive_mesh_enable=True` so `START_PRINT` probes a fresh (adaptive) mesh;
-`G31` sets it False so START_PRINT loads the saved default mesh instead.
-Orca integration: emit `G30` or `G31` as the first line of the print (or via
-machine start gcode with a user toggle), before `START_PRINT` runs.
-
-### Timelapse toggle -> moonraker-timelapse component
-Standard `moonraker-timelapse` is installed (`[timelapse]` in
-moonraker.conf), configured in **layermacro** mode with `autorender: true`.
-Frames are taken whenever the `TIMELAPSE_TAKE_FRAME` macro runs; the vendor
-UI fires it over the API on its own layer tracking. For Orca the standard
-integration is simpler and independent of the UI:
-
-- Enable: `_SET_TIMELAPSE_SETUP ENABLE=True ...` at print start (or once,
-  via `POST /machine/timelapse/settings?enabled=true`).
-- Put `TIMELAPSE_TAKE_FRAME` in Orca's layer-change custom gcode.
-- Rendering happens automatically at print end (`autorender`), or on demand
-  with `TIMELAPSE_RENDER`. Output lands in `~/printer_data/timelapse/`.
-
-## Gotcha: the timelapse camera selection is broken on stock
-
-The vendor's `timelapse.py` looks the camera up by NAME in the webcam
-registry, but the touchscreen stores a UUID -> lookup always misses and
-falls back to the FIRST webcam. With the Wondermaker+ touchscreen panel
-installed, that first entry is the "Touchscreen" camera, so timelapses
-record screenshots of the LCD instead of the print. Fix (survives until
-someone touches the screen's camera picker again):
-
-```
-curl -X POST "http://<printer>/machine/timelapse/settings?camera=camera"
-```
-
-Also: `snapshoturl` cannot be set via the settings API (vendor bug:
-UnboundLocalError), and `SET_TIMELAPSE_SETUP`'s park options are available
-if head-parking per frame is ever wanted (screen sends PARK_ENABLE=False).
-
-## Print start itself
-
-The screen uses the gcode form `SDCARD_PRINT_FILE FILENAME="..."`; the
-JSON-RPC equivalent `printer.print.start` works identically. Orca's normal
-Moonraker upload-and-print flow needs no change.
+`SDCARD_PRINT_FILE` and the Moonraker JSON-RPC `printer.print.start` method both
+start the selected file. For ordinary OrcaSlicer use, retain its existing print
+request and put the desired options in the file before `START_PRINT`.

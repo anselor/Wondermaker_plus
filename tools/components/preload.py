@@ -15,7 +15,7 @@ import posixpath
 from .touchscreen import run, shq
 
 NAME = "preload"
-DESCRIPTION = "LD_PRELOAD patches for the touchscreen client"
+DESCRIPTION = "Touchscreen fixes and head-configuration protection"
 NEEDS_SSH = True
 NEEDS_SUDO = True
 RESTART_AFTER = None
@@ -56,7 +56,12 @@ def _restart(ctx, c):
     run(c, "systemctl daemon-reload && systemctl restart %s" % SERVICE, sudo=True, stream=False)
     _, _, rc = run(c, "sleep 4; systemctl is-active %s" % SERVICE, stream=False)
     if rc != 0:
-        raise ctx.DeployError("%s is not active after restart" % SERVICE)
+        raise ctx.DeployError("%s did not start. Check its service log before printing." % SERVICE)
+
+
+def preflight(ctx):
+    import preflight as checks
+    checks.preload(ctx)
 
 
 def install(ctx):
@@ -75,7 +80,7 @@ def install(ctx):
             raise ctx.DeployError("build of %s failed:\n%s%s" % (name, out, err))
         print("built %s" % lib)
     libs = _write_dropin(ctx, c)
-    print("drop-in %s: LD_PRELOAD=%s" % (DROPIN, libs))
+    print("Screen service override %s: LD_PRELOAD=%s" % (DROPIN, libs))
     _restart(ctx, c)
     status(ctx)
 
@@ -86,22 +91,23 @@ def uninstall(ctx):
         run(c, "rm -f %s/lib/libwmp_%s.so" % (_home(ctx), name), stream=False)
     run(c, "rm -f %s" % DROPIN, sudo=True, stream=False)
     _restart(ctx, c)
-    print("removed drop-in and built libraries; client restarted without preload")
+    print("Removed the WM+ screen service override and patch libraries; restarted the screen.")
 
 
 def status(ctx):
     c = ctx.ssh()
     out, _, _ = run(c, "cat %s 2>/dev/null" % DROPIN, stream=False)
-    print("drop-in:  %s" % (out.strip().replace("\n", " ") if out.strip() else "absent"))
+    print("Service override: %s" % (out.strip().replace("\n", " ") if out.strip() else "absent"))
     out, _, _ = run(c, "ls %s/lib/libwmp_*.so 2>/dev/null" % _home(ctx), stream=False)
-    print("libs:     %s" % (out.strip().replace("\n", " ") or "none"))
+    print("Library files:    %s" % (out.strip().replace("\n", " ") or "none"))
     pid, _, _ = run(c, "pidof client", stream=False)
     pid = pid.strip().split()[0] if pid.strip() else ""
-    print("client:   %s" % ("pid " + pid if pid else "not running"))
+    print("Screen process:   %s" % ("pid " + pid if pid else "not running"))
     out, _, _ = run(c, "[ -n %s ] && grep -o '/home/[^ ]*libwmp_[^ ]*' /proc/%s/maps | sort -u" %
                     (shq(pid), shq(pid)), sudo=True, stream=False)
-    print("loaded:   %s" % (out.strip().replace("\n", " ") or "none"))
-    for label, path in (("wifi-fix", "/tmp/wmp_wififix.log"),
+    print("Loaded libraries: %s" % (out.strip().replace("\n", " ") or "none"))
+    for label, path in (("head-config-guard", "/tmp/wmp_head-config-guard.log"),
+                        ("wifi-fix", "/tmp/wmp_wififix.log"),
                         ("fan-fix", "/tmp/wmp_fanfix.log"),
                         ("recovery-fix", "/tmp/wmp_recoveryfix.log"),
                         ("openace-compat", "/tmp/wmp_openace_compat.log")):
@@ -110,5 +116,5 @@ def status(ctx):
             out, _, _ = run(c, command, stream=False)
         else:
             out = ""
-        result = out.strip() or "no entry for current client"
+        result = out.strip() or "no log entry for the running screen process; patch application is unconfirmed"
         print(("%-14s" % (label + ":")) + result)

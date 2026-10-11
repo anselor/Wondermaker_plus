@@ -58,3 +58,56 @@ close and reopen the Fluidd camera iframe to discard the cached JavaScript.
 First-time users can check out this same tag and follow the main README for a
 full installation on vendor firmware 1.1.12. This release does not contain the
 pending 1.1.13 configuration or installer-preflight changes.
+
+## fw-1.1.13-r1 — firmware support and head-configuration protection
+
+The full configuration targets **vendor System 1.1.13**. Install that vendor
+firmware first; this release requires its collision-detection and calibration
+modules. For vendor 1.1.12, keep using `fw-1.1.12-r1`.
+
+This release:
+
+- Incorporates vendor 1.1.13 calibration collision monitoring while retaining
+  WM+ clearance moves, and adds verified 1.1.13 profiles to the client patches.
+- Blocks the vendor client's destructive automatic head reset after communication
+  timeouts. Klipper remains stopped; fix the fault and recover manually. This
+  does not repair USB/CAN faults or protect every vendor discovery/installer path.
+- Validates all selected components before installation, including required
+  helpers, effective configuration includes, nginx, and native binary guards.
+  Failed preflight installs nothing; later runtime failures do not automatically
+  undo earlier changes. Running and paused prints block installation.
+- Includes the previously unpublished bounded print-end bed drop and nozzle wipe,
+  openACE rollback assistance during tip shaping, and documentation/message cleanup.
+  openACE-specific routing and rollback behavior still requires openACE detection.
+- Retains the touchscreen rendering hotfix and fixes verification of quiet streams.
+
+The complete deployment was installed on October 10, 2026. Klipper returned Ready
+with four heads; identities, saved settings, and openACE configuration were
+preserved. All five patches reported successful application, and the guard's
+live callback jump was inspected. The updated screen page, JPEG snapshot, and
+live binary stream passed checks. Print/tool-change/calibration acceptance and
+behavior during a real guarded communication fault remain pending. The final
+local project and material-helper suite passed 228 tests; release hygiene checks
+and local documentation links also passed.
+
+| Component | Compatibility in this snapshot |
+|---|---|
+| Full printer configuration | System 1.1.13 |
+| Fan, recovery, openACE, and head-configuration preloads | Reviewed clients 1.1.08, 1.1.12, and 1.1.13 |
+| Wi-Fi preload | Reviewed clients 1.1.04, 1.1.08, 1.1.12, and 1.1.13 |
+| Touchscreen bridge | No new vendor calibration module required |
+
+From an existing checkout with a clean working tree:
+
+```bash
+git fetch origin --tags
+git switch --detach fw-1.1.13-r1
+uv run --with paramiko python tools/deploy.py install all --preflight-only
+uv run --with paramiko python tools/deploy.py install all
+uv run --with paramiko python tools/deploy.py status
+```
+
+Set your printer connection in ignored `.env`, and install only while idle.
+Hard-refresh the touchscreen page after updating. Read the
+[1.1.13 analysis](firmware-1.1.13.md) and
+[head-configuration guard limits](head-communication-recovery.md) for details.

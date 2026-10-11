@@ -1,424 +1,301 @@
-# Printer configuration: stock vs live
+# Printer configuration
 
-- **`stock/`** — latest vendor baseline, **System_1.1.12** (2026-09-21),
-  kept as a real directory. Built from the sanitized installed 1.1.08
-  snapshot and the verified 1.1.12 door-input delta. Retains the installed
-  model's zru-s include and reference files
-  absent from the System package. SAVE_CONFIG and CAN UUIDs remain sanitized.
-  Previous baselines are archived unchanged in **`stock_1.1.08/`**,
-  **`stock_1.1.04/`** and **`stock_1.0.71/`**. Provenance and reconciliation:
-  [1.1.12 integration notes](../docs/firmware-1.1.12.md).
-  Never put W+ modifications in stock; make those in live with markers.
-- **`live/`** — what runs on the printer. Started as an exact copy of
-  `stock/`; every deliberate change is wrapped in markers:
+`config/live/` contains the WM+ configuration you can install.
+`config/stock/` contains the vendor baseline used to compare it. The current
+baseline is **System 1.1.13** and requires that firmware's calibration modules.
+It has passed local checks; printer testing for 1.1.13 is still pending.
 
-  ```
-  # >>> wondermaker+ begin: <change-id> (<origin>)
-  # Why: <rationale>
-  ...
-  # <<< wondermaker+ end: <change-id>
-  ```
+Your printer's calibration and hardware identifiers stay on your printer.
+The repository contains sanitized reference files, not another machine's
+calibration to copy.
 
-  See all changes at a glance: `diff -r config/stock config/live`
-  Deploy / compare against the printer: `utils/config_sync.py` (below).
+## Install and compare
 
-Excluded from both (runtime state, not configuration): rotating
-`printer-*.cfg` backups, `saved_variables.cfg`, `tmt1.ini`,
-on-printer `*.wmp-backup*` files.
-
-## Deploying with config_sync.py
-
-Install the live configuration with:
+Set connection details using the [project README](../README.md), then run:
 
 ```bash
+uv run python tools/deploy.py status config --diff
+uv run --with paramiko python tools/deploy.py install config --preflight-only
 uv run --with paramiko python tools/deploy.py install config
 ```
 
-**Full installation requires SSH.** The config component first installs the required
-`klipper_extras/wmp_recovery.py` into Klipper's extras directory, then uploads
-configuration over Moonraker and restarts Klipper. The `[wmp_recovery]` section
-in printer.cfg cannot load without that module.
+Full installation copies the required `klipper_extras/wmp_recovery.py` helper
+into Klipper's extras directory, backs up and uploads changed configuration,
+and restarts Klipper. The helper establishes Z at the bottom before unreferenced
+tool pickup. `printer.cfg` requires it to load.
 
-For subsequent config updates, deploy over **Moonraker HTTP only**, without SSH
-or paramiko:
+For later updates, HTTP is enough if the matching helper is already installed:
 
 ```bash
 uv run python tools/deploy.py install config --config-only
 uv run python tools/deploy.py install config --config-only --files macros.cfg
 ```
 
-The matching `klipper_extras/wmp_recovery.py` must already be installed.
-`--config-only` skips installing that module; it does not verify its version.
-Run the full SSH installation again when the module changes or a vendor firmware
-update removes it. Add `--no-restart` to upload without restarting Klipper.
+Use full installation again when the helper changes or vendor firmware removes
+it. HTTP checks the running helper's expected status fields but cannot compare
+its source. Add `--no-restart` to defer loading the uploaded configuration.
+Installation refuses changes during running or paused prints or when the printer's
+state cannot be established. A failure during upload may leave some changes applied.
 
-`utils/config_sync.py` transfers config over **Moonraker's HTTP API**. Diff and
-pull need no SSH. Use direct `push` only after the matching required extra has
-been installed; it does not install Python modules. The deploy wrapper's
-`--config-only` option uses this same HTTP push path.
+Power-loss recovery also requires the `preload` component. Before updating an
+interrupted print, read the [checkpoint upgrade limits](../client-preload/README.md#upgrading-with-an-interrupted-print).
 
-```bash
-uv run python utils/config_sync.py diff            # show what differs from the printer
-uv run python utils/config_sync.py diff --patch    # show content differences, printer -> repo
-uv run python utils/config_sync.py push            # upload changed files, then restart Klipper
-uv run python utils/config_sync.py push macros.cfg # push only the named file(s)
-uv run python utils/config_sync.py pull DIR        # download the printer's config to inspect
+## What stays on your printer
+
+| Data | How it is preserved |
+|---|---|
+| Bed mesh, input shapers, probe offsets | The target printer's `SAVE_CONFIG` block is retained when uploading `printer.cfg` |
+| CAN bus identifiers in `wm_zru_*.cfg` | These files are excluded from comparison and upload |
+| Tool offsets in `saved_variables.cfg` | Runtime file is excluded |
+| Filament settings in `tmt1.ini` | Runtime file is excluded |
+| Backups and recovery state | Runtime files and existing WM+ backups are excluded |
+
+The repository owns the body of `printer.cfg`, above `SAVE_CONFIG`.
+Comparison ignores the printer-owned block. Upload joins the new body with the
+printer's existing block. Set input-shaper values using
+[the resonance tools](../utils/README.md), not a reference copy of `printer.cfg`.
+
+Earlier Git history contains one machine's calibration and identifiers. If creating
+a sanitized public history, start from the current tree rather than assuming that
+older commits are sanitized too.
+
+## Current changes
+
+### Probe with the first print tool
+
+Enabled by default, this homes Z and measures a fresh bed mesh with the physical
+head that will print first. It can avoid fetching and returning T0 unnecessarily.
+The choice is saved per printer:
+
+```gcode
+PROBE_WITH_INITIAL_TOOL ENABLE=0
+PROBE_WITH_INITIAL_TOOL ENABLE=1
+PROBE_WITH_INITIAL_TOOL
 ```
 
-On push it:
+The last command reports the setting. Existing opt-outs remain effective.
+A saved-default mesh still uses physical T0, the head used to calibrate it.
+`G29` explicitly selects physical T0 even if slicer T0 is mapped to another head.
 
-- backs up each replaced file on the printer as `<name>.wmp-backup-<timestamp>` first,
-- firmware-restarts Klipper and confirms it returns to **Ready** (fails loudly if not),
-- refuses to run while a print is in progress,
-- accepts `--no-restart` (upload only) and `--ssh` (use SFTP if Moonraker is down).
+A **logical tool** is a slicer's T0–T3 selection; a **physical tool** is a printer
+head. WM+ resolves the mapping before choosing a probe head. With openACE it uses
+`tool_extruder_index`; otherwise it uses the vendor `box_modify_t*` variables.
+Missing openACE mapping data stops startup rather than selecting a guessed head.
+Tool offsets are applied relative to the head that probed the bed.
 
-For the SFTP fallback, put `--ssh` before the subcommand:
-`uv run --with paramiko python utils/config_sync.py --ssh push --no-restart`.
-Restart and readiness checks still require Moonraker when `--no-restart` is omitted.
+Fresh and saved-default starts both save a separate `wmp_print` mesh for recovery.
+They preserve the normal `default` calibration. The
+[recovery guide](../docs/print-mesh-recovery.md) explains the saved print information
+and checks.
 
-**Your printer-specific calibration is preserved on every push:**
+### Pause, resume, and openACE
 
-- **Bed mesh, input shapers, probe offsets** — `printer.cfg`'s SAVE_CONFIG
-  block is read live from the printer and spliced back onto the pushed file,
-  so it is never overwritten.
-- **CAN bus UUIDs** (`wm_zru_*.cfg`) — never pushed.
-- **Tool offsets and filament settings** (`saved_variables.cfg`, `tmt1.ini`) —
-  never touched.
+Before pausing, WM+ saves the current slicer-to-head mapping. Resume restores it,
+so a Fluidd pause does not load a different color from stale touchscreen settings.
+The screen can still deliberately remap a spool while paused.
 
-Target the printer with `WMP_PRINTER` (and `WMP_USER` / `WMP_PASS` for `--ssh`).
+Pause parks at Y20 instead of Y1 to leave more front clearance.
+`REHOME` requests a deliberate X/Y rehome; it can shift the resumed print's
+alignment. The old automatic paused-homing workaround was removed when vendor
+1.1.04 changed its resume behavior.
 
-`uv run python tools/deploy.py status config --diff` shows the same content
-preview. New files are included; printer.cfg's SAVE_CONFIG and machine-owned
-files are excluded using the same ownership rules as push.
+`[include openace*.cfg]` keeps optional openACE configuration connected when WM+
+replaces `printer.cfg`. It matches nothing on printers without openACE.
+The [compatibility preload](../client-preload/README.md#openace-compatibility)
+lets openACE handle the screen's Resume request and routes screen heater commands
+to physical heads. Pause/resume heater restoration also uses physical heater names.
 
-## Reviewing future firmware migrations
+### Tool changes and wiping
 
-Archive the current stock as `stock_<old-version>/` before updating `stock/`
-with verified vendor changes. Keep the new baseline's provenance separate
-from machine-specific preferences. Reconcile W+ edits before deploying.
-The community-inspired helper can review that merge:
+Successful tool changes wipe the new nozzle, then return to the saved print
+position at 200 mm/s with a 2 mm lift before lowering to the printing height.
+Startup, idle selection, paused changes, same-tool selection, and changes without
+position saving do not use that print-return path. A failed change does not wipe
+or return. See [the sequence and tests](../docs/toolchange-return.md).
 
-```sh
-uv run python tools/update_config_base.py config/stock_1.1.08 config/stock config/live
+T0–T3 calls preserve the slicer's feedrate so docking or wiping does not slow later
+moves. The wipe saves and restores its local motion state. `wipe_speed` in
+`live/fz-wipe-nozzle.cfg` controls wipe speed; the WM+ default is 200 mm/s.
+
+Calibration and homed idle tool/wipe travel establish at least 7 mm clearance in
+both G-code and physical coordinates, without lowering a higher position.
+Print tool changes retain their separate 2 mm lift. These values follow the
+existing printer geometry; they are not a guarantee of clearance for every part.
+Firmware 1.1.13's collision monitor remains enabled around tool-alignment probing.
+
+### Filament loading and unloading
+
+Use **Load** on the screen to feed inserted filament. The insertion sensor reports
+that filament is present rather than starting a second automatic load/purge cycle.
+
+Load and unload moves require homed X, Y, and Z. During a running print, pause
+first. The service move raises clearance by up to 5 mm within Z travel, exits
+along X, and travels along the left side to X-13 Y80. Paused runout changes remain
+supported.
+
+Unloading shapes the filament tip to reduce blobs and strings, then turns off the
+heater, runs the part fan, waits five seconds, and wipes. Material determines the
+sequence and temperature:
+
+| Class | Materials | Temperature (°C) | Sequence source |
+|---|---|---|---|
+| `pla` | PLA, PVA, Marble, PA, PC | 250; PA 280; PC 300 | Snapmaker U1 1.6.0 |
+| `abs` | ABS, ASA, HIPS, Wood | 280; Wood 250 | Snapmaker U1 1.6.0 |
+| `soft` | TPU, TPE | 250 | Snapmaker U1 1.6.0 |
+| `petg` | PETG, PCTG, PET | 235 for PETG/PET; unlisted names use the configured floor | Prusa MMU3 PETPG profiles |
+
+PLA/ABS sequences alternate fast pulls, slower pulls, and reinsertion. Soft
+filament uses a shorter sequence. PETG uses a push, fast pull, three cooling
+moves, reinsertion, and extraction. Net retraction is 57 mm, or 67 mm for PETG.
+The PETG push skipped some extruder steps on the test machine; its extra extraction
+length accounted for that observation.
+
+Install `material` to read the screen's slot materials:
+
+```bash
+uv run --with paramiko python tools/deploy.py install material
+```
+
+`WM_MATERIAL_STATUS` reports them. Without that helper, unload guesses from the
+hotend target: 225–235°C selects `soft`, at least 255°C selects `abs`, and other
+targets select `pla`. PETG and ABS can both arrive at 250°C, so temperature alone
+cannot distinguish them. Use the helper or an explicit `MATERIAL=PETG`.
+
+Advanced controls in `_TIP_SHAPE_RETRACT` include `unload_temps`,
+`unload_temp_min`, `MATERIAL=`, and `TEMP_MIN=`. A floor of zero disables temperature
+adjustment. `_TIP_SHAPE_RETRACT DRY_RUN=1` reports its choice without movement.
+`CLASS=pla|abs|soft|petg` goes directly to the movement sequence, skipping material
+and temperature selection; use it only with the head prepared at temperature.
+PETG movement controls are `cooling_moves`, `cooling_len`, `cooling_speed_list`,
+and `stamp_len` in `_TIP_SHAPE_MOVES`.
+
+During openACE unload, WM+ enables rollback assist just before the fast withdrawal
+so the ACE takes up filament rather than pushing it against the head cover.
+It turns assist off after the last pull, before cooling: an ACE 2 was observed
+to error about one second after pulling stopped while assist remained active.
+The hooks do nothing outside an openACE unload.
+
+### Startup, print end, and cooling
+
+The startup purge runs on the plate's left edge at X0, Y100–150. The previous
+front-edge position could strike the front panel. The earlier Y2 workaround is
+superseded by this left-edge route.
+
+At print end, `PRINT_END.variable_bed_drop` defaults to lowering the bed by up to
+50 mm, limited by the bottom endstop. It wipes only while X, Y, and Z remain homed,
+then leaves the head over the left brush.
+
+Final cooldowns in `NOZZLE_PREPARE` and `POP` wait only until temperature falls
+below their upper limits (102.5°C and 104.5°C). An undershoot does not require
+reheating. Other heating, probing, and wipe-temperature waits retain their bands.
+
+The auxiliary-fan cooling detour was removed after measurements found no benefit
+over the part fan alone. See [the experiment](../docs/cooling-assist.md).
+The proposed `START_PRINT CHAMBER` heating changes remain deferred: current startup
+does not use that parameter. Separate `M141`/`M191` chamber commands remain available.
+
+### Motion limits and bottom-Z recovery
+
+The WM+ maximum acceleration is 5,000 mm/s², reduced from the vendor's 20,000.
+The test printer's shaper fits suggested roughly 2,600–4,400 mm/s² limits; those
+results are specific to that machine. Its historical X/Y shaper values are not
+installed on other printers because saved calibration is preserved.
+
+The required `wmp_recovery` helper tracks actual Z homing. It invalidates that
+reference when the Z motor is disabled or Klipper restarts. Assigning software
+coordinates cannot mark Z as physically homed. Tool selection with no valid Z
+reference homes the bed to the bottom before X/Y homing and pickup.
+
+Recovery restores the exact print mesh, probing head, offsets, and tool mapping.
+It shuts Klipper down if required saved information is missing or mismatched,
+blocking later touchscreen motion requests. The vendor's later return still has
+clearance and checkpoint limits; see the [recovery guide](../docs/print-mesh-recovery.md).
+
+## Direct configuration transfers
+
+Prefer `tools/deploy.py install config`, which also checks required helpers.
+`utils/config_sync.py` is the lower-level transfer tool and does not install Python
+modules or run the deploy tool's full installation checks:
+
+```bash
+uv run python utils/config_sync.py diff
+uv run python utils/config_sync.py diff --patch
+uv run python utils/config_sync.py pull /tmp/printer-config
+uv run python utils/config_sync.py push
+uv run python utils/config_sync.py push macros.cfg
+```
+
+Push backs up replaced files as `<name>.wmp-backup-<timestamp>`, uploads changes,
+and checks that Klipper returns to Ready after restarting. `--no-restart` uploads
+only. Direct push checks for a running print; use the deploy wrapper for its
+stronger paused-print and uncertain-state checks.
+
+If Moonraker is unavailable, SFTP can transfer files:
+
+```bash
+uv run --with paramiko python utils/config_sync.py --ssh push --no-restart
+```
+
+Put `--ssh` before the subcommand. Restart and readiness checks still need
+Moonraker. Review the target state yourself before using this fallback.
+
+## Firmware updates and baseline maintenance
+
+The baseline is a sanitized installed-model snapshot with verified vendor changes
+applied. It preserves model-specific includes and reference files absent from
+factory packages. Earlier baselines remain in `stock_1.1.12/`, `stock_1.1.08/`,
+`stock_1.1.04/`, and `stock_1.0.71/`.
+
+For a future update, archive the old stock directory, compare the vendor package,
+then merge verified changes into stock and WM+ live configuration. Keep WM+ edits
+in live with markers:
+
+```text
+# >>> wondermaker+ begin: <change-id> (<origin>)
+# Why: <reason>
+...
+# <<< wondermaker+ end: <change-id>
+```
+
+Compare changes with `diff -r config/stock config/live`. Klipper rewrites
+`SAVE_CONFIG`, so saved calibration cannot use these comment markers.
+
+The migration helper creates a candidate for review:
+
+```bash
 uv run python tools/update_config_base.py OLD_STOCK NEW_STOCK LIVE --output /tmp/wmp-candidate
 ```
 
-It never changes stock or live, and the output directory must be new.
-Candidates exclude UUID/runtime files and printer.cfg's SAVE_CONFIG. Review
-reported conflicts, added/removed files and lost change markers before
-copying reconciled files into live. Exit 1 means review remains; exit 2 means
-a tool/input error and no candidate is published. A clean textual merge
-does not verify printer motion. The helper does not install firmware or
-automatically rotate/promote baselines.
+The output directory must be new. The tool excludes machine-owned data and reports
+conflicts, file additions/removals, and lost change markers. It does not modify
+stock/live or install firmware. Exit 1 means review remains; exit 2 means an input
+or tool error and no candidate is published. A clean text merge does not verify
+printer motion.
 
-## Per-machine calibration is NOT in this repo
+Firmware records: [1.1.13](../docs/firmware-1.1.13.md),
+[1.1.12](../docs/firmware-1.1.12.md), [1.1.08](../docs/firmware-1.1.08.md).
 
-So the repo is shareable without pushing one machine's calibration onto
-another, `config_sync.py` enforces split ownership:
+## Touchscreen actions that can replace settings
 
-- **`printer.cfg`**: the repo owns the body (macros, limits, marked edits);
-  **the printer owns its SAVE_CONFIG block** (bed mesh, input shaper, probe
-  offsets). The repo copies are truncated above the block; `push` splices
-  the target printer's own SAVE_CONFIG back on, and `diff` compares bodies
-  only. Set your shaper values with `utils/resonance.py apply`.
-- **`wm_zru_*.cfg`**: unique per machine (CAN bus UUIDs). Kept here only as
-  sanitized reference (`REPLACE_WITH_YOUR_UUID`); never diffed or pushed.
-- `saved_variables.cfg` (tool offsets etc.) and `tmt1.ini` are never touched.
+The vendor's toolhead-count setup replaces `printer.cfg` with a factory template
+and blanks tool-board CAN identifiers. Restore your own identifiers and calibration
+from backups before reapplying WM+; its sanitized references cannot recover them.
 
-Note if publishing: git history from before this sanitization contains one
-machine's mesh/UUIDs — start public history from the current tree (squash)
-if that matters to you.
+Screen resonance calibration replaces saved input-shaper values. Other calibration
+flows also rewrite `SAVE_CONFIG`; compare configuration afterward.
+Tool-offset calibration disables X/Y motors, so those axes need homing again.
+The screen's resume flow can override saved nozzle temperatures.
 
-Exception to the marker rule: the SAVE_CONFIG block of `printer.cfg` cannot
-contain comments (Klipper rewrites it), so SAVE_CONFIG-level changes (like
-shaper values) are documented only in this file.
+Firmware analysis also found plain-HTTP update downloads, an unattended boot-image
+update triggered by USB `boot.img`, and a connectivity check to a personal Gitee
+repository. These are vendor behaviors, not WM+ configuration changes.
 
-## Current modifications
+## Earlier contributions and proposals
 
-> **1.1.08 reconciliation (2026-09-13).** All active W+ changes below are
-> retained. Adopted vendor physical-heater waits, M104/M109 selection,
-> PAUSE reset-before-shutdown, idle-timeout physical-heater shutdown, and
-> disabled door-button registrations. PAUSE keeps our mapping snapshot
-> before the reset. Camera settings and parameterized calibration temperatures
-> are unchanged. The community XY return now runs after verified success and
-> wiping, with logical-coordinate capture and failure/retry handling
-> ([sequence](../docs/toolchange-return.md)). Calibration and homed idle tool/
-> wipe travel establish a 7 mm minimum; print changes retain their 2 mm lift.
-> Hardware acceptance remains in [the integration notes](../docs/firmware-1.1.08.md).
-> Deployed 2026-09-13: config matched, Klipper Ready, and client patches loaded.
-> Updated 2026-09-14: two-color prints and power-loss recovery passed with
-> T0 and T2 probing references and remapped tools. The chamber-fan cooling
-> experiment was removed after measurement; the final suite passes 125 tests.
+The vendor has incorporated the older load-wipe and print-end changes, and changed
+the resume behavior that required the old paused-homing gate. WM+ retains the later
+print-end clearance/wipe improvement described above.
 
-> **1.1.12 reconciliation (2026-09-21).** The only packaged config change
-> since 1.1.08 re-enables the empty Door_button1/2 registrations on PA7/PB7.
-> Stock and live adopt that explicit vendor reversal. All other W+ config
-> changes remain unchanged; the packaged Klipper tree and macro files are
-> byte-identical to 1.1.08. See the [1.1.12 analysis](../docs/firmware-1.1.12.md).
-
-> **Status after the 1.1.04 re-baseline (2026-08-19).** The entries below
-> describe each delta's history. On that historical 1.1.04 base:
-> **active** — accel-cap, input-shaper values, pause-mapping-snapshot,
-> pause-park-margin, left-edge-purge (supersedes purge-approach-margin),
-> toolchange-feedrate-preserve, toolchange-wipe, u1-tip-shaping, insert-no-autoload, probe-with-initial-tool (on by default), wm-material-include, wipe-speed +
-> wipe-feedrate-restore (merged with the vendor's new `wipe_position`),
-> print-end-clearance-and-wipe,
-> REHOME macro.
-> **dropped (vendor fixed it in 1.1.04)** — skip-forced-rehome-on-resume
-> (binary-verified: the resume path no longer force-homes; keeping our gate
-> would block the wanted recovery re-home); load-auto-wipe (1.1.04 wipes
-> after the load purge itself); print-end-rewrite (1.1.04's PRINT_END adds
-> Z-safety, wiper-park, and the `print_body_ready` UI contract — taken as-is).
-> **deferred** — start-print-chamber (speculative; re-add if printing ABS/ASA).
-> See `analysis/fw_1.1.04_diff/MERGE-PLAN.md` for the full rationale.
-
-### Chamber-fan cooling experiment — removed (2026-09-14)
-The cooling detours, blob relocation and temporary auxiliary-fan boost were
-removed after three runs per condition showed no cooldown improvement over
-the part fan alone. Normal cooling locations and part-fan operation are
-restored; the independent temperature-wait fixes remain.
-[Measurements and rollback scope](../docs/cooling-assist.md).
-
-### explicit-cooldown-wait — `live/offset_calibrate.cfg` (2026-09-13)
-NOZZLE_PREPARE and POP use SET_HEATER_TEMPERATURE plus an upper-only
-TEMPERATURE_WAIT for their final cooldowns. Targets remain 100/102°C with
-the existing +2.5°C tolerance; both commands address the same mapped heater.
-General M109/M190, chamber waits, probing and tool-change bands are unchanged.
-
-### probe-with-initial-tool — `live/macros.cfg`, `live/printer.cfg`, `live/change_macros.cfg` (ours, 2026-08-30)
-On by default as of 2026-09-13, following successful testing reported by the
-user and other users. Disable per machine with `PROBE_WITH_INITIAL_TOOL ENABLE=0`
-(saved variable; `ENABLE=1` re-enables; no argument reports). Existing saved
-preferences are preserved, including an explicit False opt-out.
-
-Stock `START_PRINT` homes Z and meshes with T0, parks it, then fetches
-`INITIAL_TOOL`. When enabled, `START_PRINT` stores the physical tool behind
-`INITIAL_TOOL` in the `probe_tool` saved variable and heats it directly by
-physical heater name; `Z_HOMING` grabs `_CHANGE_TOOL T={probe_tool}`; `_OFFSET_SET`
-applies `offset(tool) − offset(probe_tool)`. `probe_tool = 0` is stock
-behaviour (`t0_offset` is `(0,0,0)`). `probe_tool` is set to 0 when the
-saved default mesh is used (T0 datum), in `G29`, `PRINT_END`,
-`CANCEL_PRINT`, and 2 s after Klipper starts.
-
-When the live Klipper object `openace` exists, START_PRINT resolves the virtual
-`INITIAL_TOOL` through `printer.openace.tool_extruder_index`; otherwise it uses
-the vendor `box_modify_t*` lookup. A present openACE object with no published
-entry aborts startup rather than probing with a guessed head.
-
-Fresh per-print meshes use the reserved `wmp_print` profile, preserving
-`default`. Saved-default starts also snapshot their mesh to `wmp_print`.
-Power-loss recovery restores the recorded physical probing tool and this
-snapshot. Missing context or changed calibration stops recovery instead of
-guessing a reference. See [print-mesh-recovery](../docs/print-mesh-recovery.md).
-Physical testing was reported by users. The default change and recovery
-integration were deployed on 2026-09-13 and loaded with Klipper Ready;
-the new recovery path still needs physical acceptance.
-
-### u1-tip-shaping — `live/macros.cfg` (2026-08-29)
-`RETRACT_FILAMENT` (touchscreen unload) and `UNLOAD_FILAMENT` (manual)
-call `_TIP_SHAPE_RETRACT`, which sets the unload temperature, runs
-`_TIP_SHAPE_MOVES CLASS=…`, then `M104 S0`, fan 100 %, `post_cool_s` (5 s),
-`WIPE_NOZZLE`. Purge position: `X-13 Y80` (same as `EXTRUDE_FILAMENT`).
-Touchscreen load/unload reaches that point through
-`_WMP_FILAMENT_SERVICE_POSITION`: it requires homed XYZ, rejects an active
-print, raises Z by up to 5 mm, exits the bed along X, then travels along the
-off-bed edge to Y80. Paused runout changes remain supported.
-Net retraction: −57 mm (stock), −67 mm for `petg`.
-
-openACE: right before the fast pull that takes the filament out of the hotend
-(the second one for `pla`/`abs`, the first for `soft`/`petg`), each class runs
-`M400` and `{% if 'openace' in printer %}_OPENACE_ROLLBACK_ASSIST_ON{% endif %}`.
-During an openACE unload that puts the ACE into retract assist, so it takes up
-the filament the extruder pulls back; without it the fast pulls push that
-filament back up the tube and pop the cover off the head (seen 2026-09-20 and
-2026-09-25). The hook does nothing without openACE, or outside an openACE
-unload. Moves and speeds are unchanged.
-
-| class | materials | sequence | source | temp |
-|---|---|---|---|---|
-| `pla` | PLA, PVA, Marble, PA, PC | purge, fast pull, slow pull, re-plunge, fast pull, slow pull, extract | Snapmaker U1 1.6.0 `CONTROL_RETRACT_ACTION` (`docs/reference/snapmaker-u1-unload-macros.cfg`) | 250 (PA 280, PC 300) |
-| `abs` | ABS, ASA, HIPS, Wood | as `pla`, slower re-plunge and last slow pull | U1 | 280 (Wood 250) |
-| `soft` | TPU, TPE | small purge, fast pull, slow pull, extract | U1 | 250 |
-| `petg` | PETG, PCTG, PET | ram 17.5 mm/s, one 60 mm/s pull, 3 cooling moves 5→2.5 mm/s, stamp 35 mm, pull, extract | Prusa `PrusaResearch.ini` `*PETPG*` (Core One / MK4 MMU3) | 235 |
-
-Temperatures: `variable_unload_temps` in `_TIP_SHAPE_RETRACT`;
-`unload_temp_min` is the floor for unlisted materials, 0 disables.
-`petg` tuning: `cooling_moves`, `cooling_len`, `cooling_speed_list`,
-`stamp_len` in `_TIP_SHAPE_MOVES`. The 17.5 mm/s ram skips a few steps on
-this extruder; the extra 10 mm of extraction covers it.
-
-Overrides: `_TIP_SHAPE_RETRACT DRY_RUN=1` reports the class and temperature
-without moving; `MATERIAL=ABS`, `CLASS=soft`, `TEMP_MIN=240`.
-
-Material detection, in order:
-1. `wm_material` Klipper extra (optional, needs SSH: `tools/deploy.py install
-   material`). Reads the touchscreen's `tmt1.ini` (`[slot] material0..3`)
-   and exposes `printer.wm_material.material0..3`. `WM_MATERIAL_STATUS`
-   prints them. A vendor firmware update removes it; reinstall.
-2. Hotend target set by the touchscreen: 230 → `soft`, ≥255 → `abs`, else
-   `pla`. PETG and ABS both arrive at 250 and cannot be told apart; PETG
-   needs the module (or `MATERIAL=PETG`).
-
-### insert-no-autoload — `live/extruder0-3.cfg` (2026-08-30)
-The filament sensor `insert_gcode` no longer runs the stock auto-load (pick
-tool, purge, wipe, dock); it prints a hint and cancels the runout pause.
-Reason: the sensor is only enabled for the active tool, so it fired during
-the touchscreen's Load flow, which then ran its own `EXTRUDE_FILAMENT`
-(purge, dock, undock, purge, dock). Load from the screen is the only load
-path.
-
-### wm-material-include — `live/printer.cfg` (2026-08-29)
-`[include wm_material*.cfg]`. The glob matches nothing when the module is
-not installed, so `printer.cfg` works with or without it.
-
-### openace-include — `live/printer.cfg` (2026-09-23)
-`[include openace*.cfg]` keeps the optional openACE configuration attached
-through WM+ deployments. It is part of WM+'s managed `printer.cfg` snapshot;
-an include added only to the printer's live copy would be lost when that
-snapshot is deployed. The glob matches nothing on systems without openACE.
-
- — `live/macros.cfg` (ours, 2026-08-17)
-Stock `PAUSE` resets the logical→physical tool mapping (`box_modify_t0..3`)
-to identity without saving it, and stock `RESUME` restores the mapping from
-`box_modify_t*_backup` — variables that only the touchscreen UI binary ever
-writes, at unrelated times. Resuming from Fluidd/Moonraker after a filament
-runout therefore applied a stale (observed: invalid `0,3,0,3`) mapping and
-loaded the wrong physical tool mid-print. The fix snapshots the live mapping
-into the backups inside `PAUSE`, before the reset. The touchscreen's
-deliberate spool-remap-while-paused flow still works: the UI overwrites the
-backups after our snapshot.
-
-### accel-cap — `live/printer.cfg` (ours, 2026-08-16)
-`max_accel` 20000 → 5000. Resonance measurements (see
-`resonance/2026-08-15/`, tooling in `utils/resonance.py`) show every viable
-input shaper on this machine supports at most ~2600–4400 mm/s²; at 20000
-visible ringing is guaranteed. Keep slicer wall accelerations ≤ ~2600.
-
-### input shaper values — `live/printer.cfg` SAVE_CONFIG block (ours, 2026-08-16)
-X `3hump_ei @ 50.6` → `2hump_ei @ 48.6` (0.4% residual), Y `mzv @ 38.2` →
-`ei @ 48.6` (0.1% residual). Measured after equalizing belt tension
-(41.8/40.2 Hz) and fixing an idler rattle. **Do not run the vendor's
-built-in resonance calibration** — it overwrites these values. Re-tune with
-`utils/resonance.py` instead.
-
-### start-print-chamber / -heat / -wait — `live/macros.cfg` (imported from [WonderMaker-ZR-Ultra-S-Mods](https://github.com/…/WonderMaker-ZR-Ultra-S-Mods))
-Stock `START_PRINT` ignores the `CHAMBER` parameter OrcaSlicer sends, so the
-chamber heater never runs. Adds: parse `CHAMBER`, start the chamber heater
-in parallel with bed heating (explicitly 0 when unused), and wait for
-chamber temperature after the bed reaches target. Imported as three minimal
-marked insertions rather than the mods repo's full START_PRINT rewrite.
-
-### print-end-clearance-and-wipe — `live/macros.cfg` (ours, 2026-09-24)
-Stock `PRINT_END` lowers the bed only 10 mm, then moves to the wipe station
-without actually wiping. The live macro lowers it by up to 50 mm, clamped to
-the configured bottom Z-endstop coordinate using the physical toolhead
-position, and then runs `WIPE_NOZZLE`. The head finishes over the left-side
-brush instead of over the part. The wipe is skipped unless XYZ remains homed.
-Set `variable_bed_drop` on `PRINT_END` to tune the clearance.
-
-### toolchange-wipe — `live/change_macros.cfg` (imported from WonderMaker-ZR-Ultra-S-Mods)
-After a successful T0–T3 toolchange, wipe the freshly picked-up nozzle
-(it oozed while parked) before returning control to the slicer.
-
-### skip-forced-rehome-on-resume — `live/printer.cfg` homing_override (ours, 2026-08-17)
-The touchscreen UI's resume handler unconditionally sends `G28 Y` + `G28 X`
-before `RESUME` (hardcoded in `TM_T1/bin/client`; the binary even ships a
-"Model misalignment alert" message acknowledging the resulting shift). Each
-re-home lands within endstop repeatability of the original datum, shifting
-the resumed layers. Since every G28 routes through `[homing_override]`, the
-override now skips XY homing while the printer is paused *and* the axis is
-still homed. If homing was genuinely lost (motors disabled, power cycle),
-`homed_axes` is empty and homing proceeds; printing-state re-homes
-(toolchange retry recovery) are untouched.
-
-### toolchange-feedrate-preserve — `live/change_macros.cfg` T0–T3 (ours, 2026-08-18)
-Gcode feedrate is modal; toolchange internals (dock moves, wipe) leave it
-polluted and slicers omit F when they believe speed is unchanged, so
-post-toolchange travels crawled (5–50 mm/s). T macros capture the slicer's
-feedrate on entry and re-assert it on exit (feedrate only — a full
-RESTORE_GCODE_STATE would revert the new tool's XY offset).
-
-### wipe-feedrate-restore / wipe-speed — `live/fz-wipe-nozzle.cfg` (ours, 2026-08-17/18)
-WIPE_NOZZLE brackets itself with SAVE/RESTORE_GCODE_STATE and strokes at a
-tunable 200 mm/s (`wipe_speed`, stock: hardcoded 50 mm/s).
-
-### load-auto-wipe — `live/macros.cfg` EXTRUDE_FILAMENT (ours, 2026-08-18)
-Auto-wipe after the load purge; the screen's "clean nozzle manually" dialog
-becomes a formality.
-
-### pause-park-margin + rehome-escape — `live/macros.cfg`, `live/printer.cfg` (ours, 2026-08-18)
-Pause park moved Y1 → Y20 (1 mm front margin invited strikes); `REHOME`
-macro forces a real XY re-home while paused (the homing gate otherwise
-blocks all paused-state G28s, including deliberate recovery).
-
-### openACE pause/resume compatibility — `live/macros.cfg`, client preload (ours, 2026-09-23)
-The compatibility preload activates only when Moonraker's live object list
-contains `openace`. It then sends a screen Resume directly to Klipper instead
-of applying the client's `box_modify` channel-match gate. It also converts the
-client's physical `M104/M109 T0..T3` requests to explicit heater commands;
-sliced-file M104/M109 never passes through that dispatcher and remains virtual.
-The vendor PAUSE/RESUME macros likewise address their saved per-head
-temperatures by physical heater name. RESUME clears native pause bookkeeping
-before its final M24, preventing `pause_resume.is_paused` from remaining true
-after the file continues.
-
-### left-edge-purge — `live/macros.cfg` START_PRINT (ours, 2026-08-19; supersedes purge-approach-margin)
-Purge line moved from the bed front to the plate's left edge (X0,
-Y100→150, outside printable X): same on-bed priming drag, zero front
-geometry exposure, zero printable-area cost, no stripe in the print area.
-
-### purge-approach-margin — superseded (ours, 2026-08-18) — ROOT CAUSE FIX
-At the stock purge position Y-1 the toolhead shroud strikes the front panel
-on every print start (bang), occasionally gripping and stealing ~1.5 mm of
-Y — the source of mysteriously shifted prints. Proven with stepper-counter
-checkpoints inside START_PRINT (zero loss through home/mesh/toolchange/purge
-even during an audible slam ⇒ the panel yields, not the belts). Purge start
-moved to Y2 on the bed's front edge. Every other suspect (docks, endstop
-repeatability hot+cold, mesh probing, top cover, Z) instrumented and
-acquitted along the way.
-
-## Vendor touchscreen landmines (from binary analysis of TM_T1/bin/client)
-
-- **Toolhead-count switch replaces `printer.cfg` wholesale** with a factory
-  template (and blanks `wm_zru_thr*.cfg` CAN UUIDs). Re-deploy from
-  `config/live/` after ever using that screen flow.
-- **Screen calibration flows (resonance/PID/leveling) end in SAVE_CONFIG**,
-  overwriting our shaper values and shifting the SAVE_CONFIG block. Use
-  `utils/resonance.py` instead; run `utils/config_sync.py diff` after any
-  screen calibration.
-- The tool-offset calibration flow disables X/Y steppers (homing is
-  legitimately lost; a re-home after those flows is expected).
-- UI-resume overrides the RESUME macro's saved temperatures and (before our
-  homing_override gate) forced `G28 Y` + `G28 X` before every resume.
-- OTA firmware fetches over plain HTTP (`po.wondermaker3d.com`); a
-  `boot.img` on a USB stick triggers an unattended boot-partition update;
-  the internet check fetches a developer's personal Gitee repo.
-
-## Considered and not imported
-
-- **WonderSync** (`Experimental/wondermaker_mmu.py` in the mods repo): a
-  Klipper/Moonraker module exposing touchscreen filament assignments as a
-  virtual MMU so Orca's "Sync filaments" button works. Useful but
-  experimental and a separate Python module rather than a config change —
-  revisit when it matures.
-- The mods repo's whitespace/reformat-only differences in `stock_macros.cfg`
-  vs `macros.cfg` (their "stock" file is not actually stock).
-
-
-## Native bottom-Z recovery (2026-09-14)
-
-Unhomed tool selection now establishes Z at the bottom before XY homing or
-pickup. The required `wmp_recovery` extra tracks actual Z-rail homing and
-invalidates its reference when the Z motor is disabled or Klipper restarts.
-Synthetic position assignment cannot create this reference. The two previous
-synthetic lift paths also use native bottom homing when the reference is invalid.
-Recovery G28 reuses that reference, skips normal Z_HOMING, restores the exact
-print mesh and reapplies offsets for the mounted tool relative to the saved
-probing tool. It retains shutdown protection for invalid recovery contexts.
-
-The touchscreen binary is unchanged. Its later checkpoint-Z-plus-3 lift,
-wipe and XY return remain the vendor sequence; this does not guarantee
-clearance over every object on a loaded plate. Interrupted-tool-change
-checkpoint reconciliation remains separate. See
-[recovery details](../docs/print-mesh-recovery.md) and the
-[max-Z measurements](../docs/z-recovery-investigation.md).
+The community WonderSync filament-sync module remains separate and experimental;
+it was not imported. Historical proposals and decisions are in
+[the design record](../docs/design-ideas.md).

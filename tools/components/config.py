@@ -7,10 +7,10 @@ import sys
 from datetime import datetime, timezone
 
 NAME = "config"
-DESCRIPTION = "Klipper config and required wmp_recovery native bottom-Z extra"
+DESCRIPTION = "Printer configuration and required recovery helper"
 NEEDS_SSH = True
 NEEDS_SUDO = False
-RESTART_AFTER = None  # config_sync restarts Klipper itself
+RESTART_AFTER = "klipper"  # activate only after every selected component is installed
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 SYNC = os.path.join(ROOT, "utils", "config_sync.py")
@@ -44,26 +44,29 @@ def _install_extra(ctx):
         with sftp.open(temporary, 'wb') as f:
             f.write(content)
         sftp.posix_rename(temporary, destination)
-        print('installed required extra: %s' % destination)
+        print('Installed recovery helper: %s' % destination)
+
+
+def preflight(ctx):
+    import preflight as checks
+    checks.config(ctx)
 
 
 def install(ctx):
     if getattr(ctx, "config_only", False):
-        print('config-only update via Moonraker HTTP; '
-              'requires the matching wmp_recovery.py extra already installed')
+        print('Updating configuration over HTTP; '
+              'the matching wmp_recovery.py helper must already be installed')
     else:
         _install_extra(ctx)
-    args = ["push", "--yes"]
-    if ctx.no_restart:
-        args.append("--no-restart")
+    args = ["push", "--yes", "--no-restart"]
     args += ctx.files
     if _sync(args, {"WMP_PRINTER": ctx.host}) != 0:
-        raise ctx.DeployError("config push failed")
+        raise ctx.DeployError("Configuration upload failed. Check the preceding error and the printer backups before retrying.")
 
 
 def uninstall(ctx):
-    raise ctx.DeployError("config has no uninstall; push config/stock instead if you "
-                          "want vendor behaviour (see config/README.md)")
+    raise ctx.DeployError("Configuration has no automatic uninstall. To restore vendor configuration, "
+                          "review config/README.md before using config/stock.")
 
 
 def status(ctx):

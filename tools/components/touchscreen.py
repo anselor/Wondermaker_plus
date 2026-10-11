@@ -72,10 +72,15 @@ def upload(c):
 
 
 NAME = "touchscreen"
-DESCRIPTION = "touchscreen add-on: camera snapshot service, nginx page, boot-time timelapse-camera fixer"
+DESCRIPTION = "Clickable touchscreen in Fluidd and timelapse camera setting"
 NEEDS_SSH = True
 NEEDS_SUDO = True
 RESTART_AFTER = None
+
+
+def preflight(ctx):
+    import preflight as checks
+    checks.touchscreen(ctx)
 
 
 def install(ctx):

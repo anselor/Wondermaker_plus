@@ -1,375 +1,249 @@
-# First-tool probing, saved meshes and power-loss recovery
+# Power-loss recovery and first-tool probing
 
-Implemented and deployed for vendor 1.1.08. First-tool probing is enabled by
-default; explicit saved opt-outs remain effective. On 2026-09-14, two-color
-prints completed after mains power cuts with T0 and T2 probing references,
-correct tool mappings and restored per-print meshes. The T2-reference trial
-also verified the corrected checkpoint writer and visual recovery result.
+WM+ saves the bed mesh and physical probing head used for each print, then restores
+them after power loss. It also preserves the slicer-to-head mapping and corrects
+the touchscreen's saved coordinates. Install both `config` and `preload` for the
+complete implementation.
 
-The complete implementation requires the config's native bottom-Z extra and
-the touchscreen `recovery-fix` preload. The final suite passes 125 tests after
-removing the unrelated chamber-fan cooling experiment. The dated findings
-below record the defects discovered and the fixes validated during rollout;
-known remaining client clearance and checkpoint-sampling limits still apply.
+**Remaining limits:** the vendor returns with only 3 mm above saved Z, which can
+hit taller objects along the route. File position and motion are sampled separately,
+so not every interrupted tool change has a consistent resume point. A part that
+detached while cooling cannot be repaired by restoring coordinates.
 
-## Mesh ownership
+Two-color prints completed after power cuts on September 14, 2026, using T0 and T2
+probing heads and remapped tools. Those trials used firmware 1.1.08. Firmware 1.1.13
+has local coverage but still needs printer testing.
 
-- Fresh START_PRINT meshes use `PROFILE=wmp_print`, including explicit bounds,
-  full meshes and native adaptive meshing. Native adaptive probing suppresses
-  implicit profile saving in the vendor's bed_mesh.py, so START_PRINT also
-  explicitly saves and loads the active mesh as `wmp_print`.
-- G31/saved-default starts retain the T0 reference and load `default`, then
-  copy that mesh into `wmp_print` for this print's recovery. Later changes to
-  `default` cannot silently change the recovery snapshot.
-- `SAVE_CONFIG_NO_RESTART` persists the snapshot before the print is marked
-  ready. Persistence is required by power-loss recovery and is retained.
-- G29 explicitly selects physical tool 0, even when logical T0 is mapped
-  elsewhere. A bare/default BED_MESH_CALIBRATE and a normal default-profile
-  load reject a nonzero probing reference. START_PRINT never overwrites
-  `default`, even when requesting a full mesh.
-- `wmp_print` is reserved for startup/recovery. The normal profile command
-  rejects direct LOAD/SAVE/REMOVE of this name. Internal macros use the
-  renamed native handler. Other named profiles retain ordinary Klipper
-  behavior; their manual reference management remains the caller's job.
+## Before an upgrade or recovery
 
-Existing default meshes are treated as T0 calibrations, matching the prior
-G31 convention. This cannot determine the provenance of a mesh already
-overwritten by an older configuration; regenerate an uncertain default
-with G29. New guards prevent the automatic overwrite path going forward.
+Do not update an interrupted older print expecting it to resume automatically.
+Recovery needs the matching saved mesh, probing head, calibration, tool mapping,
+filename, and a verified coordinate checkpoint. Missing or mismatched information
+blocks recovery instead of guessing.
 
-## Persistent print context
+Installing the coordinate patch does not convert older records. If preserving a
+pending print, follow the [checkpoint upgrade guidance](../client-preload/README.md#upgrading-with-an-interrupted-print).
+Do not subtract a tool-change lift or label old coordinates as G-code coordinates
+without evidence of their meaning at the saved file position.
 
-START_PRINT first invalidates the previous `wmp_print_context`. After the
-mesh has been persisted and startup/purge have completed, it commits one
-saved dictionary containing a schema version, physical probing tool, all
-four tool-offset vectors, all four logical-to-physical tool mappings, the
-filename encoded as UTF-8 hex, and mesh name. Context version 2 adds the
-mapping; version 1 records cannot be recovered with the updated macros.
-Filename encoding avoids G-code comment characters and ConfigParser percent
-interpolation. It identifies the filename, not a cryptographic content hash.
+If recovery is blocked, the console and `/tmp/wmp_recoveryfix.log` explain the
+failed check. Some macro checks shut Klipper down because the screen sends further
+movement requests independently. Resolve the issue and start a new print; do not
+change calibration or bypass checks merely to accept an old record.
 
-The dictionary survives Klipper restart separately from the ordinary
-`probe_tool` variable, which still resets to T0 for idle/manual work. End,
-cancel and G29 invalidate the context. Power loss during an incomplete new
-start therefore cannot reuse a previous job's reference. The macros use the
-vendor's existing saved-variable and config-file persistence; this does not
-add filesystem transaction/fsync guarantees to those vendor mechanisms.
+## Bed mesh and tool reference
 
-## Verified vendor recovery integration point
+A bed mesh records height corrections across the plate. Tool offsets account for
+differences between heads. Both depend on which physical head established the
+print's reference.
 
-Ghidra evidence: 1.1.08 `start_plr_print()` at **0x62d5d8**, retained locally in
-`analysis/fw_1.1.08_diff/implementation/ghidra/calibration-fan-callers-strings.c`.
-Its relevant sequence is:
+Fresh meshes, including full, bounded, and native adaptive probing, use the
+reserved `wmp_print` profile. A saved-default start loads `default` using physical
+T0, then copies it to `wmp_print`. Startup saves that copy before marking the print
+ready. Changing `default` later cannot silently replace the recovery mesh.
 
-1. Restore heater targets and the previously active physical tool, using
-   temporary identity tool mappings, then restore the saved mappings.
-2. Send `SET_GCODE_VARIABLE MACRO=Z_HOMING VARIABLE=z_raise VALUE=0`, then G28.
-3. Re-select the interrupted tool, return to saved coordinates, then load
-   either `default` or `adaptive_mesh` according to its saved leveling label.
-4. Select the saved file, seek with M26, mark print_body_ready and send M24.
+`G29` selects physical T0 even if slicer T0 maps to another head. Normal default
+calibration/loading rejects a nonzero probing reference. Startup never overwrites
+`default`. If an older configuration may have overwritten it with another head's
+mesh, regenerate it with `G29` on a clear bed.
 
-Before the client's early tool pickup, `_CHANGING_TOOL` checks the real Z
-reference exposed by the required `wmp_recovery` extra. If invalid, it runs
-`_WMP_HOME_Z_BOTTOM` before its XY home, docking or wiping. That command
-bypasses homing_override and calls native Z-only homing, retaining the vendor
-Z driver diagnostic setup and 2 mm retract/second seek. It leaves the bed at
-the bottom, with no LEVELING pulse, XY move, nozzle contact or Z7 return.
+Manual LOAD/SAVE/REMOVE of `wmp_print` is blocked; it belongs to startup and
+recovery. Other named profiles retain normal Klipper behavior, and their probing
+reference remains the caller's responsibility.
 
-The extra observes actual Z-rail homing events (including ordinary G28 Z),
-and invalidates the reference at Z homing begin, Z motor disable, shutdown
-and restart. Individual SET_STEPPER_ENABLE disables are covered as well as
-M84. Merely setting coordinates cannot create a valid reference. The old
-synthetic `z_rise` and `_raise_z` fallback paths also use bottom homing.
-Normal idle tool selection, including selection of the mounted tool, benefits
-from the same guard. The helper rejects resetting Z in an active print body
-or paused print and shuts down on failure to block queued continuation.
+## Saved print information
 
-The homing override recognizes the existing z_raise=0/full-G28 signal and
-validates the context with `_WMP_RECOVERY_BEGIN`. It homes Z to the bottom if
-the reference is still invalid, then homes only missing X/Y axes. It skips
-the entire Z_HOMING preparation: no probe-tool pickup, center travel or
-LEVELING pulse. It restores `wmp_print`, reapplies the mounted tool offsets
-relative to the saved probing tool, and resets z_raise for normal operation.
-When the early pickup already established XYZ, this branch does not rehome.
+`START_PRINT` clears the previous `wmp_print_context`, then commits a new record
+after mesh persistence and startup/purge finish. The record contains:
 
-During this recovery phase, the BED_MESH_PROFILE wrapper routes the vendor's
-legacy profile-load requests to the exact snapshot. M24 verifies the chosen
-filename, active mesh and probing reference before delegating to native
-M24 (renamed M9924), restores the recorded logical-to-physical mapping before
-SD execution, then leaves recovery mode. Restoring at G28 alone is too early:
-the client writes mappings again afterward. Normal M24 does not restore an
-old mapping; it records any intentional mapping change from ordinary RESUME
-in the matching print context for the next interruption. No touchscreen
-binary changes are needed for this integration; the recovery signal is tied
-to the inspected vendor sequence.
+- Format version, physical probing head, and mesh name.
+- All four tool-offset vectors and slicer-to-head mappings.
+- Filename encoded as UTF-8 hex so punctuation cannot corrupt the saved command.
 
-The normal print-body gate stays false during recovery preparation, so its
-tool selections cannot trigger an in-print XY return. The vendor restores
-the flag immediately before M24. Startup continues to announce the vendor's
-recognized `adaptive_mesh` label for the private per-print recovery copy;
-this label does not change the actual mesh's probing area or density.
+Version 2 includes tool mapping; version 1 is not accepted by current macros.
+The filename identifies a name, not a hash of file contents. End, cancel, and
+`G29` clear the record. A failed new startup therefore cannot reuse the previous
+job's information.
 
-## Invalid recovery
+This record survives restart independently of `probe_tool`, which resets to T0
+for idle/manual work. Persistence uses the vendor's existing configuration and
+saved-variable mechanisms; WM+ does not add filesystem transaction guarantees.
 
-Missing context, a missing mesh, an invalid probing tool or changed tool
-offsets stops recovery at its full-G28 boundary. The earlier tool selection
-can already have homed XYZ at that point. A selected-file/mesh/reference
-mismatch at M24 stops resumption. These paths invoke Klipper shutdown:
-the touchscreen submits subsequent movement commands independently, so a
-simple macro error would not reliably stop its continuation. A fresh print
-is required after resolving the shutdown; no reference is guessed.
+## How recovery runs
 
-Recovery records from prints started before this implementation have no
-matching context and are deliberately rejected. Do not upgrade/restart
-configuration expecting to resume an already interrupted older print.
+1. **Establish Z before pickup or XY travel.** The required `wmp_recovery` helper
+   homes to the bottom endstop if no real Z reference exists. It leaves the bed
+   there, without nozzle-contact probing, XY travel, or an upward return.
+2. **Restore the print reference.** The recovery homing branch checks saved print
+   information, homes only missing X/Y axes, loads `wmp_print`, and applies mounted
+   tool offsets relative to the saved probing head. It skips normal center Z
+   preparation, including probe-head pickup and the LEVELING pulse.
+3. **Let the vendor perform its return.** The screen selects the interrupted head,
+   raises to saved Z + 3, extrudes/wipes, returns Y/X, and lowers to saved Z.
+   Its later legacy mesh requests are redirected to the saved print mesh.
+4. **Restore mapping just before file execution.** `M24` checks filename, mesh,
+   and probing reference, restores the saved tool mapping after the client's last
+   setup writes, then continues the file.
 
-### Known limits of the retained client sequence
+The real Z marker comes from homing events. Z motor disable, shutdown, and restart
+invalidate it; assigning software coordinates cannot create it. Idle selection
+benefits from the same bottom-first check. Bottom homing is blocked during a paused
+print or active print body, and failure shuts down to block queued continuation.
 
-The max-Z guard fixes the initial unreferenced pickup/XY ordering. The client
-still raises the bed to checkpoint Z + 3 **before** extrusion, wiping and
-travel to the saved Y/X, then lowers nozzle clearance to checkpoint Z. It
-does not keep the bed at the bottom through the entire recovery sequence.
-Objects taller than that clearance along the return path can still collide.
-Changing this client-side sequence is a separate follow-up; no touchscreen
-binary patch was added for max-Z ordering.
+The earlier pickup can already have homed XYZ before a later context check stops
+recovery. “Blocked” does not always mean no preparation motion has occurred.
+The checkpoint-coordinate check in the preload runs before the vendor recovery
+start sends motion.
 
-Checkpoint selection also remains the vendor's. In the failed trial, A/B
-records had the same file position but differed by the 2 mm tool-change lift.
-The stock writer used toolhead XYZ, not simply slicer-layer XYZ; the
-coordinate preload described below corrects that domain, but not sampling. Reconciliation must
-include mesh, offsets, modal state and file position; do not blindly choose
-lower Z or subtract a lift. Persisted changing_tool is useful evidence but
-_CHANGE_TOOL clears it early. No new checkpoint-selection or forced re-docking
-policy is included in this change. A detached part after cooling is not made
-recoverable by restoring the coordinate reference.
+Ordinary pause/resume differs from power-loss recovery. Its intentional spool
+remapping updates the matching saved print record at M24 for a later interruption;
+it does not restore an old recovery mapping during every resume.
 
-## Validation
+## Local coverage
 
-### Physical trial findings — September 13, 2026
+`tests/test_print_recovery.py` executes nested startup, homing, mesh, and recovery
+macros across a simulated restart. Cases include opt-outs, remapped T0, all startup
+mesh choices, persistence, changed offsets, missing data, mismatched files, filename
+encoding, and rejection of default calibration under another head's reference.
 
-The two-color cube print used physical T0/T2, with sliced T1 mapped to T2.
-Normal tool changes succeeded in both directions and the user reported good
-visual results. Power was interrupted during a T2-to-T0 change. The printer
-rebooted Ready; board UUID assignments, the per-print mesh and context survived.
+Other checks exercise real C coordinate markers and guards, modified executables,
+stale cached records, and emulated ARM coordinate loads. Heater waits, contacts,
+and probe readings are simulated; these tests do not establish physical clearance
+or checkpoint consistency for every print.
 
-The user resumed and confirmed that recovery's center Z home contacted the
-part. Two T0 layers then printed acceptably by visual observation, followed
-by a sliced T1 selecting physical T1 instead of T2. The printer was paused.
-This does not validate the Z reference after contact with the part.
+## Physical test record
 
-Follow-up inspection distinguishes the observed contact from the native
-homing primitive: native Z homing seeks the positive endstop and assigns
-Z300; outer macros also pulse LEVELING and the client later commands upward
-return travel. The earlier explanation that contact necessarily reset Z zero
-was not established. See [the max-Z investigation](z-recovery-investigation.md)
-for the inspected MCU/host paths and the prepared empty-bed diagnostic.
+These entries preserve the rollout sequence. Intermediate failures and pending
+checks describe the date shown, not the final status of firmware 1.1.08.
 
-Captured recovery commands explicitly wrote `box_modify_t1=1` repeatedly,
-including after recovery homing and before M24. Before power loss its value
-was 2. The client also wrote identity pause backups just after M24. All four
-board UUIDs remained correct: this is logical mapping loss, separate from
-the earlier board-assignment incident. The version 1 W+ context and tests
-omitted mapping restoration through the client's identity writes.
+### September 13: recovery exposed mapping and contact faults
 
-The version 2 correction saves the print mapping independently and
-restores live mappings at recovery M24, after vendor setup. Subsequent stale
-client writes to pause backups do not change live tool dispatch; PAUSE
-already snapshots live mappings before resetting them for manual use.
-Tests reproduce identity writes before and after G28, stale backup writes
-after M24, and the next sliced T1 dispatch. An ordinary resume with a changed
-mapping updates the context for subsequent power loss.
+A two-color cube used physical T0/T2 with sliced T1 mapped to T2. Normal changes
+worked and visual results were reported good. Power was cut during a T2-to-T0 change.
+After reboot, IDs, mesh, and saved information survived, but recovery contacted the
+part. Two T0 layers appeared acceptable, then sliced T1 selected physical T1.
+The printer was paused.
 
-The initial unreferenced travel was addressed by the max-Z ordering change
-above. Two saved checkpoints
-also differed by the 2 mm tool-change lift at the same file position; selection
-and consistency of interrupted-tool-change checkpoints need investigation.
-Neither issue is fixed by restoring tool mappings. No recovery changes were
-deployed or restarted during the paused physical trial. After the user
-requested cancellation and deployment, the print was cancelled, heaters
-were verified off, and only macros.cfg was uploaded. A firmware restart
-returned Ready; the loaded config includes context version 2, while
-printer.cfg (including calibration) and all four tool MCU configuration
-files matched the backup. The previous print context was cleared by cancel.
-At this stage the mapping fix had **104 passing offline tests**; the later
-physical trials below verified recovery with the completed fixes.
+Captured commands repeatedly set `box_modify_t1=1`, including after recovery
+homing and before M24; its pre-cut value was 2. All board IDs were correct, so this
+was tool-mapping loss, separate from an earlier board-assignment incident.
+Version 2 saved mapping independently and restored it at M24 after those writes.
+Tests also covered stale pause backups and the next sliced T1 command.
 
-### Offline coverage
+Part contact did not establish that software Z zero had reset. Native homing
+establishes Z300 at the bottom; outer macros and later client return moves needed
+separate investigation. Two checkpoint records also differed by the 2 mm tool-change
+lift at the same file position. Restoring mapping did not solve either problem.
 
-`tests/test_print_recovery.py` executes the actual nested startup, homing,
-context and recovery templates across a simulated restart. It covers:
+After the trial was cancelled, only `macros.cfg` was uploaded and Klipper returned
+Ready. Calibration and tool-board files matched backups. At that stage the mapping
+fix passed 104 offline tests. [The bottom-Z investigation](z-recovery-investigation.md)
+then established the initial-motion fix.
 
-- enabled defaults, explicit opt-outs and saved-default fallback;
-- logical-to-physical mapping, including remapped logical T0;
-- explicit-bounds, native-adaptive, full and saved-default mesh paths;
-- preservation of default, persistence and restoration of the exact snapshot;
-- context invalidation, changed offsets, missing data and mismatched files;
-- filename quoting/encoding through the actual vendor SaveVariables methods;
-- native command rename compatibility and rejection of default calibration
-  under a nonzero reference.
+### September 14: bottom-first deployment and empty-bed checks
 
-Hardware contacts, probe readings and heater waits are stubbed. Physical
-acceptance of the new recovery path remains a supervised recovery of a
-suitable small print starting on a nonzero physical tool, checking the
-reference and mesh before resumed extrusion. Previously reported normal
-first-tool probing tests do not substitute for this recovery check.
+The deployment backed up 57 configuration files and the optional diagnostic,
+installed `wmp_recovery.py`, and uploaded `printer.cfg` and `change_macros.cfg` with
+restart deferred. Saved calibration was retained. The diagnostic include, module,
+and cache were removed. Restart returned Ready with axes unhomed and the reference
+marker false.
 
+Empty-bed motion checks ran without heating or extrusion:
 
-### Deployment of max-Z ordering — 2026-09-14
+| Check | Result |
+|---|---|
+| Fresh-restart T2 selection | Z homed before XY/pickup; correct T2; final Z299.954063 including its offset |
+| M84, synthetic Z3, select mounted T2 | Homed-axis flag alone did not satisfy the marker; native bottom homing ended at Z300 |
+| Ordinary full G28 | Selected T0 and ended at Z7, preserving normal homing |
+| Early recovery T0 then recovery G28 | Reused bottom-homed axes, restored a T2 probing reference and mesh; offset yielded Z300.045937 |
+| Vendor return replay from test Z40 | Started at clearance Z43, wiped, returned Y/X, and routed the mesh request correctly |
+| Actual M24 on a 46-byte test file | Restored mapping [0,2,2,3]; sliced T1 selected physical T2 and completed |
 
-Before deployment, backed up 57 configuration files and the optional diagnostic
-module under `analysis/backups/pre-max-z-recovery-20260914T061559Z/`. Installed
-`wmp_recovery.py`, then uploaded only printer.cfg and change_macros.cfg with
-restart deferred. Config deployment preserves the existing SAVE_CONFIG block.
-Removed wmp_z_diagnostics.cfg, wmp_z_diagnostics.py and its compiled cache;
-the new printer.cfg has no temporary diagnostic include. Firmware restart
-returned Ready with no configuration warnings, all axes unhomed and the new
-reference marker false. The earlier mapping macros and touchscreen binaries
-were not changed by this deployment.
+The first synthetic record used JSON lists instead of native offset tuples and
+was correctly rejected before return travel. Retrying with the production commit
+macro preserved types; no check was relaxed. A one-second completion poll missed
+a brief complete state before client print-end reset it to standby. A 0.3-second
+monitor and console completion confirmed success.
 
-The config component now requires SSH for installation because it installs
-the required helper before configuration can restart. Direct config_sync.py
-push does not install Python extras; use it only after that matching module
-is installed. Status/diff/pull still use Moonraker HTTP.
+Cleanup restored T0, prior mapping/preference, and cleared test files/information.
+A screen-service restart also restarted Klipper, leaving axes unhomed with the bed
+physically down. Calibration, tool-board files, helper source, and diagnostic removal
+were verified. This was a motion integration test, not a resumed physical print.
 
+### September 14: T0-reference print completed after power loss
 
-### Empty-bed integration results — 2026-09-14
+`Cube_PLA_17m19s.gcode` completed after a cut during a change with all heads docked
+and target T0. Recovery and a later T0 filament-runout load/resume kept sliced T0/T1
+mapped to physical T0/T2. The exact mesh and offset record survived; bottom homing
+was logged before pickup.
 
-All tests below ran with an empty plate and no extrusion/heating commands:
+Checkpoint A pointed to byte 76447, the T0 command, with lifted Z3.5. Later sliced
+commands explicitly restored Z1.6 before extrusion. No record was edited. This
+successful case does not prove recovery for files without that explicit Z move.
+Recovery return used vendor F3000 (50 mm/s); normal tool returns were 200 mm/s.
 
-- From a fresh restart, T2 selection homed native Z before XY and picked the
-  correct physical T2. Sampled X/Y positions were unchanged until the real Z
-  reference became valid. The final bed coordinate was 299.954063, including
-  the existing T2 offset.
-- After M84 and an explicit synthetic SET_KINEMATIC_POSITION Z=3, the homed-axis
-  flag included Z but the real-reference marker remained false. Selecting the
-  already mounted T2 established bottom Z before XY, ending at native Z300.
-- An ordinary full G28 still selected the configured T0 reference and ended
-  at Z7, confirming that normal homing retains its intended behavior.
-- Recovery's early same-tool T0 selection established XYZ at the bottom. The
-  later recovery G28 reused those axes without a second Z home or center move,
-  restored wmp_print and a synthetic saved probing reference of physical T2,
-  and reapplied T0's offset relative to it. The resulting Z300.045937 reflects
-  that 0.045937 mm offset, not a return to the model.
-- Replayed the vendor's motion sequence with a test checkpoint at Z40 (initial
-  clearance Z43), wipe, Y/X return and legacy mesh-profile load. Omitted heater
-  waits and extrusion because this was an empty-bed motion test. Selected a
-  46-byte SD file containing T1, M400 and a completion message, then invoked
-  the actual M24 wrapper. It restored mapping [0,2,2,3]; sliced T1 selected
-  physical T2 and completed. The recovery active flag was cleared. The client
-  subsequently issued PRINT_END, returning the printer to standby.
+Completion cleared recovery information and print-ready state. Klipper was Ready,
+standby, unpaused, with all heater targets zero. Visual seam quality and a T2 probing
+reference remained pending until the next trial.
 
-Two harness issues were diagnosed, with raw failure records retained:
+### September 14: T2-reference coordinate fault found and corrected
 
-1. The first manually synthesized context was built from Moonraker JSON,
-   converting native offset tuples into lists. The existing strict comparison
-   rejected it and shut down at Z300 with XYZ already homed, before recovery
-   return movement. The retry used the actual _WMP_PRINT_CONTEXT_COMMIT macro,
-   preserving the native types as production START_PRINT does. No calibration
-   guard was relaxed. A regression test now covers native tuple offsets.
-2. The one-second completion poll missed the transient complete state before
-   the client PRINT_END reset it to standby. The independent 0.3-second monitor
-   captured complete with physical T2, the correct mapping and recovery inactive;
-   the console recorded the test completion message and Done printing file.
-   This established success despite the harness timeout. Cleanup ran separately.
+The next print mapped sliced T0/T1 to physical T2/T0 and started with a good reported
+first layer. Its saved probing head was 2, mapping [2,0,2,3], with matching offsets
+and `wmp_print`. These survived the cut, and sensors agreed that T2 was mounted.
 
-The test context used an existing saved mesh to exercise routing and reference
-restoration; no new mesh was measured or saved. This was not a resumed physical
-print and does not resolve the retained client's clearance/checkpoint limits.
+Before Continue, checkpoint A/B positions 185799/185865 saved XYZ
+[188,252.3,4.29526]. Matching pre-cut evidence recorded G-code Z4.8 and compensated
+physical Z4.295262554799677. The file resumed extrusion before another Z command.
+Reusing 4.29526 as G-code would apply corrections twice, about 0.505 mm too low.
+Recovery was held at the prompt.
 
-Artifacts: `analysis/z-recovery-investigation/integration-20260914T062111Z/`
-(initial ordering tests and rejected fixture) and
-`analysis/z-recovery-investigation/integration-20260914T062555Z/`
-(corrected context, recovery sequence, captured SD completion and cleanup).
+The preload was changed to write logical G-code XYZ and verify companion markers.
+Local tests then passed 136 cases, including ARM emulation; the C marker harness
+also ran on the printer's ARM CPU. Both pending records were migrated to
+[188,252.3,4.8] from matching pre-cut samples, with backups.
 
-Cleanup restored physical T0, the original mapping and probing preference,
-cleared the temporary context, removed the test SD file, and parked at Z300
-with all heater targets zero. Restarted only makerbase-client.service to clear
-the stale shutdown dialog. The vendor touchscreen startup also restarted the
-Klipper host (recorded at 14:31:00 in the printer log), so final software
-coordinates reset to zero with axes unhomed and the reference marker false;
-the bed remained physically at the bottom. Klipper returned Ready with no
-warnings and all heater targets zero. Deployment verification
-checks the preserved SAVE_CONFIG block, four tool-board files, saved calibration,
-loaded helper source and absence of the temporary diagnostic.
+Running-memory checks confirmed four XYZ load patches, three hooks, cached position
+[188,252.3,4.8], selected file position 185865, and a valid B marker. Calibration,
+mesh, and saved print information remained intact. No recovery movement was sent
+during installation.
 
-### Physical print recovery — 2026-09-14
+After Continue, logs showed bottom Z before XY, return Z7.8 then Z4.8, restored
+probe head 2/mapping [2,0,2,3], and file resume at 185865. Both physical T0 and T2
+changes worked. A new record at byte 197931 saved [188.25,247.550003,5.2], matching
+client G-code floats rather than raw [188.171875,247.817187,4.746380194337592].
+This verified correction of both XY tool offsets and Z mesh/tool compensation.
+The user reported good visual results and the print completed with cleanup.
 
-The two-cube print `Cube_PLA_17m19s.gcode` completed after a mains power cut,
-Wi-Fi reconnect trouble, recovery, and a subsequent T0 filament-runout reload
-and resume. The user confirmed that sliced T0/T1 selected physical T0/T2;
-the logs show repeated correct changes both before and after the runout pause.
-The original `wmp_print` mesh survived exactly, native saved offset tuples
-matched the production context, and the bottom-reference completion was logged
-before the recovery tool pickup. Completion logged `Done printing file` and
-`PRINT_END`; final status was Ready/standby, unpaused, all heater targets zero,
-empty recovery context, recovery inactive and print_body_ready false.
+## Maintainer integration reference
 
-The cut interrupted a tool change with all four heads docked and target T0.
-Checkpoint A pointed to byte 76447, the T0 command, with elevated saved Z3.5.
-The subsequent sliced commands explicitly restored Z1.6 before extrusion.
-No checkpoint was edited. This successful case does not establish general
-handling of checkpoints that lack an explicit layer-Z restoration.
+The inspected 1.1.08 `start_plr_print()` at `0x62d5d8` restores heaters/head using
+temporary identity mappings, sends `Z_HOMING.z_raise=0` then G28, reselects the
+interrupted tool, returns, loads a legacy mesh, selects/seeks the file, marks the
+body ready, and sends M24. `_CHANGING_TOOL` is early enough to guard its first pickup.
 
-The user reported slow travel only after the recovery wipe. The touchscreen
-issued explicit F3000 XY moves (50 mm/s); normal tool-change returns were
-observed at 200 mm/s. The user accepted the recovery speed unchanged.
-Paused filament loading also exposed the then-idle-only cooling-assist
-restriction. Assistance was subsequently extended and tested, then removed
-after cooldown measurements showed no benefit; see [the experiment](cooling-assist.md).
+`_WMP_HOME_Z_BOTTOM` calls native Z-only homing, keeping driver diagnostics,
+2 mm retract, and the second seek. Individual stepper disables and M84 invalidate
+the real reference. The older synthetic lift fallbacks also use bottom homing.
+No touchscreen patch is needed for that initial ordering fix.
 
-At this stage, visual quality at the recovery seam and a physical recovery
-using T2 as the probing reference were still unverified. The later T2 trial
-below completed that validation.
-Artifacts: `analysis/print-validation-20260914T124401Z/`.
+The profile wrapper redirects legacy `default`/`adaptive_mesh` loads only during
+recovery. Internal profile operations use the renamed native handler. M24 delegates
+to native M9924 after checks. Mapping restoration at G28 alone is too early because
+the screen writes mappings again afterward. The print-body gate remains false
+until the client marks it ready before M24. Startup retains the client-recognized
+`adaptive_mesh` label; that label does not describe the actual probing area.
 
-### T2 reference checkpoint coordinate defect — 2026-09-14
+## Local evidence paths
 
-The next print swapped sliced T0/T1 to physical T2/T0. Startup selected T2 as
-the probing reference; the user reported a good first layer. The production
-context saved tool=2, mapping [2,0,2,3], matching offsets and `wmp_print`.
-After a power cut, these all survived and dock sensors agreed with mounted T2.
+These directories are ignored by Git and absent from a normal checkout:
 
-Pre-Continue inspection found a different checkpoint case: A/B file positions
-185799/185865 saved XYZ [188,252.3,4.29526], while matching pre-cut snapshots
-recorded G-code XYZ [188,252.3,4.8] and compensated toolhead Z4.295262554799677.
-The file resumes prime-tower extrusion before its next explicit Z command.
-Recovery was therefore held at the prompt: replaying Z4.29526 as G-code with
-the restored mesh would apply compensation twice and put the nozzle about
-0.505 mm below its intended position. This is a checkpoint coordinate defect,
-not a failure of the T2 reference or max-Z homing.
-
-The `recovery-fix` touchscreen preload changes the checkpoint writer to G-code
-XYZ and adds hash-bound format sidecars plus a guard before recovery starts.
-See [client-preload/README.md](../client-preload/README.md) for exact scope,
-legacy migration, crash behavior and remaining sampling limitations. Local
-tests: 136 passed, including emulated ARM loads and actual C guard behavior;
-the guard harness also passed on the printer's ARM CPU.
-
-For this pending print, both records were migrated to [188,252.3,4.8] using
-captured pre-cut samples at their respective file positions. Original records,
-the migration plan and prior preload state are backed up in
-`analysis/backups/pre-checkpoint-coordinate-fix-20260914T143857Z/`.
-Print evidence is in `analysis/print-validation-20260914T140040Z/`.
-Subsequent resumed-print and production-writer observations are recorded below.
-
-Deployment verification read the running client's memory: all four XYZ load
-patches and three entry hooks were present; cached XYZ was [188,252.3,4.8],
-file position 185865, and the selected B checkpoint's format guard was valid.
-The exact mesh, offset calibration and T2 recovery context were preserved.
-After the touchscreen restart Klipper was Ready/standby, axes unhomed and all
-heater targets zero. No recovery movement was requested during deployment.
-
-After the user pressed Continue, the client guard accepted the migrated record.
-Logs confirmed bottom-Z referencing before XY, recovery commands Z7.8 then
-Z4.8, restored `wmp_print`/probe_tool=2/mapping [2,0,2,3], and SD resume at
-185865. Subsequent physical T0 and T2 changes completed. Fresh A/B records
-were written with valid format markers. At byte 197931 the new record saved
-[188.25,247.550003,5.2], matching the client's float G-code coordinates; the
-monitor at that file position showed raw toolhead coordinates
-[188.171875,247.817187,4.746380194337592]. This verifies correction of both
-tool-offset XY and mesh/tool-offset Z in the production writer. The user subsequently reported everything looked good, passing the visual
-recovery-layer check. The second print subsequently completed: logs recorded `Done printing file`
-and `PRINT_END`; final state was Ready/standby, unpaused, all heater targets
-zero, recovery context empty, recovery inactive and print_body_ready false.
-The tested T2-reference recovery, swapped mapping, corrected checkpoint
-writer and completion cleanup therefore passed physical validation.
+| Path under `analysis/` | Evidence |
+|---|---|
+| `fw_1.1.08_diff/implementation/ghidra/calibration-fan-callers-strings.c` | Vendor recovery sequence |
+| `backups/pre-max-z-recovery-20260914T061559Z/` | Configuration/diagnostic backups |
+| `z-recovery-investigation/integration-20260914T062111Z/` | Ordering tests and rejected fixture |
+| `z-recovery-investigation/integration-20260914T062555Z/` | Corrected record, SD completion, cleanup |
+| `print-validation-20260914T124401Z/` | T0-reference print |
+| `print-validation-20260914T140040Z/` | T2-reference print and checkpoint evidence |
+| `backups/pre-checkpoint-coordinate-fix-20260914T143857Z/` | Original checkpoints, migration plan, prior preload state |

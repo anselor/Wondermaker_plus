@@ -1,5 +1,5 @@
 #!/bin/bash
-# Remove the Wondermaker+ screen bridge and restore the printer to stock.
+# Remove the Wondermaker+ screen bridge. Other WM+ components remain.
 # Runs ON the printer, as root. Safe to re-run.
 set -uo pipefail
 
@@ -13,13 +13,13 @@ WEBCAM_NAME="Touchscreen"
 
 say() { echo "==> $*"; }
 
-[ "$(id -u)" = 0 ] || { echo "!! must run as root" >&2; exit 1; }
+[ "$(id -u)" = 0 ] || { echo "!! Run this printer-side script as root." >&2; exit 1; }
 
 # --- 1. moonraker ----------------------------------------------------------
 say "removing '$WEBCAM_NAME' webcam from Moonraker"
 curl -sf -m 5 -X DELETE \
     "$MOONRAKER/server/webcams/item?name=$WEBCAM_NAME" >/dev/null \
-    || echo "   (not registered, or Moonraker unreachable)"
+    || echo "   Could not remove the camera entry; it may be absent or Moonraker may be unreachable."
 
 # --- 2. service ------------------------------------------------------------
 say "stopping and removing service"
@@ -46,7 +46,7 @@ if grep -qF "$MARKER" "$NGINX_SITE" 2>/dev/null; then
         echo "!! nginx config test failed after restore - inspect $NGINX_SITE" >&2
     fi
 else
-    say "nginx already clean"
+    say "no WM+ screen include found in nginx"
 fi
 
 # --- 4. payload ------------------------------------------------------------
@@ -59,4 +59,4 @@ ss -lntp 2>/dev/null | grep -q ":8975" \
     || echo "    port 8975 closed"
 curl -sf -m 5 -o /dev/null -w "    fluidd / -> HTTP %{http_code}\n" \
     http://127.0.0.1/ || echo "!! fluidd not responding"
-say "done - printer restored to stock"
+say "removal steps finished; review the checks above. Other WM+ components remain installed."

@@ -121,7 +121,7 @@ def main(argv=None):
             print(f'Wrote review candidate: {output}')
         for line in decisions:
             print(line)
-        print(f'{len(candidate)} candidate files; {len(decisions)} outstanding review items. Stock and live unchanged.')
+        print(f'{len(candidate)} candidate files; {len(decisions)} items need review. No changes to stock or live.')
         return 1 if decisions else 0
     except (OSError, ValueError, RuntimeError, UnicodeError) as exc:
         print(str(exc), file=sys.stderr)

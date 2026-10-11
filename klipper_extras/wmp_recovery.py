@@ -17,7 +17,7 @@ class BottomZ:
         self.printer.register_event_handler('homing:home_rails_begin', self._home_begin)
         self.printer.register_event_handler('homing:home_rails_end', self._home_end)
         self.gcode.register_command('_WMP_HOME_Z_BOTTOM', self.cmd_home,
-                                    desc='Home native Z to the bottom before XY travel')
+                                    desc='Home Z at the bottom endstop before X/Y travel')
 
     def _connect(self):
         enable = self.printer.lookup_object('stepper_enable').lookup_enable('stepper_z')
@@ -55,17 +55,17 @@ class BottomZ:
             paused = self.printer.lookup_object('pause_resume').get_status(now)['is_paused']
             body = self.printer.lookup_object('gcode_macro START_PRINT').get_status(now)['print_body_ready']
             if self.active or paused or (ps['state'] == 'printing' and body):
-                raise gcmd.error('Bottom-Z homing cannot reset the reference of an active print')
+                raise gcmd.error('Cannot home Z at the bottom during an active or paused print, or while this homing command is running.')
             settings = self.printer.lookup_object('configfile').get_status(now)['settings']
             z = settings['stepper_z']
             if (settings['printer']['kinematics'] != 'corexy'
                     or z['endstop_pin'] != 'PD2' or not z['homing_positive_dir']
                     or z['position_endstop'] != 300.0 or z['homing_retract_dist'] != 2.0):
-                raise gcmd.error('Bottom-Z homing requires the inspected Wondermaker Z geometry')
+                raise gcmd.error('Bottom-Z homing requires the supported Wondermaker Z configuration. Check stepper_z settings.')
             for name in ('LEVELING', 'GANTRY'):
                 pin = self.printer.lookup_object('output_pin ' + name).get_status(now)
                 if pin['value'] != 1:
-                    raise gcmd.error('%s must be inactive before bottom-Z homing' % name)
+                    raise gcmd.error('%s must be inactive before bottom-Z homing; check the printer state.' % name)
             self.active = True
             self.valid = False
             self.printer.lookup_object('toolhead').wait_moves()
@@ -81,10 +81,10 @@ class BottomZ:
                 self.gcode.run_script_from_command('STEPPER_DIAG_DISABLE CHIP=stepper_z')
             self.valid = True
             logging.info('WMP recovery: native bottom Z home complete; no XY or upward return')
-            gcmd.respond_info('WMP: Z referenced at bottom; no XY or upward return')
+            gcmd.respond_info('WM+: Z homed at the bottom. The bed remains there; X/Y did not move.')
         except Exception:
             self.valid = False
-            self.printer.invoke_shutdown('Bottom-Z homing failed; subsequent recovery motion blocked')
+            self.printer.invoke_shutdown('Bottom-Z homing failed. Klipper shut down to block further recovery movement; check the preceding error.')
             raise
         finally:
             self.active = False

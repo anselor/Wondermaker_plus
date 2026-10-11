@@ -18,4 +18,4 @@ while [ "$i" -lt 60 ]; do
 done
 curl -sf -m 5 -X POST "$MOONRAKER/machine/timelapse/settings?camera=$CAM" \
     >/dev/null 2>&1 && echo "wmp-timelapse-camera: timelapse camera -> $CAM" \
-    || echo "wmp-timelapse-camera: failed to set camera (Moonraker unreachable?)"
+    || echo "wmp-timelapse-camera: could not set the timelapse camera; check Moonraker connectivity"

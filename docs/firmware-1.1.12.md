@@ -1,64 +1,61 @@
-# System 1.1.12 integration
+# System 1.1.12 comparison
 
-Wondermaker System 1.1.12 was analyzed and reconciled on 2026-09-21 against
-the integrated 1.1.08 baseline. The encrypted vendor archive was decrypted
-with the existing XOR/AES tooling; Debian metadata confirms version 1.1.12.
-No vendor installer or printer deployment was run during this analysis.
+This is the September 21, 2026 integration record. Current WM+ configuration
+requires [1.1.13](firmware-1.1.13.md); use the [project README](../README.md) for
+installation.
 
-## Package inventory
+Compared with 1.1.08, 1.1.12 mainly changes touchscreen runout/resume handling.
+It also re-enables two door-input registrations with empty handlers. The Wi-Fi,
+fan, and recovery-coordinate faults remain in the reviewed paths, so WM+ keeps
+those fixes and adds profiles for the relocated code.
 
-The official ZIP SHA-256 is
-`c8a37467bdea43ab3d96afd3b53f794f12291a8834d0aa3bcc73e16fff39556f`.
-The encrypted payload is
-`629da5d07872de15b44e657ee48d1e14202afbf68104dae9a499e13888afd200`,
-the decrypted Debian package is
-`c56ab4d258d367ad34360f67808b470d3ab1c7546a98a67639a626b6e5ec7e44`,
-and the client is
-`574dc00926c8448b43e47c98bd988159892e6d5ba33f8b187ad04909dd1198ae`.
+The package was decrypted and extracted for comparison. No vendor installer
+or printer deployment ran during this analysis.
 
-Compared byte-for-byte with 1.1.08, the payload changes only:
+## Package differences
 
-- `TM_T1/bin/client` (61,340,144 to 61,340,216 bytes);
-- factory and installed `zru-s.cfg`, re-enabling Door_button1/2 on PA7/PB7;
-- removal of a stray packaged `save_variables.cpython-312.pyc` cache file;
-- package version metadata from 1.1.08 to 1.1.12.
+Only these payload items changed:
 
-All Klipper source, macros, other configuration, touchscreen assets, MCU
-firmware, update scripts, and service files are otherwise byte-identical.
-The stock baseline archives `stock_1.1.08` and adopts the door registrations;
-live adopts the same explicit vendor reversal. Their handlers remain empty.
+- `TM_T1/bin/client`: 61,340,144 to 61,340,216 bytes.
+- Factory and installed `zru-s.cfg`: re-enable Door_button1/2 on PA7/PB7.
+- Remove a packaged `save_variables.cpython-312.pyc` cache file.
+- Package version metadata.
 
-## Client changes
+Other Klipper source, macros, configuration, screen assets, MCU firmware,
+update scripts, and services are byte-identical. WM+ stock/live configurations
+adopt the door registrations. The earlier stock baseline is archived separately.
 
-Symbol sizes and Ghidra decompilation identify seven changed application
-functions. The release:
+## Touchscreen behavior
 
-- records the physical tool that caused a filament runout/tangle and uses it
-  in the warning and resume checks, instead of relying on a later current tool;
-- validates the global pause temperature and falls back to the faulting tool's
-  saved resume temperature when it is below 175 C;
-- carries that fault-tool state through G-code response parsing and popup text;
-- sets `is_print_from_screen = true` when power-loss recovery starts;
-- fixes the second barcode scanner path by adding `/by-id/`.
+Decompilation and symbol-size comparison identify seven changed application
+functions. The client now:
 
-The power-loss checkpoint writer and loader retain their behavior and sizes.
-The writer still serializes compensated `toolhead.position` XYZ and recovery
-still reuses those values as G-code coordinates. Setting `is_print_from_screen`
-does not address that coordinate-space mismatch, so recovery-fix remains
-required. Its writer/loader/start guards were revalidated against 1.1.12,
-including the 16-byte recovery-start addition.
+- Records which physical head caused a runout/tangle and uses it in warnings
+  and resume checks, rather than relying on whichever head is current later.
+- Falls back to that head's saved resume temperature when the global pause
+  temperature is below 175°C.
+- Carries the faulting-head information through response parsing and popups.
+- Sets `is_print_from_screen=true` when recovery begins.
+- Adds `/by-id/` to the second barcode-scanner path.
 
-The Wi-Fi event logic and air-filter request logic are semantically unchanged
-but relocated by the relink. wifi-fix, fan-fix, and recovery-fix now retain
-their 1.1.08 profiles and add exact 1.1.12 ELF/function/address profiles. Each
-continues to fail closed on an unknown or modified executable.
+The recovery writer still saves compensated `toolhead.position` XYZ and reuses
+it as G-code XYZ. The new screen-origin flag does not fix that mismatch;
+`recovery-fix` remains required. Its checks include the 16-byte recovery-start
+addition. Wi-Fi and filter-fan logic retain their behavior at new addresses.
 
-## Validation and limits
+## Local validation
 
-Offline tests compile the real preload sources, recognize both reviewed
-clients, reject modified binaries, validate every Wi-Fi branch target, verify
-the fan callback site and sender prologue, and emulate recovery coordinate
-loads. The complete project suite also checks the unchanged config and recovery
-contracts; 139 tests pass. Hardware checks remain necessary after installing 1.1.12: Klipper
-startup with the restored door pins, ABS filter automatic/manual behavior,
-Wi-Fi failure recovery, and a newly created power-loss checkpoint/resume.
+The recorded full suite passed 139 tests. Checks recognized reviewed clients,
+rejected altered files, verified Wi-Fi branches and fan hook instructions,
+and emulated recovery coordinate loads. New firmware still required printer
+checks for startup with the door pins, ABS fan choices, Wi-Fi reconnection,
+and a newly written recovery checkpoint.
+
+## Artifact fingerprints
+
+| Artifact | SHA-256 |
+|---|---|
+| Official ZIP | `c8a37467bdea43ab3d96afd3b53f794f12291a8834d0aa3bcc73e16fff39556f` |
+| Encrypted payload | `629da5d07872de15b44e657ee48d1e14202afbf68104dae9a499e13888afd200` |
+| Debian package | `c56ab4d258d367ad34360f67808b470d3ab1c7546a98a67639a626b6e5ec7e44` |
+| Screen client | `574dc00926c8448b43e47c98bd988159892e6d5ba33f8b187ad04909dd1198ae` |

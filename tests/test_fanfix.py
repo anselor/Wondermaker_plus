@@ -80,6 +80,7 @@ def test_unknown_client_is_rejected(harness):
 @pytest.mark.parametrize('version,sender,redundant,material', [
     ('1.1.08', 0x53fe54, 0x6385c8, 0x61a8cc),
     ('1.1.12', 0x53ff44, 0x638930, 0x61a9bc),
+    ('1.1.13', 0x53ff30, 0x63891c, 0x61a9a8),
 ])
 def test_actual_guard_and_callback_target(harness, tmp_path, version, sender, redundant, material):
     elf = ROOT / f'analysis/fw_{version}_payload/root/home/t13dp/TM_T1/bin/client'

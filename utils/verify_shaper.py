@@ -1,31 +1,16 @@
 #!/usr/bin/env python3
-"""Movement-noise test — closed-loop input-shaper verification (Bambu-style).
+"""Check input shaping during real printer movement.
 
-Unlike TEST_RESONANCES (sweeps frequencies with the shaper OFF to
-characterize the machine), this drives a fixed battery of real movement
-patterns with the shaper ON at print accelerations and measures the residual
-vibration that actually reaches the part. It runs each pattern shaper-ON and
-shaper-OFF at several accelerations, then writes a report and two graphs:
+Moves through X, Y, diagonal, square, and triangle patterns, comparing vibration
+with input shaping on and off. Homes the printer and changes motion settings
+during the test; restores configured shaping and acceleration on exit.
 
-  * spectra.png  — residual PSD per pattern (shaper ON): shows WHERE the
-                   noise is (which frequency), so a direction-specific rattle
-                   is obvious (e.g. a diagonal-only peak the shaper can't fix).
-  * summary.png  — residual energy per pattern (ON vs OFF): shows WHICH move
-                   types are bad and how much the shaper helps.
+Run on your computer:
+    uv run --with paramiko --with numpy --with matplotlib python utils/verify_shaper.py
 
-    uv run --with paramiko --with numpy --with matplotlib \
-        python utils/verify_shaper.py
-    ... [--accels 3500,5000,8000] [--patterns x,y,diag_a,diag_b,square,triangle]
-        [--out DIR] [--vel 20000] [--cycles 8]
-
-Restores the machine's configured shaper and accel limit on exit.
-
-Patterns (centred on the bed, ~200 mm span):
-  x/y       — pure single-axis oscillation (both belts move together)
-  diag_a    — 1,1 diagonal (drives the "belt A" / upper loop)
-  diag_b    — 1,-1 diagonal (drives the "belt B" / lower loop)
-  square    — axis-aligned box (corners are pure X/Y)
-  triangle  — angled edges (mixes the belts, like curves/angled walls)
+Set connection details in .env. Results are report.txt, spectra.png
+(vibration by frequency), and summary.png (on/off comparison).
+See utils/README.md for interpretation and limitations.
 """
 import argparse, datetime, json, math, os, sys, time, urllib.request
 
@@ -134,11 +119,11 @@ def peak_in_band(f, psd):
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--accels", default="5000,8000")
-    ap.add_argument("--patterns", default=",".join(PATTERNS))
-    ap.add_argument("--vel", type=int, default=20000, help="mm/min oscillation feed")
-    ap.add_argument("--cycles", type=int, default=6)
-    ap.add_argument("--out", default=None, help="output dir (default resonance/<date>/movement-test)")
+    ap.add_argument("--accels", default="5000,8000", help="comma-separated accelerations in mm/s²")
+    ap.add_argument("--patterns", default=",".join(PATTERNS), help="comma-separated movement patterns: " + ",".join(PATTERNS))
+    ap.add_argument("--vel", type=int, default=20000, help="movement feedrate in mm/min")
+    ap.add_argument("--cycles", type=int, default=6, help="repetitions of each movement pattern")
+    ap.add_argument("--out", default=None, help="directory for reports and graphs (default: resonance/<date>/movement-test)")
     args = ap.parse_args()
     accels = [int(a) for a in args.accels.split(",")]
     pats = [p for p in args.patterns.split(",") if p in PATTERNS]
@@ -149,7 +134,7 @@ def main():
 
     st = api("/printer/objects/query?print_stats&configfile=settings", timeout=10)
     if st["result"]["status"]["print_stats"]["state"] == "printing":
-        sys.exit("printer is printing")
+        sys.exit("A print is running. Finish or cancel it before movement testing.")
     isp = st["result"]["status"]["configfile"]["settings"]["input_shaper"]
     cfg_accel = st["result"]["status"]["configfile"]["settings"]["printer"]["max_accel"]
     saved = {k: isp.get(k) for k in ("shaper_type_x", "shaper_freq_x",
@@ -243,7 +228,7 @@ def main():
                         if res:
                             break
                         if attempt < 3:
-                            print(f"  {tag}: short capture, resetting accel + retrying")
+                            print(f"  {tag}: recording too short; resetting the accelerometer and retrying")
                             force_accel_stopped()
                     if res:
                         e, f, psd = res
@@ -260,7 +245,7 @@ def main():
 
     write_report(outdir, pats, accels, energy, specs, saved, cfg_accel, graph_accel)
     make_graphs(outdir, pats, accels, energy, specs, graph_accel)
-    print(f"\nreport + graphs written to {outdir}/")
+    print(f"\nReport and graphs saved to {outdir}/")
 
 
 def write_report(outdir, pats, accels, energy, specs, saved, cfg_accel, ga):

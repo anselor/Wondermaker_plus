@@ -29,7 +29,7 @@ def exists(sftp, path):
 
 
 NAME = "material"
-DESCRIPTION = "wm_material Klipper extra: material-aware unload (reads the touchscreen's tmt1.ini)"
+DESCRIPTION = "Use touchscreen material settings for filament unloading"
 NEEDS_SSH = True
 NEEDS_SUDO = False
 RESTART_AFTER = "klipper"
@@ -38,6 +38,11 @@ RESTART_AFTER = "klipper"
 def _paths(ctx):
     home = "/home/%s" % ctx.user
     return home + "/" + EXTRA_DST, home + "/" + CFG_DST
+
+
+def preflight(ctx):
+    import preflight as checks
+    checks.material(ctx)
 
 
 def install(ctx):
@@ -63,6 +68,6 @@ def status(ctx):
     print("wm_material.cfg: %s" % ("installed" if exists(sftp, cfg) else "absent"))
     try:
         q = ctx.moonraker("/printer/objects/query?wm_material")
-        print("live object:     %s" % ("present" if '"available"' in q else "absent (restart Klipper after install)"))
+        print("Running helper:     %s" % ("present" if '"available"' in q else "not loaded; restart Klipper after installation"))
     except Exception as e:
-        print("live object:     (moonraker unreachable: %s)" % e)
+        print("Running helper:     could not check Moonraker: %s" % e)

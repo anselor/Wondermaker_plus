@@ -72,7 +72,7 @@ def main():
             time.sleep(0.03)
             up(f)
         else:
-            sys.exit("unknown cmd " + cmd)
+            sys.exit("Unknown command: " + cmd)
     print("ok " + " ".join(sys.argv[1:]))
 
 

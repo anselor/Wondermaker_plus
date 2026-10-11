@@ -1,25 +1,22 @@
 #!/usr/bin/env python3
-"""Sync config/live/ with the printer's Klipper config.
+"""Compare, upload, or download printer configuration.
 
-    uv run python utils/config_sync.py diff [--patch]
-    uv run python utils/config_sync.py push [FILE ...] [--yes] [--no-restart]
+Run on your computer with WMP_PRINTER set in .env:
+    uv run python utils/config_sync.py diff
+    uv run python utils/config_sync.py diff --patch
     uv run python utils/config_sync.py pull DIR
-    ... any mode with --ssh to use SFTP instead of Moonraker HTTP
+    uv run python utils/config_sync.py push
+    uv run python utils/config_sync.py push macros.cfg
 
-diff: show which files differ between config/live/ and the printer.
-      --patch also prints a unified diff of each changed file's content.
-push: upload changed files (all, or just the named ones), keeping a
-      timestamped backup of each replaced file on the printer, then
-      firmware-restart Klipper and verify it comes back Ready.
-pull: download the printer's current config into DIR for inspection.
+Diff compares config/live with the printer; --patch shows changed lines.
+Pull downloads files for inspection. Push backs up replaced files and keeps
+this printer's calibration, then restarts Klipper and checks for Ready.
+--no-restart uploads only. --yes skips the upload confirmation.
 
-Transport is Moonraker's HTTP file API by default — no shell access, no
-credentials, works for anything under printer_data/config. Pass --ssh to use
-SFTP instead (needs paramiko: `uv run --with paramiko ...`); only useful if
-Moonraker is down.
-
-Runtime-state files (saved_variables.cfg, tmt1.ini, printer-*.cfg backups)
-are never touched.
+Use tools/deploy.py for installation checks and the required recovery helper.
+This transfer tool does not install Python helpers. See config/README.md.
+For SFTP fallback, put --ssh before the subcommand; it needs SSH credentials
+and paramiko. Restart checks still need Moonraker.
 """
 import argparse, datetime, difflib, fnmatch, io, json, os, sys, time, urllib.error, urllib.request
 import uuid as uuidlib
@@ -216,7 +213,7 @@ def main():
     d.add_argument("-p", "--patch", action="store_true",
                    help="also show a unified diff of each changed file's content")
     p = sub.add_parser("push")
-    p.add_argument("files", nargs="*", help="only push these files")
+    p.add_argument("files", nargs="*", help="upload only these configuration files")
     p.add_argument("--yes", action="store_true")
     p.add_argument("--no-restart", action="store_true")
     g = sub.add_parser("pull")
@@ -298,15 +295,15 @@ def run(t, args):
     if args.files:
         unknown = [f for f in args.files if f not in targets]
         if unknown:
-            sys.exit(f"not changed or unknown: {', '.join(unknown)}")
+            sys.exit(f"Files are unchanged or unavailable for upload: {', '.join(unknown)}")
         targets = args.files
     if not targets:
         print("nothing to push; config/live matches the printer")
         return
     if printing_now():
-        sys.exit("printer is printing; refusing to push (restart would kill the print)")
-    print("will push:", ", ".join(targets))
-    if not args.yes and input("proceed? [y/N] ").strip().lower() != "y":
+        sys.exit("A print is running. Finish or cancel it before uploading configuration.")
+    print("Files to upload:", ", ".join(targets))
+    if not args.yes and input("Upload these files? [y/N] ").strip().lower() != "y":
         sys.exit("aborted")
 
     stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -326,20 +323,20 @@ def run(t, args):
             if SAVE_CONFIG_MARKER in current:
                 data += SAVE_CONFIG_MARKER + current.split(SAVE_CONFIG_MARKER, 1)[1]
         t.write(name, data)
-        print(f"  pushed {name}")
+        print(f"  uploaded {name}")
 
     if args.no_restart:
         print("skipping restart (--no-restart); changes load on next restart")
         return
-    print("firmware-restarting Klipper...")
+    print("Restarting Klipper and its controllers...")
     urllib.request.urlopen(urllib.request.Request(
         f"http://{HOST}/printer/firmware_restart", data=b"{}",
         headers={"Content-Type": "application/json"}), timeout=60)
     time.sleep(15)
     if wait_ready():
-        print("Klipper is Ready — push verified")
+        print("Klipper is Ready; configuration upload complete.")
     else:
-        print("WARNING: Klipper not Ready — check klippy.log; backups are "
+        print("Klipper is not Ready. Check klippy.log before printing. Backups are "
               f"on the printer as *.wmp-backup-{stamp}")
         sys.exit(1)
 

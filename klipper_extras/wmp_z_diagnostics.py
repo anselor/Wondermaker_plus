@@ -17,7 +17,7 @@ class ZDiagnostics:
         self.gcode.register_command('WMP_Z_SNAPSHOT', self.cmd_snapshot,
                                     desc='Record Z coordinates without moving')
         self.gcode.register_command('WMP_Z_MAX_TEST', self.cmd_max_test,
-                                    desc='Empty-bed diagnostic: native Z-max home only')
+                                    desc='Empty-bed test: home Z at the bottom endstop and leave it there')
 
     def _snapshot(self):
         now = self.printer.get_reactor().monotonic()
@@ -57,12 +57,12 @@ class ZDiagnostics:
         if (settings['printer']['kinematics'] != 'corexy'
                 or z['endstop_pin'] != 'PD2' or not z['homing_positive_dir']
                 or z['position_endstop'] != 300.0 or z['homing_retract_dist'] != 2.0):
-            raise gcmd.error('Z-max diagnostic requires the inspected Wondermaker Z configuration')
+            raise gcmd.error('Z-max diagnostic requires the supported Wondermaker Z configuration; check stepper_z settings.')
         # Observe these outputs; do not pulse/reset them as part of the test.
         for name in ('LEVELING', 'GANTRY'):
             value = self.printer.lookup_object('output_pin ' + name).get_status(now)['value']
             if value != 1:
-                raise gcmd.error('%s must already be inactive (high)' % name)
+                raise gcmd.error('%s is active; this diagnostic requires it to be inactive (high).' % name)
 
     def cmd_max_test(self, gcmd):
         self._check_environment(gcmd)
