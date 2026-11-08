@@ -115,9 +115,7 @@ A saved-default mesh still uses physical T0, the head used to calibrate it.
 `G29` explicitly selects physical T0 even if slicer T0 is mapped to another head.
 
 A **logical tool** is a slicer's T0–T3 selection; a **physical tool** is a printer
-head. WM+ resolves the mapping before choosing a probe head. With openACE it uses
-`tool_extruder_index`; otherwise it uses the vendor `box_modify_t*` variables.
-Missing openACE mapping data stops startup rather than selecting a guessed head.
+head. WM+ resolves the vendor `box_modify_t*` mapping before choosing a probe head.
 Tool offsets are applied relative to the head that probed the bed.
 
 Fresh and saved-default starts both save a separate `wmp_print` mesh for recovery.
@@ -125,7 +123,7 @@ They preserve the normal `default` calibration. The
 [recovery guide](../docs/print-mesh-recovery.md) explains the saved print information
 and checks.
 
-### Pause, resume, and openACE
+### Pause and resume
 
 Before pausing, WM+ saves the current slicer-to-head mapping. Resume restores it,
 so a Fluidd pause does not load a different color from stale touchscreen settings.
@@ -136,11 +134,7 @@ Pause parks at Y20 instead of Y1 to leave more front clearance.
 alignment. The old automatic paused-homing workaround was removed when vendor
 1.1.04 changed its resume behavior.
 
-`[include openace*.cfg]` keeps optional openACE configuration connected when WM+
-replaces `printer.cfg`. It matches nothing on printers without openACE.
-The [compatibility preload](../client-preload/README.md#openace-compatibility)
-lets openACE handle the screen's Resume request and routes screen heater commands
-to physical heads. Pause/resume heater restoration also uses physical heater names.
+Pause/resume heater restoration uses physical heater names.
 
 ### Tool changes and wiping
 
@@ -205,12 +199,6 @@ adjustment. `_TIP_SHAPE_RETRACT DRY_RUN=1` reports its choice without movement.
 and temperature selection; use it only with the head prepared at temperature.
 PETG movement controls are `cooling_moves`, `cooling_len`, `cooling_speed_list`,
 and `stamp_len` in `_TIP_SHAPE_MOVES`.
-
-During openACE unload, WM+ enables rollback assist just before the fast withdrawal
-so the ACE takes up filament rather than pushing it against the head cover.
-It turns assist off after the last pull, before cooling: an ACE 2 was observed
-to error about one second after pulling stopped while assist remained active.
-The hooks do nothing outside an openACE unload.
 
 ### Case light preference, screen sleep, and printing
 

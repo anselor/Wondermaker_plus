@@ -8,6 +8,9 @@ clearance moves. The touchscreen fixes have also been updated for this client.
 the new vendor calibration modules and cannot run as-is on 1.1.12.
 WM+ does not install vendor firmware.
 
+If Klipper reports `Failed automated reset of MCU 'mcu'` after upgrading,
+see [troubleshooting](troubleshooting.md).
+
 The package comparison and initial local checks were completed October 2, 2026.
 The complete reviewed WM+ deployment was installed and checked on the printer
 October 10, 2026. Print, tool-change, and calibration trials remain pending.
@@ -25,7 +28,7 @@ Compared with 1.1.12, the package changes:
 
 Other packaged macros, Klipper files, screen assets, MCU firmware, services,
 and installer scripts are byte-identical. This comparison found no fix for the
-Wi-Fi, fan-request, recovery-coordinate, or openACE-resume faults in the reviewed
+Wi-Fi, fan-request, or recovery-coordinate faults in the reviewed
 screen paths. It does not establish a screen-performance improvement.
 
 One confirmed screen change makes the skip button initially visible in
@@ -85,7 +88,7 @@ The recorded suite at this integration passed 198 tests. Tests needing local
 checks do not. Passing these checks does not establish hardware performance.
 
 After installation, verify Klipper Ready, patch logs for the current screen
-process, optional openACE detection, and a normal tool-offset calibration.
+process, and a normal tool-offset calibration.
 Do not deliberately cause a collision as a validation test.
 For interrupted prints, read the [checkpoint upgrade limits](../client-preload/README.md#upgrading-with-an-interrupted-print)
 first.
@@ -97,15 +100,15 @@ correctly stopped without applying changes when the temporary nginx check could
 not find installed modules. The check now retains nginx's normal prefix while
 using the prospective configuration copy; full preflight then passed.
 
-Configuration, touchscreen, material helper, and the four reviewed preload
-patches were installed. Klipper returned Ready after the final firmware restart.
+Configuration, touchscreen, material helper, and the reviewed preload patches
+were installed. Klipper returned Ready after the final firmware restart.
 Checks confirmed:
 
 - The configuration matches `config/live`; all four head identities, saved
-  variables, `tmt1.ini`, and the openACE configuration were preserved.
+  variables and `tmt1.ini` were preserved.
 - Recovery and material helpers are loaded, as is the collision configuration.
   All four extruder heater targets are zero.
-- The running client's Wi-Fi, fan, recovery, and openACE patch logs confirm
+- The running client's Wi-Fi, fan, and recovery patch logs confirm
   successful application to 1.1.13.
 - Installed helper and screen files match the local sources. The page served by
   nginx matches the updated browser decoder, and the JPEG snapshot displays the
@@ -145,10 +148,9 @@ retaining its reference files and includes. It is not a factory-calibration copy
 Vendor CRLF line endings were normalized for comparison.
 
 The live calibration merge was reviewed manually because the vendor changed a
-block containing WM+ clearance edits. Both clearance calls, the openACE include,
-and the existing rollback-assist Off hook remain. Raw packages, executable,
-and extracted modules are in ignored `analysis/`; tracked snapshots contain
-configuration only.
+block containing WM+ clearance edits. Both clearance calls remain. Raw packages,
+the executable, and extracted modules are in ignored `analysis/`; tracked
+snapshots contain configuration only.
 
 ## Patch reference for maintainers
 
@@ -158,16 +160,14 @@ configuration only.
 | Fan parser / redundant OFF call / sender | `0x6387dc` / `0x63891c` / `0x53ff30` |
 | Recovery writer / loader / start | `0x62f810` / `0x62c5ec` / `0x62d91c` |
 | G-code sender | `0x614338` |
-| Screen resume preparation | `0x51a7b4` |
 | Wi-Fi processEvent / disconnect | `0x660cfc` / `0x6638fc` |
 
-Fan, recovery, and openACE profiles use full-file FNV-1a fingerprint
+Fan and recovery profiles use full-file FNV-1a fingerprint
 `0x3ed764ac9cdaa82d`. Wi-Fi uses function fingerprint `0x4c5b0e42b09fd41b`.
 Older reviewed profiles remain available. Unknown or modified clients are skipped.
 
 The Wi-Fi patch still preserves wrong-password handling. Recovery still writes
-logical G-code XYZ and validates companion format markers. openACE behavior still
-requires detection of the running `openace` object. See the
+logical G-code XYZ and validates companion format markers. See the
 [touchscreen patch guide](../client-preload/README.md) for user-visible behavior.
 
 ## Head-count reset observed on 2026-10-10
@@ -204,7 +204,7 @@ configuration, and a failed discovery does not invalidate the stale count.
 WM+ config synchronization excludes saved_variables.cfg, tmt1.ini, and the
 machine-owned `wm_zru_*.cfg` files. Its existing preload patches do not hook
 this destructive callback. The observed writer is the vendor client. Whether
-WM+ or openACE contributed indirectly to the initiating communication failure
+WM+ contributed indirectly to the initiating communication failure
 remains unproven; the CAN interface was demonstrably absent during the later
 upgrade query.
 
@@ -216,7 +216,7 @@ before replacing the persistent count. Neither fix was implemented by this audit
 
 
 The follow-up restoration on 2026-10-10 recovered all four identities and returned
-Klipper to Ready with openACE and all four existing 1.1.13 patches loaded. Kernel
+Klipper to Ready with the existing 1.1.13 patches loaded. Kernel
 logs also identified an upstream USB-hub interruption preceding the MCU timeouts.
 See [restoration evidence and non-destructive recovery design](head-communication-recovery.md).
 The new head-configuration guard is locally tested and remains undeployed.

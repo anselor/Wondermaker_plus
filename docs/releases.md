@@ -37,7 +37,7 @@ The printer configuration and preload patch behavior are unchanged in this hotfi
 |---|---|
 | Full printer configuration | System 1.1.12 |
 | Touchscreen | Compatible with the existing 1.1.12 screen bridge; no new vendor module required |
-| Fan, recovery, and openACE preloads | Reviewed clients 1.1.08 and 1.1.12 |
+| Fan and recovery preloads | Reviewed clients 1.1.08 and 1.1.12 |
 | Wi-Fi preload | Reviewed clients 1.1.04, 1.1.08, and 1.1.12 |
 
 ### Update only the touchscreen on 1.1.12
@@ -77,14 +77,13 @@ This release:
   Failed preflight installs nothing; later runtime failures do not automatically
   undo earlier changes. Running and paused prints block installation.
 - Includes the previously unpublished bounded print-end bed drop and nozzle wipe,
-  openACE rollback assistance during tip shaping, and documentation/message cleanup.
-  openACE-specific routing and rollback behavior still requires openACE detection.
+  plus documentation/message cleanup.
 - Retains the touchscreen rendering hotfix and fixes verification of quiet streams.
 
 The complete deployment was installed on October 10, 2026. Klipper returned Ready
-with four heads; identities, saved settings, and openACE configuration were
-preserved. All five patches reported successful application, and the guard's
-live callback jump was inspected. The updated screen page, JPEG snapshot, and
+with four heads; identities and saved settings were preserved. The installed
+patches reported successful application, and the guard's live callback jump was
+inspected. The updated screen page, JPEG snapshot, and
 live binary stream passed checks. Print/tool-change/calibration acceptance and
 behavior during a real guarded communication fault remain pending. The final
 local project and material-helper suite passed 228 tests; release hygiene checks
@@ -93,7 +92,7 @@ and local documentation links also passed.
 | Component | Compatibility in this snapshot |
 |---|---|
 | Full printer configuration | System 1.1.13 |
-| Fan, recovery, openACE, and head-configuration preloads | Reviewed clients 1.1.08, 1.1.12, and 1.1.13 |
+| Fan, recovery, and head-configuration preloads | Reviewed clients 1.1.08, 1.1.12, and 1.1.13 |
 | Wi-Fi preload | Reviewed clients 1.1.04, 1.1.08, 1.1.12, and 1.1.13 |
 | Touchscreen bridge | No new vendor calibration module required |
 
@@ -114,9 +113,9 @@ Hard-refresh the touchscreen page after updating. Read the
 
 ## fw-1.1.13-r2 — unload temperature message fix
 
-Fixes an unload failure introduced in `fw-1.1.13-r1`, affecting users both with
-and without openACE. When tip shaping needs to change the nozzle temperature,
-its `RESPOND` message contained a semicolon inside quotes. Klipper treats that
+Fixes an unload failure introduced in `fw-1.1.13-r1`. When tip shaping needs to
+change the nozzle temperature, its `RESPOND` message contained a semicolon inside
+quotes. Klipper treats that
 semicolon as a comment delimiter, leaving an unterminated quote and rejecting
 the command. The message now uses a comma. Heating and retraction logic are
 unchanged.

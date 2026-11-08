@@ -4,7 +4,7 @@ Components:
     config       Printer configuration and required recovery/light helpers.
     touchscreen  Clickable printer screen in Fluidd.
     material     Material settings for filament unloading.
-    preload      Wi-Fi, fan, recovery, openACE, head protection, and light preference.
+    preload      Wi-Fi, fan, recovery, head protection, and light preference.
 
 Examples (run on your computer):
     uv run python tools/deploy.py list
@@ -22,8 +22,10 @@ See config/README.md.
 
 Installation checks all selected components first. A running or paused
 print blocks changes. Earlier applied changes are not undone if a later
-installation step fails. Klipper restarts once at the end when needed;
-touchscreen components restart their own services during installation.
+installation step fails. Config/material uploads finish before preload
+activation. When preload is selected, its active head guard is verified before
+continuing and before the final Klipper restart. Screen activation can also
+restart Klipper; --no-restart defers only the final explicit restart.
 """
 import argparse
 import json
@@ -107,6 +109,25 @@ class Context:
             if state in ('error', 'shutdown'):
                 return False
             raise DeployError('cannot establish that the printer is idle; further changes are blocked. Check the printer connection and status, then retry.') from exc
+
+    def wait_for_backend(self, timeout=90.):
+        """Allow the stock screen's startup restart to finish without retrying it."""
+        deadline = time.monotonic() + timeout
+        detail = 'backend is starting'
+        while True:
+            try:
+                state = json.loads(self.moonraker('/printer/info'))['result']['state']
+                # Error/shutdown permit repairs; Ready is not a prerequisite.
+                if state in ('ready', 'error', 'shutdown'):
+                    print('Backend state after screen restart: %s' % state)
+                    return
+                detail = 'backend state is %s' % state
+            except (OSError, ValueError, KeyError) as error:
+                detail = str(error)
+            if time.monotonic() >= deadline:
+                raise DeployError('Backend did not finish starting after the screen restart: %s. '
+                                  'No additional controller restart was attempted.' % detail)
+            time.sleep(1.)
 
     def restart_klipper(self):
         print("Restarting Klipper and its controllers...")
@@ -218,6 +239,12 @@ def main():
                 print('Installation stopped. Earlier changes were not undone; check component status before printing.', file=sys.stderr)
                 return 1
         if need_restart and not ctx.no_restart:
+            if 'preload' in ctx.installing_components:
+                try:
+                    REGISTRY['preload'].verify_guard(ctx)
+                except Exception as exc:
+                    print('!! Final Klipper restart blocked: %s' % exc, file=sys.stderr)
+                    return 1
             try:
                 if ctx.printing_now():
                     raise DeployError('The printer became active. Files are uploaded, but Klipper was not restarted. Restart it after the print finishes.')

@@ -112,7 +112,7 @@ def test_cli_has_actionable_errors_and_nonzero_exit_status(tmp_path):
 
 
 def test_direct_config_push_rejects_bad_message_before_backups_or_upload(tmp_path, monkeypatch):
-    import config_sync
+    from utils import config_sync
     from types import SimpleNamespace as NS
     monkeypatch.setattr(config_sync, 'LIVE', str(tmp_path))
     (tmp_path / 'bad.cfg').write_text(macro('RESPOND MSG="bad; text"'))

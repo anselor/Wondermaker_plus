@@ -11,8 +11,7 @@ The kernel recorded a fault on the upstream USB hub at monotonic time
 other USB devices under that hub disconnected and re-enumerated. Klipper first
 logged `Network is down`, then head T2 timed out, followed by the other
 controllers. The vendor labels that T2 timeout `ZRU-B005`; despite the label's
-multi-material-unit wording, it is raised by the normal T2 MCU timeout handler,
-not an openACE-specific fault.
+multi-material-unit wording, it is raised by the normal T2 MCU timeout handler.
 
 The owner also reports similar faults occurring randomly during normal printing,
 so the underlying transport issue cannot be attributed only to update/restart
@@ -23,9 +22,9 @@ interruption. It suggests investigation of
 USB hub power, connections, and signal integrity/interference, but does not
 identify a failed component. In [Linux 5.10 hub.c](https://github.com/torvalds/linux/blob/v5.10/drivers/usb/core/hub.c#L5081-L5095),
 the diagnostic is emitted for an unexpectedly disabled port; the EMI wording
-is a possible explanation, not a measurement proving electromagnetic interference. It also does not establish that WM+ or openACE
-caused the hub reset. Current zero CAN error counters cannot rule out earlier
-faults: the interface was recreated. Later disconnects of only the CAN adapter
+is a possible explanation, not a measurement proving electromagnetic interference.
+It also does not establish that WM+ caused the hub reset. Current zero CAN error
+counters cannot rule out earlier faults: the interface was recreated. Later disconnects of only the CAN adapter
 coincide with controller restart/setup operations and its temporary USB serial
 bootloader enumeration; those are a different pattern from the upstream-hub event.
 
@@ -47,8 +46,8 @@ was reapplied with the vendor client temporarily stopped.
 
 The first firmware restart could not configure a previously excluded controller
 that was still in shutdown. A second restart, now addressing all restored heads,
-cleared that state. Klipper returned Ready with four extruders and openACE loaded.
-The vendor client was restarted with all four existing 1.1.13 preload patches,
+cleared that state. Klipper returned Ready with four extruders.
+The vendor client was restarted with the existing 1.1.13 preload patches,
 and all head-count records remained four. The collision detector is configured;
 it has no get_status method and therefore is not listed by Moonraker's object
 status API. Preflight now checks its loaded config section instead.
@@ -56,15 +55,21 @@ status API. Preflight now checks its loaded config section instead.
 No homing, tool pickup, extrusion, or print was commanded as part of restoration.
 Print/tool-change validation is separate from configuration and connection checks.
 
-## First guard: block destructive automatic reset
+## Head-configuration guard
 
-`client-preload/head-config-guard/wmp_head_config_guard.c` is a locally tested
-prototype. It redirects the vendor's `unlock_extruder` callback to a handler
+The `preload` component installs `head-config-guard`. It redirects the vendor's
+`unlock_extruder` callback to a handler
 that records the communication fault without changing physical configuration.
 It uses the reviewed whole-file hash and verifies all 2016 loaded callback bytes
 before installing the jump. Profiles cover 1.1.08, 1.1.12, and 1.1.13. Modified or
 unknown clients are rejected. The usual preload installer discovers the library;
 status reads `/tmp/wmp_head-config-guard.log`.
+
+The installer-managed screen service requires successful guard activation before
+vendor startup can run. The installer checks the live callback after activation
+and again before its final controller restart. A missing log, unguarded callback,
+or outdated loaded library stops installation. No preliminary `FIRMWARE_RESTART`
+is required: the installer accepts Klipper error/shutdown states for repair.
 
 The guard does not suppress MCU shutdowns, claim missing hardware is present,
 restart controllers, home axes, or resume a print. Resolve the cause, then restart
@@ -100,7 +105,7 @@ invokes the guarded callback remains to be observed during normal operation.
 5. Require explicit operator confirmation for an intentional head-count change.
    Never erase identities or calibration to make a communication error disappear.
 
-The prototype covers the observed destructive callback. It does not yet guard
+The guard covers the observed destructive callback. It does not yet guard
 all writes made by vendor discovery scripts or the firmware installer, so it is
 not a complete recovery system.
 

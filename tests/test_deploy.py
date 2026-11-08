@@ -213,3 +213,64 @@ def test_print_started_after_upload_defers_restart(monkeypatch):
     monkeypatch.setattr(config, '_sync', lambda *args: 0)
     monkeypatch.setattr(deploy.Context, 'restart_klipper', lambda ctx: pytest.fail('restarted during print'))
     assert deploy.main() == 1
+
+
+@pytest.mark.parametrize('state', ['ready', 'error', 'shutdown'])
+def test_screen_startup_wait_preserves_repair_in_error_states(monkeypatch, state):
+    import json
+    ctx = deploy.Context(type('Args', (), {})())
+    responses = iter(['startup', state])
+    monkeypatch.setattr(ctx, 'moonraker', lambda path: json.dumps({'result': {'state': next(responses)}}))
+    monkeypatch.setattr(deploy.time, 'sleep', lambda delay: None)
+    monkeypatch.setattr(ctx, 'restart_klipper', lambda: pytest.fail('startup wait restarted controllers'))
+    ctx.wait_for_backend()
+
+
+def test_screen_startup_wait_stops_on_timeout_without_restart(monkeypatch):
+    import json
+    ctx = deploy.Context(type('Args', (), {})())
+    monkeypatch.setattr(ctx, 'moonraker', lambda path: json.dumps({'result': {'state': 'startup'}}))
+    with pytest.raises(deploy.DeployError, match='No additional controller restart'):
+        ctx.wait_for_backend(timeout=0)
+
+
+@pytest.mark.parametrize('state', ['error', 'shutdown'])
+def test_repairs_do_not_require_a_preliminary_firmware_restart(monkeypatch, state):
+    import json
+    ctx = deploy.Context(type('Args', (), {})())
+    def reply(path):
+        if path.endswith('print_stats'):
+            raise OSError('Klipper is not ready')
+        return json.dumps({'result': {'state': state}})
+    monkeypatch.setattr(ctx, 'moonraker', reply)
+    assert ctx.printing_now() is False
+
+
+@pytest.mark.parametrize('lose_guard', [False, True])
+def test_final_controller_restart_requires_fresh_guard_verification(monkeypatch, lose_guard):
+    from types import SimpleNamespace as NS
+    from components import ORDER
+    events = []
+    def component(name):
+        def install(ctx):
+            events.append(name)
+            if name == 'preload':
+                events.append('activation guard check')
+        def verify(ctx):
+            events.append('final guard check')
+            if lose_guard:
+                raise deploy.DeployError('screen restarted without guard')
+        return NS(NAME=name, RESTART_AFTER='klipper' if name in ('config', 'material') else None,
+                  preflight=lambda ctx: None, install=install, status=lambda ctx: None,
+                  verify_guard=verify)
+    monkeypatch.setattr(deploy, 'REGISTRY', {name: component(name) for name in ORDER})
+    monkeypatch.setattr(deploy, 'ORDER', ORDER)
+    monkeypatch.setattr(sys, 'argv', ['deploy.py', 'install', 'all'])
+    monkeypatch.setattr(deploy.Context, 'printing_now', lambda ctx: False)
+    monkeypatch.setattr(deploy.Context, 'restart_klipper', lambda ctx: events.append('controller restart') or True)
+    assert deploy.main() == int(lose_guard)
+    assert events[:5] == ['config', 'material', 'preload', 'activation guard check', 'touchscreen']
+    if lose_guard:
+        assert events[-1] == 'final guard check' and 'controller restart' not in events
+    else:
+        assert events[-2:] == ['final guard check', 'controller restart']

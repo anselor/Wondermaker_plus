@@ -283,8 +283,8 @@ def preload(ctx):
         call = 'unsigned char code[CODE_SIZE]; const struct profile *p = identify(f, code);' if name == 'wifi-fix' else 'const struct profile *p = identify(f);'
         harness = source + '\nint main(int argc, char **argv) { if(argc != 2) return 2; FILE *f=fopen(argv[1], "rb"); if(!f) return 2; ' + call + ' fclose(f); if(!p) return 3; puts(p->version); return 0; }\n'
         payload.append((name, source, harness))
-    if not payload:
-        raise ctx.DeployError('No touchscreen patch sources found under client-preload; check the repository files')
+    if not any(name == 'head-config-guard' for name, _, _ in payload):
+        raise ctx.DeployError('The head-config-guard source is required for preload installation; restore client-preload/head-config-guard before retrying')
     require_paths(ctx, directories=['/etc/systemd/system'], commands=['gcc', 'systemctl'], sudo=True)
     client = '/home/' + ctx.user + '/TM_T1/bin/client'
     require_paths(ctx, directories=['/home/' + ctx.user], files=[client], commands=['gcc', 'python3'])

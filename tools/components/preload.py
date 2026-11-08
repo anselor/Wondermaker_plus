@@ -11,6 +11,7 @@ removes the drop-in and the built libraries and restarts the service.
 import glob
 import os
 import posixpath
+import uuid
 
 from .touchscreen import run, shq
 
@@ -44,16 +45,25 @@ def _write_dropin(ctx, c):
     libs, _, _ = run(c, "ls %s/libwmp_*.so 2>/dev/null" % libdir, stream=False)
     libs = " ".join(sorted(l.strip() for l in libs.splitlines() if l.strip()))
     if not libs:
-        run(c, "rm -f %s" % DROPIN, sudo=True, stream=False)
-        return ""
-    content = "[Service]\nEnvironment=\"LD_PRELOAD=%s\"\n" % libs
-    run(c, "mkdir -p %s && printf %%s %s > %s" % (posixpath.dirname(DROPIN), shq(content), DROPIN),
-        sudo=True, stream=False)
+        raise ctx.DeployError('No preload libraries found; screen restart blocked')
+    if libdir + '/libwmp_head-config-guard.so' not in libs.split():
+        raise ctx.DeployError('The head-config-guard library is missing; screen restart blocked')
+    content = ("[Service]\nEnvironment=\"LD_PRELOAD=%s\"\n"
+               "Environment=\"WMP_REQUIRE_HEAD_CONFIG_GUARD=1\"\n") % libs
+    temporary = DROPIN + '.wmp-upload-' + uuid.uuid4().hex
+    _, err, rc = run(c, "mkdir -p %s && printf %%s %s > %s && chmod 0644 %s && mv -f -- %s %s" %
+                    (shq(posixpath.dirname(DROPIN)), shq(content), shq(temporary),
+                     shq(temporary), shq(temporary), shq(DROPIN)), sudo=True, stream=False)
+    if rc:
+        raise ctx.DeployError('Could not install the preload override; screen restart blocked: ' + err)
     return libs
 
 
 def _restart(ctx, c):
-    run(c, "systemctl daemon-reload && systemctl restart %s" % SERVICE, sudo=True, stream=False)
+    _, err, rc = run(c, "systemctl daemon-reload && systemctl restart %s" % SERVICE,
+                    sudo=True, stream=False)
+    if rc:
+        raise ctx.DeployError('Could not restart %s: %s' % (SERVICE, err))
     _, _, rc = run(c, "sleep 4; systemctl is-active %s" % SERVICE, stream=False)
     if rc != 0:
         raise ctx.DeployError("%s did not start. Check its service log before printing." % SERVICE)
@@ -62,6 +72,20 @@ def _restart(ctx, c):
 def preflight(ctx):
     import preflight as checks
     checks.preload(ctx)
+
+
+def verify_guard(ctx):
+    import preflight as checks
+    from verify_head_guard import guard_profiles
+    source = os.path.join(ROOT, 'client-preload/head-config-guard/wmp_head_config_guard.c')
+    with open(source) as stream:
+        profiles = guard_profiles(stream.read())
+    with open(os.path.join(ROOT, 'tools/verify_head_guard.py')) as stream:
+        verifier = stream.read()
+    checks.remote(ctx, verifier + '\nresult = wait_for_guard(%r, %r)\n'
+                  'print("Head guard verified for screen pid %%s (client %%s)" %% '
+                  '(result["pid"], result["version"]))\n' %
+                  ('/home/' + ctx.user, profiles), sudo=True)
 
 
 def install(ctx):
@@ -75,13 +99,24 @@ def install(ctx):
         rsrc = "%s/%s" % (rdir, os.path.basename(path))
         sftp.put(path, rsrc)
         lib = "%s/lib/libwmp_%s.so" % (home, name)
-        out, err, rc = run(c, "gcc -shared -fPIC -O2 -Wall -pthread -o %s %s -ldl" % (lib, rsrc), stream=False)
+        # Never truncate a .so that the running client may still have mapped.
+        temporary = lib + '.wmp-upload-' + uuid.uuid4().hex
+        out, err, rc = run(c, "gcc -shared -fPIC -O2 -Wall -pthread -o %s %s -ldl" %
+                           (shq(temporary), shq(rsrc)), stream=False)
         if rc != 0:
+            run(c, "rm -f -- %s" % shq(temporary), stream=False)
             raise ctx.DeployError("build of %s failed:\n%s%s" % (name, out, err))
+        _, err, rc = run(c, "mv -f -- %s %s" % (shq(temporary), shq(lib)), stream=False)
+        if rc != 0:
+            raise ctx.DeployError("Could not activate built library %s: %s" % (name, err))
         print("built %s" % lib)
     libs = _write_dropin(ctx, c)
     print("Screen service override %s: LD_PRELOAD=%s" % (DROPIN, libs))
+    if ctx.printing_now():
+        raise ctx.DeployError('A print started while building preloads; screen restart blocked')
     _restart(ctx, c)
+    verify_guard(ctx)
+    ctx.wait_for_backend()
     status(ctx)
 
 

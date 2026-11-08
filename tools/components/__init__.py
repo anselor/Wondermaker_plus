@@ -10,4 +10,6 @@ ctx is a tools.deploy.Context: ssh(), sftp(), moonraker(), host, user, no_restar
 from . import config, material, preload, touchscreen
 
 REGISTRY = {m.NAME: m for m in (config, touchscreen, material, preload)}
-ORDER = [config.NAME, touchscreen.NAME, material.NAME, preload.NAME]
+# Stage Klipper dependencies before the stock screen can restart the backend.
+# Verify preload activation before proceeding to the optional Fluidd bridge.
+ORDER = [config.NAME, material.NAME, preload.NAME, touchscreen.NAME]

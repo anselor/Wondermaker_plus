@@ -85,8 +85,11 @@ uv run --with paramiko python tools/deploy.py status
 All selected components must pass preflight before installation starts. The config
 component backs up files it replaces and preserves printer-owned identifiers,
 calibration and settings. A later installation failure can leave earlier changes applied.
-Installation refuses running or paused prints. Screen-service restarts can also
-restart Klipper; `--no-restart` does not prevent those service restarts.
+Installation refuses running or paused prints. When `preload` is selected, config
+and material uploads finish before the stock screen restarts. The installer
+verifies the active head guard before continuing and before the final Klipper
+restart. Screen-service restarts can also restart Klipper; `--no-restart` does
+not prevent those service restarts.
 
 Choose components instead of `all` if needed:
 

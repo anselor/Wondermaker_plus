@@ -8,8 +8,9 @@ and installation.
 | Guide | Read it when you want to… |
 |---|---|
 | [Printer configuration](../config/README.md) | Install config, preserve calibration, or understand changed macros |
+| [Troubleshooting](troubleshooting.md) | Recover from an MCU reset failure during setup |
 | [Touchscreen in Fluidd](touchscreen.md) | View and control the physical screen from your browser |
-| [Touchscreen patches](../client-preload/README.md) | Check Wi-Fi, fan, recovery, or openACE patch behavior |
+| [Touchscreen patches](../client-preload/README.md) | Check Wi-Fi, fan, recovery, head-configuration protection, or light behavior |
 | [Power-loss recovery](print-mesh-recovery.md) | Understand what recovery restores and what it cannot guarantee |
 | [Resonance tools](../utils/README.md) | Measure vibration and tune input shaping |
 | [OrcaSlicer print options](orca-print-dialog-integration.md) | Set bed-leveling and timelapse behavior from the slicer |

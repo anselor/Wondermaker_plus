@@ -46,6 +46,18 @@ static void logmsg(const char *message)
     if (f) { fprintf(f, "[pid %d] %s\n", getpid(), message); fclose(f); }
 }
 
+/* Installer-managed clients must not reach vendor startup without this guard:
+ * startup itself can restart the backend before a post-start check can run.
+ */
+static void reject(const char *message)
+{
+    logmsg(message);
+    if (getenv("WMP_REQUIRE_HEAD_CONFIG_GUARD")) {
+        logmsg("Required head guard unavailable; screen startup blocked");
+        _exit(78);
+    }
+}
+
 /* No writes to printer state, no motion, no restart, no retry, no error suppression.
  * The original MCU timeout already put Klipper in shutdown before this callback.
  */
@@ -65,26 +77,26 @@ __attribute__((constructor))
 static void initialize(void)
 {
     char exe[512]; ssize_t n = readlink("/proc/self/exe", exe, sizeof exe - 1);
-    if (n <= 0 || n == sizeof exe - 1) return;
+    if (n <= 0 || n == sizeof exe - 1) { reject("Patch skipped: could not identify process"); return; }
     exe[n] = 0;
     const char *base = strrchr(exe, '/');
     if (strcmp(base ? base + 1 : exe, "client")) return;
-    if (getenv("WMP_HEAD_CONFIG_GUARD_DISABLE")) { logmsg("Disabled by WMP_HEAD_CONFIG_GUARD_DISABLE"); return; }
+    if (getenv("WMP_HEAD_CONFIG_GUARD_DISABLE")) { reject("Disabled by WMP_HEAD_CONFIG_GUARD_DISABLE"); return; }
     FILE *f = fopen("/proc/self/exe", "rb");
-    if (!f) return;
+    if (!f) { reject("Patch skipped: could not read screen client"); return; }
     const struct profile *p = identify(f);
     unsigned char original[2016];
     int valid = p && !fseeko(f, p->entry - 0x400000, SEEK_SET) &&
         fread(original, 1, sizeof original, f) == sizeof original &&
         !memcmp(original, (const void *)p->entry, sizeof original);
     fclose(f);
-    if (!valid) { logmsg("Patch skipped: unsupported or modified screen client"); return; }
+    if (!valid) { reject("Patch skipped: unsupported or modified screen client"); return; }
     long page_size = sysconf(_SC_PAGESIZE);
-    if (page_size <= 0) return;
+    if (page_size <= 0) { reject("Patch skipped: invalid memory page size"); return; }
     uintptr_t start = p->entry & ~((uintptr_t)page_size - 1);
     uintptr_t end = (p->entry + 16 + page_size - 1) & ~((uintptr_t)page_size - 1);
     if (mprotect((void *)start, end - start, PROT_READ | PROT_WRITE | PROT_EXEC)) {
-        logmsg("Patch skipped: could not make screen code writable"); return;
+        reject("Patch skipped: could not make screen code writable"); return;
     }
     active = p;
     write_jump((void *)p->entry, (uintptr_t)preserve_heads);

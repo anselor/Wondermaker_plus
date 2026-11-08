@@ -1,5 +1,6 @@
 """Actual C guard compatibility and the AArch64 callback entry stub."""
 from pathlib import Path
+import os
 import shutil
 import subprocess
 import pytest
@@ -38,7 +39,8 @@ int main(int argc, char **argv) {
 @pytest.mark.parametrize('version,entry', [('1.1.08', 0x633c70), ('1.1.12', 0x633fd8), ('1.1.13', 0x633fc4)])
 def test_only_reviewed_client_passes(harness, tmp_path, version, entry):
     assert subprocess.run([str(harness), str(harness)]).returncode == 3
-    elf = ROOT / f'analysis/fw_{version}_payload/root/home/t13dp/TM_T1/bin/client'
+    vendor = Path(os.environ.get('WMP_VENDOR_ROOT', str(ROOT / 'analysis')))
+    elf = vendor / f'fw_{version}_payload/root/home/t13dp/TM_T1/bin/client'
     if not elf.exists():
         pytest.skip('vendor ELF absent')
     subprocess.run([str(harness), str(elf)], check=True)

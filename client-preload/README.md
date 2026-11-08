@@ -2,8 +2,8 @@
 
 The `preload` component fixes behaviors in the vendor's touchscreen program:
 Wi-Fi reconnection, repeated automatic filter-fan requests, saved recovery
-coordinates, and openACE compatibility. A new locally tested head-configuration
-guard blocks the vendor's destructive response to communication timeouts.
+coordinates, and head-configuration loss after communication timeouts. It also
+connects the screen's case-light button to the saved light preference.
 
 It loads small libraries when `makerbase-client.service` starts. The libraries
 patch the running program in memory; the vendor executable on disk stays unchanged.
@@ -14,12 +14,15 @@ This loading mechanism is called `LD_PRELOAD`.
 | Patch | Supported System versions |
 |---|---|
 | `wifi-fix` | 1.1.04, 1.1.08, 1.1.12, 1.1.13 |
-| `fan-fix`, `recovery-fix`, `openace-compat`, `head-config-guard`, `case-light` | 1.1.08, 1.1.12, 1.1.13 |
+| `fan-fix`, `recovery-fix`, `head-config-guard`, `case-light` | 1.1.08, 1.1.12, 1.1.13 |
 
-Each patch checks the executable and the instructions it will replace. Unknown or
-unexpectedly modified clients are skipped. A library appearing in the process's
-loaded-library list does not prove its patch was applied; check its current log.
-On 2026-10-10, the 1.1.13 configuration and four existing patches were installed
+Each patch checks the executable and the instructions it will replace. Preflight
+rejects unsupported clients before installing anything. The installer also makes
+the head guard a requirement for stock-screen startup: if that guard cannot apply,
+the screen program exits before running vendor startup code. Other patches skip
+unknown or unexpectedly modified clients. A loaded library alone does not prove
+its patch was applied.
+On 2026-10-10, the 1.1.13 configuration and reviewed patches were installed
 and verified with Klipper Ready and four heads. Printing and calibration acceptance
 remain pending. `head-config-guard` was subsequently deployed on the same date;
 its current-process log and live callback jump were verified. Its behavior during
@@ -42,8 +45,20 @@ uv run --with paramiko python tools/deploy.py uninstall preload
 Installation requires SSH and sudo. It uploads C sources to `~/wmp/src/`, compiles
 libraries in `~/wmp/lib/`, and sets `LD_PRELOAD` in
 `/etc/systemd/system/makerbase-client.service.d/wmp-preload.conf`.
-The screen service restarts to load them, usually taking about ten seconds.
-Installation refuses running or paused prints.
+Libraries and the service override are replaced atomically. When config or
+material is selected too, those uploads finish before the screen restarts.
+Installation refuses running or paused prints, including a print started while
+the libraries are compiling.
+
+After restarting the screen, the installer checks the running process's guard
+activation log and verifies that the live head-reset callback points into the
+installed guard library. Failed verification stops installation. It waits for the
+backend to finish starting without issuing another reset; error/shutdown states
+still allow configuration repair. The guard is checked again before the final
+Klipper restart. `--no-restart` defers that final restart, not screen activation.
+
+After a vendor update, an unsupported screen client will remain stopped until
+matching patches are installed or the `preload` component is removed.
 
 Status shows the installed service override, library files, running client, loaded
 libraries, and the latest patch log entries for that client process. Read those
@@ -58,7 +73,6 @@ Logs and optional disable switches:
 | Wi-Fi | `/tmp/wmp_wififix.log` | `WMP_WIFIFIX_DISABLE` |
 | Fan | `/tmp/wmp_fanfix.log` | `WMP_FANFIX_DISABLE` |
 | Recovery | `/tmp/wmp_recoveryfix.log` | `WMP_RECOVERYFIX_DISABLE` |
-| openACE | `/tmp/wmp_openace_compat.log` | `WMP_OPENACE_COMPAT_DISABLE` |
 
 Setting a disable variable in the screen service's environment takes effect on its
 next restart. The code checks whether the variable exists, so remove it to re-enable
@@ -160,21 +174,6 @@ The vendor's checkpoint sampling and 3 mm recovery-return clearance remain limit
 The patch does not synchronize file position with motion, fix every interrupted
 tool change, or make a detached part recoverable.
 
-## openACE compatibility
-
-This patch acts only when Moonraker reports a running Klipper object named `openace`.
-Installed files alone do not activate it. Detection is cached for two seconds;
-a failed query is treated as openACE absent.
-
-With openACE active, screen Resume goes directly to Klipper so openACE can handle
-or reject it. Without openACE, the vendor's normal resume preparation runs.
-
-The screen addresses heater T0–T3 as physical heads; openACE uses virtual tool
-numbers. WM+ converts simple screen-generated `M104/M109` commands containing
-both `S` and `T` to an explicit physical heater command. M109 also waits within
-±2.5°C. Commands with unknown parameters or out-of-range heads pass through.
-Sliced-file commands do not use this screen dispatcher and keep openACE routing.
-
 ## Maintainer reference
 
 Adding a patch requires one C file in `client-preload/<name>/`. Installation finds
@@ -184,7 +183,7 @@ setting can replace the other.
 
 Each library must identify the `client` executable before using fixed addresses,
 check loaded instructions before editing, and patch before client threads start.
-The fan, recovery, and openACE checks use full-file FNV-1a fingerprints; Wi-Fi checks
+The fan and recovery checks use full-file FNV-1a fingerprints; Wi-Fi checks
 executable layout and the complete event-handler function. These identify reviewed
 builds, not publisher authenticity. Official SHA-256 values are recorded in the
 [firmware notes](../docs/README.md#firmware-comparisons).
