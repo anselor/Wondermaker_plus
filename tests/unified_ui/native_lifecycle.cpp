@@ -2469,6 +2469,20 @@ int main(int argc,char**argv){
   result["state"]="running";panel.update(result);
   auto*running=contains("Cancelling...");assert(running&&running->text=="Cancelling...");
   result["state"]="complete";panel.update(result);assert(contains("Print cancelled."));
+  // The stop point extends the existing summary label; it adds no widget and
+  // is written once. Non-string or empty labels are ignored.
+  {
+   auto stopped=[&](const Json&point){result["receipt"]["stop_point"]=point;panel.update(result);return contains("Stopped at:");};
+   assert(!stopped(5)&&!stopped({{"phase","homed"},{"label",5}})&&!stopped({{"phase","homed"},{"label",""}}));
+   assert(!stopped({{"phase","homed"},{"label",std::string(161,'x')}}));
+   const auto nodes=fake::nodes.size();
+   auto*line=stopped({{"phase","homed"},{"label","after homing"},{"state","x"}});
+   assert(line&&line==summary&&line->text.find("Stopped at: after homing")!=std::string::npos);
+   assert(line->text.find("Print cancelled.")!=std::string::npos&&fake::nodes.size()==nodes);
+   const auto stable=fake::text_writes;for(int i=0;i<100;++i)panel.update(result);
+   assert(fake::text_writes==stable);
+   result["receipt"].erase("stop_point");panel.update(result);assert(!contains("Stopped at:"));
+  }
   fake::Node*close=nullptr;for(auto*b:root->children)for(auto*l:b->children)if(l->text=="DONE")close=b;
   assert(close);fake::send(close,7);assert(!panel.active());panel.update(result);assert(!panel.active());fake::del(parent);
  }

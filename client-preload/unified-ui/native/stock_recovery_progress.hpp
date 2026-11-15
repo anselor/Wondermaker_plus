@@ -103,6 +103,14 @@ class StockRecoveryProgress {
    const auto message=result_.value("message","");
    if(!message.empty())summary+="\n"+message;
   }
+  // Stop point recorded by the backend. Appended to the existing summary label
+  // so it wraps with the other lines; a malformed or oversized label is ignored.
+  const auto stop_point=result_.value("receipt",Json::object()).value("stop_point",Json::object());
+  if(stop_point.is_object()){
+   const auto label=stop_point.value("label",Json());
+   if(label.is_string()&&!label.get<std::string>().empty()&&label.get<std::string>().size()<=160)
+    summary+="\nStopped at: "+label.get<std::string>();
+  }
   if(actionable){
    if(action=="discard_saved_job")summary+="\nPress DISCARD to remove the saved resume point.";
    else summary+="\nPress FINISH to turn heaters off and clear the paused state.";
