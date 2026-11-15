@@ -234,6 +234,29 @@ old print grace. `PRINT_END` and `CANCEL_PRINT` start a fresh grace interval aft
 cleanup. The controller also observes actual print-state transitions, including
 errors and jobs started outside these macros. A new print cancels previous grace.
 
+#### Attention signal
+
+`wmp_case_light` provides an attention signal for features that wait on the
+user. No feature in this release requests it yet. While requested, the light
+is toggled away from its resting state in a repeating pattern: opposite for
+0.5 s, resting for 0.5 s, opposite for 0.5 s, resting for 1 s. The resting
+state is the state the rules above give at that moment, so a lit case blinks
+off and a dark case blinks on. The saved light preference is not changed, and
+the light returns to those rules when the request is released or Klipper
+restarts.
+
+The signal has its own saved setting, enabled by default, stored as
+`wmp_case_light_attention` in the same managed variables file:
+
+```gcode
+SET_CASE_LIGHT_ATTENTION ENABLE=0
+SET_CASE_LIGHT_ATTENTION ENABLE=1
+```
+
+When disabled, requests are ignored. The setting is not shown on the
+touchscreen. `printer.wmp_case_light` reports `attention_enabled` and
+`attention_active`.
+
 The grace interval uses the current `[screen] screen_off_delay` from the stock
 `tmt1.ini`, stored in **milliseconds** (`300000` = 5 minutes). It follows changes
 made through the stock Screen Sleep setting. Screen blanking may be disabled;

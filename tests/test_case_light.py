@@ -33,6 +33,15 @@ class Command:
     def get(self, name):
         return self.params[name]
 
+    def get_int(self, name, minval, maxval):
+        try:
+            value = int(self.params[name])
+        except (KeyError, ValueError):
+            raise self.error('Missing or invalid ' + name)
+        if value < minval or value > maxval:
+            raise self.error('Out of range ' + name)
+        return value
+
 
 class Reactor:
     NEVER = float('inf')
@@ -378,3 +387,138 @@ def test_screen_status_reports_preference_while_physical_light_sleeps(light):
     assert results == [{'enabled': True}]
     assert light.value() == 0
     assert not light.saver.writes
+
+
+def attention_samples(light, offsets):
+    start = light.reactor.now
+    values = []
+    for offset in offsets:
+        light.reactor.advance(start + offset)
+        values.append(light.value())
+    return values
+
+
+PATTERN_OFFSETS = (0.01, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0)
+
+
+def test_attention_pattern_from_on(light):
+    light.tick()
+    assert light.value() == 1
+    light.extra.request_attention('scrub')
+    assert attention_samples(light, PATTERN_OFFSETS) == [0, 1, 0, 1, 1, 0, 1]
+    assert light.extra.get_status(light.reactor.now)['attention_active'] is True
+
+
+def test_attention_pattern_from_off(light):
+    light.tick()
+    light.mux[('SET_PIN', 'PIN', 'case_light')](Command(VALUE='0'))
+    assert light.value() == 0
+    light.extra.request_attention('scrub')
+    assert attention_samples(light, PATTERN_OFFSETS) == [1, 0, 1, 0, 0, 1, 0]
+
+
+def test_attention_follows_resting_state_changes(light):
+    light.tick()
+    light.extra.request_attention('scrub')
+    attention_samples(light, (0.01, 0.5))
+    light.backlight.write_text('0\n')  # screen sleeps: resting state becomes off
+    assert attention_samples(light, (0.5,)) == [1]
+    assert attention_samples(light, (0.5,)) == [0]
+
+
+def test_release_restores_policy_and_keeps_preference(light):
+    light.tick()
+    writes = list(light.saver.writes)
+    light.extra.request_attention('scrub')
+    assert attention_samples(light, (0.01,)) == [0]
+    light.extra.release_attention('scrub')
+    assert light.value() == 1
+    assert attention_samples(light, (0.5, 1.0, 1.5)) == [1, 1, 1]
+    assert light.saver.writes == writes
+    assert light.extra.get_status(light.reactor.now)['attention_active'] is False
+
+
+def test_attention_continues_until_every_owner_releases(light):
+    light.tick()
+    light.extra.request_attention('a')
+    light.extra.request_attention('b')
+    attention_samples(light, (0.01,))
+    light.extra.release_attention('a')
+    assert light.value() == 0
+    light.extra.release_attention('b')
+    assert light.value() == 1
+    light.extra.release_attention('b')  # releasing twice is harmless
+
+
+def test_attention_setting_defaults_enabled(light):
+    light.tick()
+    assert light.extra.get_status(light.reactor.now)['attention_enabled'] is True
+    assert 'wmp_case_light_attention' not in light.saver.variables
+
+
+def test_attention_disabled_setting_is_saved_and_ignores_requests(light):
+    light.tick()
+    light.commands['SET_CASE_LIGHT_ATTENTION'](Command(ENABLE='0'))
+    assert light.saver.variables['wmp_case_light_attention'] is False
+    light.extra.request_attention('scrub')
+    assert attention_samples(light, PATTERN_OFFSETS) == [1] * len(PATTERN_OFFSETS)
+    status = light.extra.get_status(light.reactor.now)
+    assert status['attention_enabled'] is False and status['attention_active'] is False
+
+
+def test_disabling_attention_stops_a_running_pattern(light):
+    light.tick()
+    light.extra.request_attention('scrub')
+    assert attention_samples(light, (0.01,)) == [0]
+    light.commands['SET_CASE_LIGHT_ATTENTION'](Command(ENABLE='0'))
+    assert light.value() == 1
+    assert attention_samples(light, (0.5, 1.0)) == [1, 1]
+
+
+def test_enabling_attention_starts_a_pending_request(light):
+    light.tick()
+    light.commands['SET_CASE_LIGHT_ATTENTION'](Command(ENABLE='0'))
+    light.extra.request_attention('scrub')
+    light.commands['SET_CASE_LIGHT_ATTENTION'](Command(ENABLE='1'))
+    assert light.saver.variables['wmp_case_light_attention'] is True
+    assert attention_samples(light, (0.01, 0.5)) == [0, 1]
+
+
+def test_saved_attention_setting_survives_reload(light):
+    light.tick()
+    light.commands['SET_CASE_LIGHT_ATTENTION'](Command(ENABLE='0'))
+    reloaded = module.load_config(light.config)
+    reloaded.request_attention('scrub')
+    assert reloaded.get_status(light.reactor.now)['attention_enabled'] is False
+
+
+@pytest.mark.parametrize('value', ['2', '-1', 'on', None])
+def test_invalid_attention_setting_is_refused(light, value):
+    light.tick()
+    command = Command() if value is None else Command(ENABLE=value)
+    with pytest.raises(ValueError):
+        light.commands['SET_CASE_LIGHT_ATTENTION'](command)
+    assert 'wmp_case_light_attention' not in light.saver.variables
+
+
+def test_gpio_error_during_pattern_is_logged_once_and_does_not_raise(light, caplog):
+    light.tick()
+    light.extra.request_attention('scrub')
+    attention_samples(light, (0.01,))
+    light.gpio.unlink()
+    start = light.reactor.now
+    for offset in (0.5, 1.0, 1.5):
+        light.reactor.advance(start + offset)
+    assert caplog.text.count('Case-light policy unavailable') == 1
+    assert not light.gpio.exists()
+
+
+def test_malformed_attention_setting_does_not_stop_the_light_policy(light):
+    light.tick()
+    light.saver.variables['wmp_case_light_attention'] = 'yes'
+    light.backlight.write_text('0\n')
+    light.tick()
+    assert light.value() == 0  # the normal policy still follows the screen
+    light.extra.request_attention('scrub')
+    assert attention_samples(light, (0.01, 0.5, 1.0)) == [0, 0, 0]
+    assert light.extra.get_status(light.reactor.now)['attention_active'] is False

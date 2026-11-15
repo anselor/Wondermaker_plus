@@ -3,6 +3,10 @@
 The stock light is active-high GPIO76. The companion screen preload routes
 explicit light choices through SET_PIN. SAVE_VARIABLE persists the preference;
 automatic GPIO writes never change it.
+
+Other features can request an attention signal. While requested, the light is
+toggled away from its resting state in ATTENTION_PATTERN and returns to the
+normal policy on release. The signal has its own saved on/off setting.
 """
 import configparser
 import logging
@@ -12,7 +16,10 @@ LIGHT_VALUE_PATH = '/sys/class/gpio/gpio76/value'
 BACKLIGHT_PATH = '/sys/class/backlight/backlight/brightness'
 SCREEN_CONFIG_PATH = '/home/t13dp/printer_data/config/tmt1.ini'
 PREFERENCE_VARIABLE = 'wmp_case_light_enabled'
+ATTENTION_VARIABLE = 'wmp_case_light_attention'
 POLL_SECONDS = 0.5
+# (opposite of the resting state, seconds): two half-second toggles, then rest.
+ATTENTION_PATTERN = ((True, 0.5), (False, 0.5), (True, 0.5), (False, 1.0))
 
 
 class CaseLight:
@@ -24,6 +31,10 @@ class CaseLight:
         self.finished_at = None
         self.last_error = None
         self.timer = self.reactor.register_timer(self._tick)
+        self.attention_enabled = True
+        self.attention_owners = set()
+        self.attention_step = None  # Index into ATTENTION_PATTERN while signalling.
+        self.attention_timer = self.reactor.register_timer(self._attention_tick)
         self.printer.register_event_handler('klippy:ready', self._ready)
         self.printer.lookup_object('webhooks').register_endpoint(
             'wmp_case_light/set', self._web_set_preference)
@@ -37,6 +48,8 @@ class CaseLight:
         gcode.register_command('_WMP_CASE_LIGHT_TOGGLE', self.cmd_toggle)
         gcode.register_command('_WMP_CASE_LIGHT_PRINT_START', self.cmd_print_start)
         gcode.register_command('_WMP_CASE_LIGHT_PRINT_END', self.cmd_print_end)
+        gcode.register_command('SET_CASE_LIGHT_ATTENTION', self.cmd_attention,
+                               desc='Enable or disable the case-light attention signal')
 
     @staticmethod
     def _read_bit(path):
@@ -68,6 +81,60 @@ class CaseLight:
             'VARIABLE': PREFERENCE_VARIABLE, 'VALUE': repr(bool(enabled))})
         saver.cmd_SAVE_VARIABLE(command)
         self.enabled = bool(enabled)
+
+    def _load_attention(self):
+        variables = self.printer.lookup_object('save_variables').get_status(
+            self.reactor.monotonic())['variables']
+        value = variables.get(ATTENTION_VARIABLE, True)
+        if type(value) is not bool:
+            raise ValueError('Saved case-light attention setting must be True or False')
+        self.attention_enabled = value
+
+    def _attention_opposite(self):
+        return self.attention_step is not None and ATTENTION_PATTERN[self.attention_step][0]
+
+    def _attention_update(self):
+        """Start or stop the pattern to match the owners and the saved setting."""
+        def update():
+            self._load_attention()
+            wanted = bool(self.attention_owners) and self.attention_enabled
+            if wanted and self.attention_step is None:
+                now = self.reactor.monotonic()
+                self.attention_step = 0
+                self.reactor.update_timer(self.attention_timer,
+                                          now + ATTENTION_PATTERN[0][1])
+                self._apply(now)
+            elif not wanted and self.attention_step is not None:
+                self.attention_step = None
+                self.reactor.update_timer(self.attention_timer, self.reactor.NEVER)
+                self._apply(self.reactor.monotonic())
+        self._automatic(update)
+
+    def _attention_tick(self, eventtime):
+        if self.attention_step is None:
+            return self.reactor.NEVER
+        self.attention_step = (self.attention_step + 1) % len(ATTENTION_PATTERN)
+        self._automatic(lambda: self._apply(eventtime))
+        return eventtime + ATTENTION_PATTERN[self.attention_step][1]
+
+    def request_attention(self, owner):
+        self.attention_owners.add(owner)
+        self._attention_update()
+
+    def release_attention(self, owner):
+        self.attention_owners.discard(owner)
+        self._attention_update()
+
+    def cmd_attention(self, gcmd):
+        enabled = bool(gcmd.get_int('ENABLE', minval=0, maxval=1))
+        try:
+            saver = self.printer.lookup_object('save_variables')
+            command = self.gcode.create_gcode_command('SAVE_VARIABLE', 'SAVE_VARIABLE', {
+                'VARIABLE': ATTENTION_VARIABLE, 'VALUE': repr(enabled)})
+            saver.cmd_SAVE_VARIABLE(command)
+        except (OSError, ValueError, self.printer.command_error) as error:
+            raise gcmd.error('Case-light attention setting unavailable: %s' % error)
+        self._attention_update()
 
     def _screen_on(self):
         with open(BACKLIGHT_PATH) as stream:
@@ -107,6 +174,8 @@ class CaseLight:
 
     def _apply(self, eventtime, waking=False):
         value = self._desired(eventtime, waking=waking)
+        if self._attention_opposite():
+            value = 1 - value
         # Do not export, reset, or recreate GPIOs owned by the stock screen.
         with open(LIGHT_VALUE_PATH, 'r+') as stream:
             current = stream.read().strip()
@@ -128,6 +197,9 @@ class CaseLight:
 
     def _ready(self):
         self.reactor.update_timer(self.timer, self.reactor.NOW)
+        # A malformed attention setting must not stop the normal light policy,
+        # so it is read here and on each request, never in the policy tick.
+        self._automatic(self._load_attention)
 
     def _tick(self, eventtime):
         def update():
@@ -144,7 +216,9 @@ class CaseLight:
             value = None
         return {'value': value, 'available': value is not None,
                 'enabled': self.enabled, 'print_active': self.print_active,
-                'policy_version': 2, 'last_error': self.last_error}
+                'policy_version': 2, 'last_error': self.last_error,
+                'attention_enabled': self.attention_enabled,
+                'attention_active': self.attention_step is not None}
 
     def _set_preference(self, gcmd, toggle=False):
         value = None if toggle else gcmd.get_float('VALUE', minval=0., maxval=1.)
