@@ -522,3 +522,35 @@ def test_malformed_attention_setting_does_not_stop_the_light_policy(light):
     light.extra.request_attention('scrub')
     assert attention_samples(light, (0.01, 0.5, 1.0)) == [0, 0, 0]
     assert light.extra.get_status(light.reactor.now)['attention_active'] is False
+
+
+def test_release_stops_pattern_when_saved_setting_became_malformed(light):
+    light.tick()
+    light.extra.request_attention('scrub')
+    assert attention_samples(light, (0.01,)) == [0]
+    light.saver.variables['wmp_case_light_attention'] = 0
+    light.extra.release_attention('scrub')
+    assert light.value() == 1
+    assert attention_samples(light, (0.5, 1.0, 1.5)) == [1, 1, 1]
+    assert light.extra.get_status(light.reactor.now)['attention_active'] is False
+
+
+def test_pattern_does_not_reset_policy_error_reporting(light, caplog):
+    light.tick()
+    light.extra.request_attention('scrub')
+    light.state['state'] = 'unrecognised'
+    start = light.reactor.now
+    for step in range(1, 9):
+        light.reactor.advance(start + step * 0.5)
+    assert caplog.text.count('Case-light policy unavailable') == 1
+    assert light.extra.last_error
+
+
+def test_request_before_first_load_does_not_change_adopted_preference(light):
+    light.gpio.write_text('0\n')
+    light.extra.request_attention('early')
+    assert light.value() == 0  # nothing is written before the preference is known
+    light.tick()
+    assert light.saver.writes == [('wmp_case_light_enabled', False)]
+    assert light.extra.get_status(light.reactor.now)['attention_active'] is True
+    assert light.value() == 1  # the pattern starts once the preference is loaded

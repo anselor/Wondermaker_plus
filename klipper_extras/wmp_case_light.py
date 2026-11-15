@@ -32,6 +32,7 @@ class CaseLight:
         self.last_error = None
         self.timer = self.reactor.register_timer(self._tick)
         self.attention_enabled = True
+        self.attention_usable = True
         self.attention_owners = set()
         self.attention_step = None  # Index into ATTENTION_PATTERN while signalling.
         self.attention_timer = self.reactor.register_timer(self._attention_tick)
@@ -83,38 +84,46 @@ class CaseLight:
         self.enabled = bool(enabled)
 
     def _load_attention(self):
+        self.attention_usable = False
         variables = self.printer.lookup_object('save_variables').get_status(
             self.reactor.monotonic())['variables']
         value = variables.get(ATTENTION_VARIABLE, True)
         if type(value) is not bool:
             raise ValueError('Saved case-light attention setting must be True or False')
         self.attention_enabled = value
+        self.attention_usable = True
 
     def _attention_opposite(self):
         return self.attention_step is not None and ATTENTION_PATTERN[self.attention_step][0]
 
+    def _attention_sync(self, eventtime):
+        """Start or stop the pattern to match the owners and the saved setting.
+
+        The pattern never starts before the light preference is known: on a
+        first installation that preference is adopted from the GPIO level.
+        """
+        wanted = (bool(self.attention_owners) and self.attention_usable
+                  and self.attention_enabled and self.enabled is not None)
+        if wanted and self.attention_step is None:
+            self.attention_step = 0
+            self.reactor.update_timer(self.attention_timer,
+                                      eventtime + ATTENTION_PATTERN[0][1])
+            self._apply(eventtime)
+        elif not wanted and self.attention_step is not None:
+            self.attention_step = None
+            self.reactor.update_timer(self.attention_timer, self.reactor.NEVER)
+            self._apply(eventtime)
+
     def _attention_update(self):
-        """Start or stop the pattern to match the owners and the saved setting."""
-        def update():
-            self._load_attention()
-            wanted = bool(self.attention_owners) and self.attention_enabled
-            if wanted and self.attention_step is None:
-                now = self.reactor.monotonic()
-                self.attention_step = 0
-                self.reactor.update_timer(self.attention_timer,
-                                          now + ATTENTION_PATTERN[0][1])
-                self._apply(now)
-            elif not wanted and self.attention_step is not None:
-                self.attention_step = None
-                self.reactor.update_timer(self.attention_timer, self.reactor.NEVER)
-                self._apply(self.reactor.monotonic())
-        self._automatic(update)
+        # A setting that cannot be read stops the pattern; it never keeps one running.
+        self._automatic(self._load_attention, clear=False)
+        self._automatic(lambda: self._attention_sync(self.reactor.monotonic()), clear=False)
 
     def _attention_tick(self, eventtime):
         if self.attention_step is None:
             return self.reactor.NEVER
         self.attention_step = (self.attention_step + 1) % len(ATTENTION_PATTERN)
-        self._automatic(lambda: self._apply(eventtime))
+        self._automatic(lambda: self._apply(eventtime), clear=False)
         return eventtime + ATTENTION_PATTERN[self.attention_step][1]
 
     def request_attention(self, owner):
@@ -185,10 +194,13 @@ class CaseLight:
                 stream.seek(0)
                 stream.write(str(value))
 
-    def _automatic(self, callback):
+    def _automatic(self, callback, clear=True):
+        # Attention paths pass clear=False: their success says nothing about
+        # the policy tick, so it must not reset that tick's error reporting.
         try:
             callback()
-            self.last_error = None
+            if clear:
+                self.last_error = None
         except (OSError, ValueError, configparser.Error, self.printer.command_error) as error:
             message = str(error)
             if message != self.last_error:
@@ -199,12 +211,13 @@ class CaseLight:
         self.reactor.update_timer(self.timer, self.reactor.NOW)
         # A malformed attention setting must not stop the normal light policy,
         # so it is read here and on each request, never in the policy tick.
-        self._automatic(self._load_attention)
+        self._automatic(self._load_attention, clear=False)
 
     def _tick(self, eventtime):
         def update():
             self._load_preference()
             self._update_print(eventtime)
+            self._attention_sync(eventtime)
             self._apply(eventtime)
         self._automatic(update)
         return eventtime + POLL_SECONDS
@@ -217,7 +230,7 @@ class CaseLight:
         return {'value': value, 'available': value is not None,
                 'enabled': self.enabled, 'print_active': self.print_active,
                 'policy_version': 2, 'last_error': self.last_error,
-                'attention_enabled': self.attention_enabled,
+                'attention_enabled': self.attention_enabled and self.attention_usable,
                 'attention_active': self.attention_step is not None}
 
     def _set_preference(self, gcmd, toggle=False):
