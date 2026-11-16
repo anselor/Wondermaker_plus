@@ -9,15 +9,15 @@ calibration and hardware identifiers.
 
 ### Toolhead and filament controls
 
-WM+ replaces the stock Filament page with dedicated Filaments and Toolheads
-screens:
+Use the **Filament** tab for filament settings and **Tools** for toolhead
+controls. Saved timelapse videos are under **Files → Video**.
 
 - Record each head's filament brand, material, colour and loaded state across
   restarts.
 - Load and unload filament with automatic head pickup, heating, feeding,
   tip shaping and wiping. Follow the current step or stop the procedure from
   the screen.
-- Take or dock a head, set its temperature, and extrude or retract a chosen
+- Mount or dock a head, set its temperature, and extrude or retract a chosen
   distance.
 - Edit nozzle material and diameter for each head. Diameter changes take effect
   after restarting Klipper.

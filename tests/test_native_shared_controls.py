@@ -8,7 +8,7 @@ UI = ROOT/'client-preload/unified-ui'
 
 
 @pytest.mark.parametrize('header', [
-    'stock_option_row.hpp', 'stock_header_action.hpp', 'stock_progress_panel.hpp'])
+    'stock_option_row.hpp', 'stock_header_action.hpp', 'stock_progress_panel.hpp', 'stock_navigation_tabs.hpp'])
 def test_shared_control_headers_are_self_contained(tmp_path, header):
     source = tmp_path/'consumer.cpp'
     source.write_text('#include "native/'+header+'"\nint main(){return 0;}\n')

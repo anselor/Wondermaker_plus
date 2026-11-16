@@ -4,6 +4,7 @@
 #include "../typed_management.hpp"
 #include "native1113_port.hpp"
 #include "runtime.hpp"
+#include "stock_navigation_tabs.hpp"
 #include "stock_preview_event_gate.hpp"
 #include "stock_preview_loading.hpp"
 #include "stock_reprint_gate.hpp"
@@ -45,6 +46,33 @@ using StockShell=std::string(*)(std::string);
 static std::atomic<StockShell> original_shell{nullptr};
 static std::atomic<void(*)()> original_exclude_object{nullptr};
 static std::atomic<StockPage> original_page{nullptr};
+using StockMenu=void(*)(void*,unsigned char);
+static std::atomic<StockMenu> original_sidebar{nullptr},original_filelist_menu{nullptr},original_setting_menu{nullptr};
+static std::atomic<bool> video_page_destination{false};
+extern "C" void unified_page_to(const char*)noexcept;
+static wmp_ui::native::StockNavigationTabs&navigation_tabs(){
+ static auto*value=new wmp_ui::native::StockNavigationTabs;
+ return *value;
+}
+template<std::size_t N>static std::array<void*,N> menu_buttons(std::uintptr_t address){
+ std::array<void*,N>result{};auto*source=reinterpret_cast<void*volatile*>(address);
+ for(std::size_t i=0;i<N;++i)result[i]=source[i];
+ return result;
+}
+extern "C" void unified_sidebar(void*parent,unsigned char selected)noexcept{try{
+ auto original=original_sidebar.load();if(original)original(parent,video_page_destination.load()?1:selected);
+}catch(...){} }
+extern "C" void unified_filelist_menu(void*parent,unsigned char selected)noexcept{try{
+ auto original=original_filelist_menu.load();if(!original)return;original(parent,selected);
+ navigation_tabs().files(menu_buttons<3>(wmp_ui::native::stock_filelist_buttons),selected==3);
+}catch(...){} }
+extern "C" void unified_setting_menu(void*parent,unsigned char selected)noexcept{try{
+ if(selected==2){unified_filelist_menu(parent,3);return;}
+ auto original=original_setting_menu.load();if(!original)return;
+ auto*r=runtime.load();original(parent,selected==1&&r&&r->tools_active()?2:selected);
+ navigation_tabs().settings(menu_buttons<5>(wmp_ui::native::stock_setting_buttons));
+}catch(...){} }
+
 static std::atomic<StockEvent> original_main_event{nullptr};
 static std::atomic<StockEvent> original_preview{nullptr};
 static std::atomic<StockEvent> original_preview_event{nullptr};
@@ -556,6 +584,7 @@ extern "C" void unified_page_to(const char*name)noexcept {
   if(r&&r->calibration_navigation(name))return;
   if(r&&name&&(std::strcmp(name,"filament_page")==0||wmp_ui::native::stock_filament_service_page(name))){r->request(7);return;}
   if(r&&r->active())r->request(0);
+  video_page_destination.store(name&&std::strcmp(name,"camera_page")==0);
   auto original=original_page.load();if(original)original(name);
  }catch(...){}
 }
@@ -573,7 +602,7 @@ extern "C" void unified_main_event(void*event)noexcept {
 #if defined(__aarch64__)
 static ScreenDiagnosticLog&diagnostic_log(){static ScreenDiagnosticLog log;return log;}
 #endif
-static void notify(void*)noexcept {auto*r=runtime.load(std::memory_order_acquire);if(r)r->gui_step();}
+static void notify(void*)noexcept {navigation_tabs().refresh();auto*r=runtime.load(std::memory_order_acquire);if(r)r->gui_step();}
 static const RefreshBridge& bridge(){
  static const RefreshBridge value(reinterpret_cast<TimerCallback>(0x553de8),&notify,true);return value;
 }
@@ -614,24 +643,27 @@ struct HookMemoryOps {
  }
 };
 struct NavigationHook {std::uintptr_t entry;void* trampoline;};
-static NavigationHook navigation_hooks[]={{0x553b6c,nullptr},{0x519a34,nullptr},{0x537710,nullptr},{0x4f6dec,nullptr},{0x4f667c,nullptr},{0x4f86b8,nullptr},{0x4f8020,nullptr},{0x536958,nullptr},{0x538c7c,nullptr},{0x535958,nullptr},{0x539474,nullptr},{0x50d044,nullptr},{0x50e83c,nullptr},{0x50ecf0,nullptr},{0x50c9bc,nullptr},{0x4b0510,nullptr},{0x529218,nullptr},{0x4b4768,nullptr},{0x614338,nullptr},{0x4b6470,nullptr},{0x52a4cc,nullptr},{0x52a1e4,nullptr},{0x510350,nullptr},{0x50fb98,nullptr},{0x5100c8,nullptr},{0x51a7b4,nullptr},{0x5328b4,nullptr},{0x61b2c4,nullptr},{0x5352e0,nullptr},{0x532da8,nullptr},{0x5303e4,nullptr},{0x64fc84,nullptr},{0x4c41a4,nullptr},{0x4c76dc,nullptr},{0x53d150,nullptr},{0x548078,nullptr},{0x4c6490,nullptr},{0x545924,nullptr},{0x73ca58,nullptr},{0x4b7558,nullptr},{0x51ebf8,nullptr}};
+static NavigationHook navigation_hooks[]={{0x553b6c,nullptr},{0x519a34,nullptr},{0x537710,nullptr},{0x4f6dec,nullptr},{0x4f667c,nullptr},{0x4f86b8,nullptr},{0x4f8020,nullptr},{0x536958,nullptr},{0x538c7c,nullptr},{0x535958,nullptr},{0x539474,nullptr},{0x50d044,nullptr},{0x50e83c,nullptr},{0x50ecf0,nullptr},{0x50c9bc,nullptr},{0x4b0510,nullptr},{0x529218,nullptr},{0x4b4768,nullptr},{0x614338,nullptr},{0x4b6470,nullptr},{0x52a4cc,nullptr},{0x52a1e4,nullptr},{0x510350,nullptr},{0x50fb98,nullptr},{0x5100c8,nullptr},{0x51a7b4,nullptr},{0x5328b4,nullptr},{0x61b2c4,nullptr},{0x5352e0,nullptr},{0x532da8,nullptr},{0x5303e4,nullptr},{0x64fc84,nullptr},{0x4c41a4,nullptr},{0x4c76dc,nullptr},{0x53d150,nullptr},{0x548078,nullptr},{0x4c6490,nullptr},{0x545924,nullptr},{0x73ca58,nullptr},{0x4b7558,nullptr},{0x51ebf8,nullptr},{0x542308,nullptr},{0x5252f4,nullptr},{0x525a38,nullptr}};
 // One timer hook plus every navigation hook; adding an entry grows the transaction.
 constexpr std::size_t startup_hook_count=1+sizeof(navigation_hooks)/sizeof(navigation_hooks[0]);
 using HookTransaction=wmp_ui::native::HookTransaction<HookMemoryOps,startup_hook_count>;
 static bool prepare_navigation_hooks(HookTransaction&transaction)noexcept {
- const std::uintptr_t replacements[]={reinterpret_cast<std::uintptr_t>(&unified_page_to),reinterpret_cast<std::uintptr_t>(&unified_main_event),reinterpret_cast<std::uintptr_t>(&unified_draw_preview),reinterpret_cast<std::uintptr_t>(&unified_setup_filament),reinterpret_cast<std::uintptr_t>(&unified_filament_event),reinterpret_cast<std::uintptr_t>(&unified_material_pick),reinterpret_cast<std::uintptr_t>(&unified_colour_pick),reinterpret_cast<std::uintptr_t>(&unified_preview_event),reinterpret_cast<std::uintptr_t>(&unified_preview_metadata),reinterpret_cast<std::uintptr_t>(&unified_loading_popup),reinterpret_cast<std::uintptr_t>(&unified_schedule_preview_metadata),reinterpret_cast<std::uintptr_t>(&unified_setup_filament_guide),reinterpret_cast<std::uintptr_t>(&unified_retired_guide_worker),reinterpret_cast<std::uintptr_t>(&unified_retired_guide_worker),reinterpret_cast<std::uintptr_t>(&unified_filament_guide_event),reinterpret_cast<std::uintptr_t>(&unified_setup_about),reinterpret_cast<std::uintptr_t>(&unified_nozzle_flow_event),reinterpret_cast<std::uintptr_t>(&unified_maintenance_event),reinterpret_cast<std::uintptr_t>(&unified_command_sender),reinterpret_cast<std::uintptr_t>(&unified_setup_calibration),reinterpret_cast<std::uintptr_t>(&unified_setup_identification),reinterpret_cast<std::uintptr_t>(&unified_retired_identification_event),reinterpret_cast<std::uintptr_t>(&unified_retired_identification_worker),reinterpret_cast<std::uintptr_t>(&unified_setup_guide_identification),reinterpret_cast<std::uintptr_t>(&unified_retired_guide_identification_refresh),reinterpret_cast<std::uintptr_t>(&unified_resume_prepare),reinterpret_cast<std::uintptr_t>(&unified_runout_purge),reinterpret_cast<std::uintptr_t>(&unified_resume_check),reinterpret_cast<std::uintptr_t>(&unified_draw_pop),reinterpret_cast<std::uintptr_t>(&unified_popup_build),reinterpret_cast<std::uintptr_t>(&unified_popup_event),reinterpret_cast<std::uintptr_t>(&unified_shell),reinterpret_cast<std::uintptr_t>(&unified_factory_event),reinterpret_cast<std::uintptr_t>(&unified_legacy_probe_event),reinterpret_cast<std::uintptr_t>(&unified_legacy_probe_event),reinterpret_cast<std::uintptr_t>(&unified_factory_reset),reinterpret_cast<std::uintptr_t>(&unified_knife_event),reinterpret_cast<std::uintptr_t>(&unified_exclude_object),reinterpret_cast<std::uintptr_t>(&unified_evdev_frame),reinterpret_cast<std::uintptr_t>(&unified_calibration_worker),reinterpret_cast<std::uintptr_t>(&unified_main_refresh)};
+ const std::uintptr_t replacements[]={reinterpret_cast<std::uintptr_t>(&unified_page_to),reinterpret_cast<std::uintptr_t>(&unified_main_event),reinterpret_cast<std::uintptr_t>(&unified_draw_preview),reinterpret_cast<std::uintptr_t>(&unified_setup_filament),reinterpret_cast<std::uintptr_t>(&unified_filament_event),reinterpret_cast<std::uintptr_t>(&unified_material_pick),reinterpret_cast<std::uintptr_t>(&unified_colour_pick),reinterpret_cast<std::uintptr_t>(&unified_preview_event),reinterpret_cast<std::uintptr_t>(&unified_preview_metadata),reinterpret_cast<std::uintptr_t>(&unified_loading_popup),reinterpret_cast<std::uintptr_t>(&unified_schedule_preview_metadata),reinterpret_cast<std::uintptr_t>(&unified_setup_filament_guide),reinterpret_cast<std::uintptr_t>(&unified_retired_guide_worker),reinterpret_cast<std::uintptr_t>(&unified_retired_guide_worker),reinterpret_cast<std::uintptr_t>(&unified_filament_guide_event),reinterpret_cast<std::uintptr_t>(&unified_setup_about),reinterpret_cast<std::uintptr_t>(&unified_nozzle_flow_event),reinterpret_cast<std::uintptr_t>(&unified_maintenance_event),reinterpret_cast<std::uintptr_t>(&unified_command_sender),reinterpret_cast<std::uintptr_t>(&unified_setup_calibration),reinterpret_cast<std::uintptr_t>(&unified_setup_identification),reinterpret_cast<std::uintptr_t>(&unified_retired_identification_event),reinterpret_cast<std::uintptr_t>(&unified_retired_identification_worker),reinterpret_cast<std::uintptr_t>(&unified_setup_guide_identification),reinterpret_cast<std::uintptr_t>(&unified_retired_guide_identification_refresh),reinterpret_cast<std::uintptr_t>(&unified_resume_prepare),reinterpret_cast<std::uintptr_t>(&unified_runout_purge),reinterpret_cast<std::uintptr_t>(&unified_resume_check),reinterpret_cast<std::uintptr_t>(&unified_draw_pop),reinterpret_cast<std::uintptr_t>(&unified_popup_build),reinterpret_cast<std::uintptr_t>(&unified_popup_event),reinterpret_cast<std::uintptr_t>(&unified_shell),reinterpret_cast<std::uintptr_t>(&unified_factory_event),reinterpret_cast<std::uintptr_t>(&unified_legacy_probe_event),reinterpret_cast<std::uintptr_t>(&unified_legacy_probe_event),reinterpret_cast<std::uintptr_t>(&unified_factory_reset),reinterpret_cast<std::uintptr_t>(&unified_knife_event),reinterpret_cast<std::uintptr_t>(&unified_exclude_object),reinterpret_cast<std::uintptr_t>(&unified_evdev_frame),reinterpret_cast<std::uintptr_t>(&unified_calibration_worker),reinterpret_cast<std::uintptr_t>(&unified_main_refresh),reinterpret_cast<std::uintptr_t>(&unified_sidebar),reinterpret_cast<std::uintptr_t>(&unified_filelist_menu),reinterpret_cast<std::uintptr_t>(&unified_setting_menu)};
  // Profile initialization verified the complete file and all 32-byte windows.
  // The first eleven hooks, About and Nozzle Flow call through to stock code; their reviewed
  // prologues contain no PC-relative instructions. The guide hooks completely
  // replace stock behavior and must not copy their ADRP instructions to trampolines.
  for(auto&h:navigation_hooks){
-  if(&h>=navigation_hooks+11&&h.entry!=0x4b0510&&h.entry!=0x529218&&h.entry!=0x4b4768&&h.entry!=0x614338&&h.entry!=0x4b6470&&h.entry!=0x52a4cc&&h.entry!=0x5352e0&&h.entry!=0x532da8&&h.entry!=0x5303e4&&h.entry!=0x64fc84&&h.entry!=0x4c41a4&&h.entry!=0x4c6490&&h.entry!=0x545924&&h.entry!=0x4b7558)continue;
+  if(&h>=navigation_hooks+11&&h.entry!=0x4b0510&&h.entry!=0x529218&&h.entry!=0x4b4768&&h.entry!=0x614338&&h.entry!=0x4b6470&&h.entry!=0x52a4cc&&h.entry!=0x5352e0&&h.entry!=0x532da8&&h.entry!=0x5303e4&&h.entry!=0x64fc84&&h.entry!=0x4c41a4&&h.entry!=0x4c6490&&h.entry!=0x545924&&h.entry!=0x4b7558&&h.entry!=0x542308&&h.entry!=0x5252f4&&h.entry!=0x525a38)continue;
   h.trampoline=mmap(nullptr,32,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS,-1,0);
   if(h.trampoline==MAP_FAILED){h.trampoline=nullptr;screen_diagnostics().error.store(errno);screen_diagnostics().address.store(h.entry);screen_diagnostics().bootstrap.store(DiagnosticBootstrap::MmapFailed);return false;}
   std::memcpy(h.trampoline,reinterpret_cast<void*>(h.entry),16);jump(static_cast<char*>(h.trampoline)+16,h.entry+16);
   __builtin___clear_cache(static_cast<char*>(h.trampoline),static_cast<char*>(h.trampoline)+32);
   if(mprotect(h.trampoline,32,PROT_READ|PROT_EXEC)){screen_diagnostics().error.store(errno);screen_diagnostics().address.store(h.entry);screen_diagnostics().bootstrap.store(DiagnosticBootstrap::TrampolineProtectFailed);return false;}
  }
+ original_sidebar.store(reinterpret_cast<StockMenu>(navigation_hooks[41].trampoline));
+ original_filelist_menu.store(reinterpret_cast<StockMenu>(navigation_hooks[42].trampoline));
+ original_setting_menu.store(reinterpret_cast<StockMenu>(navigation_hooks[43].trampoline));
  original_exclude_object.store(reinterpret_cast<void(*)()>(navigation_hooks[37].trampoline));
  original_knife_event.store(reinterpret_cast<StockEvent>(navigation_hooks[36].trampoline));
  original_factory_event.store(reinterpret_cast<StockEvent>(navigation_hooks[32].trampoline));
@@ -732,7 +764,7 @@ extern "C" __attribute__((constructor)) void wmp_openace_screen_initialize()noex
    unified_draw_preview(parent);
   });
   screen->set_calibration_sender([](const std::string&command){auto sender=original_command_sender.load();if(!sender)return false;sender(command);return true;});
-  screen->set_stock_navigation([](const char*name){auto original=original_page.load();if(original)original(name);});
+  screen->set_stock_navigation([](const char*name){video_page_destination.store(name&&std::strcmp(name,"camera_page")==0);auto original=original_page.load();if(original)original(name);});
   screen->set_finish_onboarding([](){return wmp_ui::native::finish_setup("/home/t13dp");});
   const long page=sysconf(_SC_PAGESIZE);
   if(page<=0){d.error.store(errno);d.bootstrap.store(DiagnosticBootstrap::PageFailed);diagnostic_log().emit(0);return;}
@@ -742,6 +774,9 @@ extern "C" __attribute__((constructor)) void wmp_openace_screen_initialize()noex
   if(!prepare_timer_hook(transaction)||!prepare_navigation_hooks(transaction)||!transaction.prepare()){
    transaction.rollback();diagnostic_log().emit(0);return;
   }
+  navigation_tabs().tools=[](){if(auto*r=runtime.load())r->open_tools();};
+  navigation_tabs().video=[](){unified_page_to("camera_page");};
+  navigation_tabs().refresh_video_files=[](){wmp_ui::native::stock_function<void(*)()>(wmp_ui::native::stock_refresh_udisk)();};
   runtime.store(screen,std::memory_order_release);
   while(transaction.patch_next()){}
   d.bootstrap.store(DiagnosticBootstrap::HookReady);

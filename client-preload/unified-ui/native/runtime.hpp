@@ -121,7 +121,6 @@ public:
    stock_filament_.brand_controls().choose=[this](unsigned head,const std::string&value){
     if(!stock_filament_.import_active()&&!filament_procedure_.active()&&head==stock_edit_head_)stock_identity_pick("brand",value);
    };
-   stock_filament_.open_toolheads=[this](unsigned head){request(int(head)+1);};
    stock_filament_.finish_setup=[this](){finish_onboarding();};
    stock_filament_.select_tool=[this](unsigned head){tool_head_=head;if(ace_mode_active_)stock_filament_.ace_mode(true,head);else stock_filament_.tool_mode(true,head);};
    stock_filament_.ace_controls().adopt=[this](const Json&candidate,const Json&context){return submit_adoption(candidate,context);};
@@ -202,6 +201,15 @@ public:
   factory_command_refused_.store(true);
  }
  void request_factory_reset_refusal()noexcept{report_rejection("factory reset","Factory reset is disabled by WM+ policy; no reset command sent.");factory_reset_refused_.store(true);}
+ bool tools_active()const{return tool_mode_active_;}
+ void open_tools(){
+  unsigned head=tool_head_;
+  for(const auto&item:stock_snapshot().value("heads",Json::array())){
+   const auto id=item.value("id","");
+   if(item.value("mounting","")=="Mounted"&&id.size()==2&&id[0]=='h'&&id[1]>='0'&&id[1]<='3')head=unsigned(id[1]-'0');
+  }
+  request(int(head)+1);
+ }
  void request(int page){
   // Only integrated stock-page routes are accepted. In particular, old request
   // 8 must never revive the prototype's full-screen replacement preview.

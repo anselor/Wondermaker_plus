@@ -63,7 +63,7 @@ public:
   }
 #endif
  }
- std::function<void(unsigned)> select_tool,open_toolheads;
+ std::function<void(unsigned)> select_tool;
  std::function<void()> finish_setup;
  void onboarding(bool value){onboarding_=value;}
  StockBrandControls& brand_controls(){return brand_controls_;}
@@ -113,7 +113,7 @@ public:
   if(!stock_function<void*(*)(void*,void(*)(void*),int,void*)>(lv_obj_add_event_cb)(view.content,&on_delete,33,binding)){
    lifecycle_.deleted(generation);bindings_.pop_back();return;
   }
-  page_=page;content_=view.content;actions_=actions;tips_=tips;fresh_=false;slots_=view.slots;count_=view.count;tool_labels_.fill(nullptr);navigation_=nullptr;finish_=nullptr;finish_notice_=nullptr;import_button_=nullptr;navigation_binding_=binding;
+  page_=page;content_=view.content;actions_=actions;tips_=tips;fresh_=false;slots_=view.slots;count_=view.count;tool_labels_.fill(nullptr);finish_=nullptr;finish_notice_=nullptr;import_button_=nullptr;navigation_binding_=binding;
   if(tool_head_>=count_)tool_head_=0;
   // Capture the verified first decorative child before vendor layout runs.
   rule_=nullptr;
@@ -199,7 +199,7 @@ public:
     // than allowing their selected borders to peek around the modal edges.
     for(unsigned i=0;i<count_;++i)
      stock_function<void(*)(void*,unsigned)>((ace_.modal_active()||!head_tabs)?lv_obj_add_flag:lv_obj_clear_flag)(slots_[i].card,1);
-    if(ace_.modal_active())for(auto*p:{navigation_,import_button_,finish_,finish_notice_})if(valid(p))stock_function<void(*)(void*,unsigned)>(lv_obj_add_flag)(p,1);
+    if(ace_.modal_active())for(auto*p:{import_button_,finish_,finish_notice_})if(valid(p))stock_function<void(*)(void*,unsigned)>(lv_obj_add_flag)(p,1);
     return;
    }
    if(valid(tips_)){
@@ -287,7 +287,7 @@ private:
  std::array<const char*,4> colours_{{nullptr,nullptr,nullptr,nullptr}};
  std::array<std::uint32_t,4> tints_{{0,0,0,0}};
  StockProfileImport import_view_;void*import_button_=nullptr;
- void*navigation_=nullptr,*finish_=nullptr,*finish_notice_=nullptr;bool onboarding_=false;Binding*navigation_binding_=nullptr;
+ void*finish_=nullptr,*finish_notice_=nullptr;bool onboarding_=false;Binding*navigation_binding_=nullptr;
  void update_navigation(int height){
   if(onboarding_&&!finish_){
    finish_=stock_function<void*(*)(void*)>(lv_btn_create)(content_);
@@ -312,25 +312,7 @@ private:
    stock_function<void(*)(void*,const char*)>(lv_label_set_text)(finish_notice_,message_.c_str());
    stock_function<void(*)(void*,unsigned)>(onboarding_&&!message_.empty()?lv_obj_clear_flag:lv_obj_add_flag)(finish_notice_,1);
   }
-  if(!navigation_){
-   navigation_=stock_function<void*(*)(void*)>(lv_btn_create)(content_);
-   if(!navigation_)return;
-   if(!stock_function<void*(*)(void*,void(*)(void*),int,void*)>(lv_obj_add_event_cb)(navigation_,&navigate,7,navigation_binding_)){
-    stock_function<void(*)(void*)>(lv_obj_del)(navigation_);navigation_=nullptr;return;
-   }
-   stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_add_style)(navigation_,reinterpret_cast<void*>(0x463c8e8),0);
-   stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_add_style)(navigation_,reinterpret_cast<void*>(0x463c8f8),0x20);
-   auto*label=stock_function<void*(*)(void*)>(lv_label_create)(navigation_);
-   stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(label,reinterpret_cast<void*>(MyriadPro_Regular_16),0);
-   stock_function<void(*)(void*,const char*)>(lv_label_set_text)(label,"Toolheads");
-   place(label,{6,8,164,22});
-   stock_function<void(*)(void*,int,unsigned)>(lv_obj_set_style_text_align)(label,2,0);
-  }
-  // USB profile importing is deferred; keep its implementation for a later release.
-  const int width=stock_function<int(*)(void*)>(lv_obj_get_content_width)(content_);
-  place(navigation_,{width-188,height-44,176,38});
-  for(auto*p:{navigation_,import_button_})if(valid(p))stock_function<void(*)(void*,unsigned)>(lv_obj_clear_flag)(p,1);
-  stock_function<void(*)(void*,unsigned)>(fresh_?lv_obj_clear_state:lv_obj_add_state)(navigation_,128);
+
  }
  static void finish_setup_event(void*event)noexcept{try{
   auto*b=static_cast<Binding*>(stock_function<void*(*)(void*)>(lv_event_get_user_data)(event));if(!b)return;auto*o=b->owner;
@@ -343,18 +325,6 @@ private:
   if(!o->lifecycle_.active()||b->generation!=o->lifecycle_.generation()||!o->visible()||o->tool_mode_||o->import_view_.active()||stock_function<void*(*)(void*)>(lv_event_get_target)(event)!=o->import_button_)return;
   if(o->import_view_.show(o->content_))o->ace_.interaction_blocked(true);
  }catch(...){} }
- static void navigate(void*event)noexcept{
-  try{auto*b=static_cast<Binding*>(stock_function<void*(*)(void*)>(lv_event_get_user_data)(event));if(!b)return;
-   auto*o=b->owner;
-   if(!o->lifecycle_.active()||b->generation!=o->lifecycle_.generation()||o->tool_mode_||o->blocked_||o->import_view_.active())return;
-   // Recheck visibility and freshness, including queued clicks after navigation.
-   const bool fresh=o->fresh_;o->tick(fresh,true);
-   if(!o->fresh_||!o->valid(o->navigation_)||o->tool_head_>=o->count_)return;
-   unsigned head=o->tool_head_;
-   for(const auto&h:o->tool_data_.is_object()?o->tool_data_.value("heads",Json::array()):Json::array()){const auto id=h.value("id","");if(h.value("mounting","")=="Mounted"&&id.size()==2&&id[0]=='h'&&id[1]>='0'&&id[1]<'0'+int(o->count_))head=unsigned(id[1]-'0');}
-   if(o->open_toolheads)o->open_toolheads(head);
-  }catch(...){}
- }
  std::list<Binding>bindings_;StockFilamentPage lifecycle_;void*page_=nullptr,*content_=nullptr,*actions_=nullptr,*tips_=nullptr;bool fresh_=false;
  static void*pointer(std::uintptr_t address){return *reinterpret_cast<void*volatile*>(address);}
  static void on_delete(void*event)noexcept{

@@ -2,6 +2,11 @@
   "client_sha256": "b60c96c5caf980a127a3d284e5ac98e799dfd79691cb1a52aafd06fd818c4715",
   "functions": [
     {
+      "name": "lv_i18n_get_text",
+      "address": "0x556c58",
+      "bytes": "fd7bbda9fd030091e00f00f9200707d000c02a91000040f91f0000f161000054"
+    },
+    {
       "name": "lv_disp_get_scr_act",
       "address": "0x696550",
       "bytes": "fd7bbea9fd030091e00f00f9e00f40f91f0000f16100005483b30094e00f00f9"
@@ -1000,6 +1005,36 @@
       "name": "main_hide_printing",
       "address": "0x51ec98",
       "bytes": "fd7bbaa9fd030091f30b00f9e0630191eaa0fc97e0630191e3e30091e20300aa"
+    },
+    {
+      "name": "stock_sidebar",
+      "address": "0x542308",
+      "bytes": "fd7bbda9fd030091e00f00f9e15f0039e00f40f971720594e01700f902008052"
+    },
+    {
+      "name": "stock_remove_all_styles",
+      "address": "0x524b34",
+      "bytes": "fd7bbea9fd030091e00f00f902febf12010080d2e00f40f9b71806941f2003d5"
+    },
+    {
+      "name": "stock_filelist_menu",
+      "address": "0x5252f4",
+      "bytes": "fd7bb9a9fd030091f35301a9f55b02a9e01f00f9e1df0039e01f40f974e60594"
+    },
+    {
+      "name": "stock_setting_menu",
+      "address": "0x525a38",
+      "bytes": "fd7bb5a9fd030091f35301a9f55b02a9f71b00f9e02700f9e11f0139e02740f9"
+    },
+    {
+      "name": "stock_menu_event",
+      "address": "0x524bc8",
+      "bytes": "fd7bbda9fd030091e00f00f9e00f40f989cb0594e02f00b9e00f40f993cb0594"
+    },
+    {
+      "name": "stock_refresh_udisk",
+      "address": "0x52583c",
+      "bytes": "fd7bbea9fd030091f35301a9409a01900080209100fcdf08001c001200000012"
     }
   ]
 }

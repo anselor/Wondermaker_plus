@@ -29,6 +29,13 @@ int async_failure(void(*)(void*),void*){return 0;}
 struct Event;
 struct Callback {void(*fn)(void*);int code;void*data;};
 struct Node {std::string text,image,options;unsigned layout_updates=0;bool height_fixed=false;bool pending_layout=false,open=false,is_image=false,is_label=false;unsigned selected=0,state=0,zoom_factor=256,disable_writes=0;int text_alignment=0,label_long_mode=-1;std::uintptr_t font_address=0;std::uint32_t text_color=0,background_color=0;int opacity=255,background_opacity=255;std::vector<std::uintptr_t>styles;std::uint32_t tint[2]={0,0};unsigned tint_opa[2]={0,0};Node*parent=nullptr;std::vector<Node*>children;std::vector<Callback>callbacks;bool live=true;unsigned flags=0;int x=0,y=0,w=800,h=480,scroll=0,dir=0,inset_x=0,inset_y=0;};
+unsigned char menu_selection=255;
+unsigned style_resets=0;
+void clear_styles(void*p){++style_resets;static_cast<Node*>(p)->styles.clear();}
+void menu(void*,unsigned char selected){menu_selection=selected;}
+void page_route(const char*){}
+std::string video_translation="Video";
+const char*translate(const char*text){return std::string(text)=="Video"?video_translation.c_str():text;}
 void line_points(void*,const void*,std::uint16_t){}
 struct Event {Node*node;int code;void*data;};
 std::vector<std::unique_ptr<Node>>nodes;std::function<void(Node*)>layout_hook;
@@ -216,6 +223,7 @@ if(a==0x38626e8){static const std::string asset("stock-white-filament.bin");retu
  MAP(lv_img_get_src,image_source);MAP(lv_img_src_get_type,image_type);MAP(lv_img_decoder_get_info,image_info);
  MAP(lv_img_create,make);MAP(lv_img_set_src,image_src);MAP(lv_img_set_zoom,zoom);MAP(lv_img_set_pivot,pos);
  MAP(lv_imgbtn_set_src,image_button_src);MAP(lv_obj_set_style_img_recolor,tint);MAP(lv_obj_set_style_img_recolor_opa,tint_opacity);
+ MAP(stock_remove_all_styles,clear_styles);MAP(lv_i18n_get_text,translate);
  MAP(lv_line_create,make);MAP(lv_line_set_points,line_points);MAP(lv_obj_set_style_line_width,style);MAP(lv_obj_set_style_line_color,color);
  MAP(lv_obj_create,make);MAP(lv_btn_create,make);MAP(lv_label_create,make_label);MAP(lv_label_get_text,get_text);MAP(lv_disp_get_default,display);MAP(lv_disp_get_scr_act,active);MAP(lv_disp_get_layer_top,top_layer);MAP(lv_disp_get_layer_sys,sys_layer);
  MAP(lv_obj_is_valid,live);MAP(lv_obj_get_parent,parent);MAP(lv_obj_get_child,child);MAP(lv_obj_get_child_cnt,count);MAP(lv_obj_get_coords,coords);MAP(lv_obj_get_content_coords,coords);
@@ -261,6 +269,44 @@ int main(int argc,char**argv){
  assert(caption->h==25&&caption->y==(40-25)/2);
  }
 
+ {
+  // Stock page_to schedules construction: sidebar selection must survive
+  // beyond the navigation callback, until the actual menu builder runs.
+  wmp_openace::original_page.store(&fake::page_route);
+  wmp_openace::original_sidebar.store(&fake::menu);
+  wmp_openace::unified_page_to("camera_page");
+  wmp_openace::unified_sidebar(nullptr,2);assert(fake::menu_selection==1);
+  wmp_openace::unified_page_to("move_page");
+  wmp_openace::unified_sidebar(nullptr,2);assert(fake::menu_selection==2);
+  wmp_openace::original_page.store(nullptr);wmp_openace::original_sidebar.store(nullptr);
+  StockNavigationTabs tabs;unsigned tools=0,videos=0;
+  tabs.tools=[&]{++tools;};tabs.video=[&]{++videos;};
+  auto*page=fake::make(fake::screen);std::array<void*,5>buttons{};
+  for(auto&button:buttons){button=fake::make(page);fake::make_label(button);
+   fake::bind(button,reinterpret_cast<void(*)(void*)>(stock_menu_event),1,nullptr);}
+  tabs.settings(buttons);tabs.settings(buttons);
+  auto*tool=static_cast<fake::Node*>(buttons[2]);
+  assert(tool->children[0]->text=="Tools"&&tool->callbacks.size()==1);
+  assert(static_cast<fake::Node*>(buttons[1])->callbacks.size()==1);
+  fake::send(tool,1);assert(tools==0); // Original pressed handler was removed.
+  fake::send(tool,7);assert(tools==1);
+  tool->state|=128;fake::send(tool,7);assert(tools==1);tool->state&=~128U;
+  page->flags|=1;fake::send(tool,7);assert(tools==1);page->flags&=~1U;
+  auto*files=fake::make(fake::screen);std::array<void*,3>file_buttons{};
+  for(auto&button:file_buttons)button=fake::make(files);
+  static_cast<fake::Node*>(file_buttons[1])->flags|=1;
+  fake::video_translation="Vidéo";tabs.files(file_buttons,false);
+  auto*video=files->children.back();assert(video->x==280&&video->w==135&&video->h==45);
+  assert(video->children[0]->text=="Vidéo"&&fake::style_resets==1);fake::video_translation="Video";
+  fake::send(video,7);assert(videos==1);
+  const auto allocations=fake::nodes.size();tabs.refresh();assert(fake::nodes.size()==allocations);
+  static_cast<fake::Node*>(file_buttons[1])->flags&=~1U;tabs.refresh();assert(video->x==420);
+  static_cast<fake::Node*>(file_buttons[1])->flags|=1;tabs.refresh();assert(video->x==280);
+  auto*camera=fake::make(fake::screen);for(auto&button:file_buttons)button=fake::make(camera);
+  tabs.files(file_buttons,true);auto*selected=camera->children.back();assert(selected->state&128);
+  fake::send(selected,7);assert(videos==1);
+  fake::del(files);fake::del(camera);fake::del(page);tabs.refresh();
+ }
  assert(argc==3);std::ifstream input(argv[1]);Json data;input>>data;StubBackend backend;App app(backend);app.update(data);app.event("nav:filaments");
  {
   StockTextKeyboardHost host;
@@ -2853,15 +2899,9 @@ int main(int argc,char**argv){
  fake::Event early_motion{action_button,7,nullptr};assert(stock_native.intercept(&early_motion));
  stock_native.tick(false,true);assert(actions->flags&1); // geometry not yet migrated
  stock_native.tick(true,true);assert(actions->flags&1);assert(tips->text=="Filament settings");
- assert(fake::nodes.size()==allocation_count+2); // stock-styled Toolheads shortcut, no replacement panel
- fake::Node*shortcut=nullptr;
- for(const auto&node:fake::nodes)if(node->live&&node->text=="Toolheads"&&node->parent->parent==stock_panel)shortcut=node->parent;
- assert(shortcut&&shortcut->styles.front()==0x463c8e8U&&shortcut->y==296&&shortcut->x==fake::width(stock_panel)-188&&shortcut->w==176);
- unsigned opened_head=99;stock_native.open_toolheads=[&](unsigned h){opened_head=h;};
+ assert(fake::nodes.size()==allocation_count); // Navigation now lives in the shared Tools tab.
  fake::Event head_select{static_cast<fake::Node*>(widgets.slots[2].card),7,reinterpret_cast<void*>(6)};
- assert(!stock_native.intercept(&head_select));fake::send(shortcut,7);assert(opened_head==2);
- auto mounted_navigation=data;mounted_navigation["heads"]=Json::array({{{"id","h1"},{"mounting","Mounted"}}});
- stock_native.tool_data(mounted_navigation,10,220);fake::send(shortcut,7);assert(opened_head==1);
+ assert(!stock_native.intercept(&head_select));
  stock_native.tool_data(Json::object(),10,220);
  for(std::uintptr_t code=0;code<4;++code){fake::Event e{action_button,7,reinterpret_cast<void*>(code)};assert(stock_native.intercept(&e));}
  fake::Event colour_event{static_cast<fake::Node*>(widgets.slots[0].colour),7,reinterpret_cast<void*>(8)};
@@ -2888,14 +2928,12 @@ int main(int argc,char**argv){
  assert(swatch->tint_opa[0]==255&&swatch->tint_opa[1]==255);
  stock_native.colour_tints({{0,0,0,0}});stock_native.tick(true,true);
  assert(swatch->tint_opa[0]==0&&swatch->tint_opa[1]==0);
- assert(fake::nodes.size()==allocation_count+2);
+ assert(fake::nodes.size()==allocation_count);
  fake::Node*import_button=nullptr;
  for(const auto&node:fake::nodes)if(node->live&&node->text=="Import profiles"&&node->parent->parent==stock_panel)import_button=node->parent;
  assert(!import_button&&!stock_native.import_active());
  assert(!stock_native.intercept(&colour_event));
  stock_native.tick(false,false);assert(stock_native.intercept(&colour_event));
- opened_head=99;fake::send(shortcut,7);assert(opened_head==99&&(shortcut->state&128));
- stock_native.tick(true,true);stock_page->flags|=1;fake::send(shortcut,7);assert(opened_head==99);stock_page->flags&=~1U;
  stock_native.tick(false,false);
  assert(tips->text=="Printer status unavailable");
  fake::Event other_page{retained,7,nullptr};assert(!stock_native.intercept(&other_page));
@@ -2953,7 +2991,6 @@ int main(int argc,char**argv){
  assert(tips->text=="Head 3 - filament settings");
  assert(stock_native.intercept(&colour_event)); // old other-head click cannot open its picker
  assert(!stock_native.intercept(&material_event)); // selected head retains its stock picker
- opened_head=99;fake::send(shortcut,7);assert(opened_head==2);
  stock_native.brand_controls().retire();brand->open=true;fake::send(brand,31);brand->selected=0;fake::send(brand,28);
  assert(brand_saves==1); // retired page dropdown cannot start or commit another edit
  fake::del(stock_page); // real adapter DELETE callback retires binding
@@ -3690,10 +3727,10 @@ int main(int argc,char**argv){
   tool_content->h=content_height;stock_native.tick(true,true);auto*check=tool_button("Check filament");
   assert(check->y+check->h<=content_height);
   auto*result=tool_button("Progress");assert((result->flags&1)&&result->x+result->w<=content_width);
-  for(const auto*caption:{"Mount state unknown","Filaments / slots","Check filament","X"}){
+  for(const auto*caption:{"Mount state unknown","Check filament","X"}){
    auto*other=tool_button(caption);assert(result->x+result->w<=other->x||other->x+other->w<=result->x||result->y+result->h<=other->y||other->y+other->h<=result->y);
   }
-  for(const auto*caption:{"Mount state unknown","Filaments / slots","X"}){
+  for(const auto*caption:{"Mount state unknown","X"}){
    auto*other=tool_button(caption);assert(check->x+check->w<=other->x||other->x+other->w<=check->x||check->y+check->h<=other->y||other->y+other->h<=check->y);
   }
  }

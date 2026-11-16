@@ -127,7 +127,6 @@ public:
   button("nozzle",nozzle.value("diameter","Unknown")+" / "+nozzle.value("material","Unknown")+(nozzle.value("restart_required",false)?"\nRestart required":""),208,height-104,middle,48);
   for(auto property:{lv_obj_set_style_bg_opa,lv_obj_set_style_border_width,lv_obj_set_style_outline_width})stock_function<void(*)(void*,int,unsigned)>(property)(objects_.at("nozzle").first,0,0);
   enabled("nozzle",nozzle_allowed_=(data.value("owner","")=="standalone"||!pending)&&data.value("fresh",false)&&data.value("capabilities",Json::object()).value("save_nozzle",false));
-  button("filaments","Filaments / slots",width-188,height-44,176,38);
  }
 private:
  struct Binding{StockToolheadView*owner;void*object;void*content;std::string id;};
