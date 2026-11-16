@@ -2,10 +2,10 @@
   "scope": "unified-native-development-candidate",
   "activated": false,
   "toolchain_image": "sha256:86fdcabbf2da48f1023d39362d3edc92495da739c716716b83b973aee91d54a8",
-  "ui_build_id": "213cc4c91d1235c2",
+  "ui_build_id": "99d6786eca1f4ffa",
   "artifact": {
     "path": "libwmp_unified_screen_candidate.so",
-    "sha256": "754443f98679679a22ed04a9ceebb7c83a0c8441cccb22d948126a4d9c5fcc95"
+    "sha256": "a80726ccb47b2f8fe6353f93bcc3a790f483fa22c3147d99e480224f585c9a29"
   },
   "runtime_dependencies": {
     "klipper_extras/wmp_component.py": "2157ddcccb944ca6e89222b896715671d51f8ee3ad4e04ad3f294eb82ca1cd94",
@@ -86,7 +86,7 @@
     "client-preload/unified-ui/native/ace_adoption.hpp": "fccc34da0c797a224d589d9209828641607874434c4d6cfb6be3bf281fd6fb11",
     "client-preload/unified-ui/native/ace_unit_preview.hpp": "4a02626906ef0f9f364c7ed02eaf5d894857a4f815973ce67595e92e4060ab10",
     "client-preload/unified-ui/native/backend_contract.json": "9df01f2fdc4473b8f295de90133b9df740cc014ea2e4a6d5ac55339f1f8cb43f",
-    "client-preload/unified-ui/native/bootstrap.cpp": "d3b885c3daba4a8c42c39fcb4110f16945221302112db635e18200388e65a591",
+    "client-preload/unified-ui/native/bootstrap.cpp": "8dc1aba3d68d45b1411730702597620d3496de7812fc22f2b51971c1808372ac",
     "client-preload/unified-ui/native/bounded_worker.hpp": "a97bc643a85d1dca1c912a70676cbbb29e94dd4edc1c86227da3f5c028a718e6",
     "client-preload/unified-ui/native/build-arm.sh": "d9f5f647277684ffdf869ab0fa8cefc8283095bb84c9323f9f846a014c221303",
     "client-preload/unified-ui/native/build_id.py": "1d804899ce0e75b4c36f15f7f4f595434c701fa2ef5dbdefa02659e799504e94",
