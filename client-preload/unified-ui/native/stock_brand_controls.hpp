@@ -73,7 +73,7 @@ private:
     if(!row->armed){stock_function<void(*)(void*)>(lv_dropdown_close)(row->object);return;}
     auto*list=stock_function<void*(*)(void*)>(lv_dropdown_get_list)(row->object);
     if(list){
-     stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(list,reinterpret_cast<void*>(0x26297a0),0);
+     stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(list,reinterpret_cast<void*>(MyriadPro_Regular_16),0);
      stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_add_style)(list,reinterpret_cast<void*>(0x463c908),0);
      stock_function<void(*)(void*,std::uint32_t,unsigned)>(lv_obj_set_style_bg_color)(list,0xff3c3e42U,0);
      stock_function<void(*)(void*,int,unsigned)>(lv_obj_set_style_bg_opa)(list,255,0);

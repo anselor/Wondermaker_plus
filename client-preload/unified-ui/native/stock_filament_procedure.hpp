@@ -143,9 +143,9 @@ public:
   stock_function<void(*)(void*,const char*)>(lv_label_set_text)(close_caption,!submitted_&&(compact_||review_.action()=="unload")?"CANCEL":"CLOSE");
   if(empty_)header_enabled(empty_,ready);
   for(auto*step:steps_)stock_function<void(*)(void*,unsigned)>(lv_obj_add_flag)(step,1);
-  if(submitted_)stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(description_,reinterpret_cast<void*>(data.value("owner","")=="standalone"?0x34b82a8:0x26297a0),0);
+  if(submitted_)stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(description_,reinterpret_cast<void*>(data.value("owner","")=="standalone"?MyriadPro_Regular_22:MyriadPro_Regular_16),0);
   stock_function<void(*)(void*,int,int)>(lv_obj_set_pos)(description_,8,description_y_);
-  Json progress_view;progress_.show(false);
+  Json progress_view;
   stock_function<void(*)(void*,unsigned)>(lv_obj_clear_flag)(description_,1);
   std::string text;
   if(submitted_){
@@ -173,7 +173,7 @@ public:
     for(unsigned i=0;i<rows.size();++i)if(rows[i].value("phase","")==operation.value("phase",""))active=int(i);
     const bool complete=operation.value("state","")=="complete"||operation.value("recovered",false);
     if(state=="pending"&&!complete&&active>=0&&!steps_.empty()){
-     const bool numbered=data.value("owner","")=="standalone"&&!tool_recovery();
+     const bool numbered=data.value("owner","")=="standalone";
      if(numbered){
       progress_view={{"steps",Json::array()}};
       for(unsigned i=0;i<rows.size();++i)progress_view["steps"].push_back({{"label",rows[i].value("label","")},{"state",int(i)==active?"running":int(i)<active?"complete":"pending"}});
@@ -183,7 +183,7 @@ public:
        for(const auto&head:data.value("heads",Json::array()))if(head.value("id","")==review_.physical_head())
         line+="  "+std::to_string(head.value("actual",0))+" / "+std::to_string(head.value("target",0))+" °C";
       stock_function<void(*)(void*,const char*)>(lv_label_set_text)(steps_[0],line.c_str());
-      stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(steps_[0],reinterpret_cast<void*>(0x26297a0),0);
+      stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(steps_[0],reinterpret_cast<void*>(MyriadPro_Regular_16),0);
       stock_function<void(*)(void*,std::uint32_t,unsigned)>(lv_obj_set_style_text_color)(steps_[0],0xffeeeeeeU,0);
       stock_function<void(*)(void*,int,int)>(lv_obj_set_pos)(steps_[0],8,description_y_);
       stock_function<void(*)(void*,unsigned)>(lv_obj_clear_flag)(steps_[0],1);
@@ -217,7 +217,7 @@ public:
     progress_view["instruction"]=text+"\n\n"+std::to_string(head.value("actual",0))+" / "+std::to_string(head.value("target",0))+" °C";
    if(!progress_.attached())progress_.attach(body_,0,description_y_,stock_function<int(*)(void*)>(lv_obj_get_content_width)(body_),stock_function<int(*)(void*)>(lv_obj_get_content_height)(body_)-description_y_);
    if(progress_.attached()){progress_.show(true);progress_.update(progress_view);stock_function<void(*)(void*,unsigned)>(lv_obj_add_flag)(description_,1);}
-  }
+  }else progress_.show(false);
   stock_function<void(*)(void*,const char*)>(lv_label_set_text)(description_,text.c_str());
   rendered_local_=std::move(local);rendered_=true;
  }
@@ -236,18 +236,18 @@ private:
   stock_function<void(*)(void*,unsigned)>(compact?lv_obj_clear_flag:lv_obj_add_flag)(card_,1);
   stock_object_place(card_,x,y,w,h);stock_function<void(*)(void*,std::uint32_t,unsigned)>(lv_obj_set_style_bg_color)(card_,0xff3c3f43U,0);stock_function<void(*)(void*,int,unsigned)>(lv_obj_set_style_bg_opa)(card_,255,0);
   stock_object_place(title_,compact?x+16:12,compact?y+8:2,compact?w-32:w-(check_?370:260),compact?36:28);
-  stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(title_,reinterpret_cast<void*>(compact?0x34b82a8:0x26297a0),0);
+  stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(title_,reinterpret_cast<void*>(compact?MyriadPro_Bold_24:MyriadPro_Regular_16),0);
   stock_object_place(rule_,x+12,y+(compact?50:34),w-24,1);
   stock_object_place(body_,compact?x+16:8,compact?y+60:44,w-(compact?32:16),h-(compact?140:52));
   if(compact||submitted_){description_y_=8;for(auto*b:source_buttons_)stock_function<void(*)(void*,unsigned)>(lv_obj_add_flag)(b,1);}
   stock_function<void(*)(void*,int)>(lv_obj_set_width)(description_,w-(compact?64:48));
-  stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(description_,reinterpret_cast<void*>(compact?0x34b82a8:0x26297a0),0);
+  stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(description_,reinterpret_cast<void*>(compact?MyriadPro_Regular_22:MyriadPro_Regular_16),0);
   for(auto*step:steps_)stock_function<void(*)(void*,int)>(lv_obj_set_width)(step,w-48);
   const int bw=compact?(check_?std::min(160,(w-48)/3):160):0;
   auto action=[&](void*b,int normal_x,int normal_w,int index){if(!b)return;
    const int count=check_?3:2;stock_object_place(b,compact?x+w-16-count*bw-(count-1)*8+index*(bw+8):normal_x,compact?y+h-72:0,compact?bw:normal_w,compact?56:34);
    auto*l=stock_function<void*(*)(void*,int)>(lv_obj_get_child)(b,0);stock_object_place(l,4,compact?8:2,compact?bw-8:normal_w-8,compact?40:26);
-   stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(l,reinterpret_cast<void*>(compact?0x1a57128:0xf84928),0);
+   stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(l,reinterpret_cast<void*>(compact?MyriadPro_Bold_24:MyriadPro_Bold_20),0);
    stock_function<void(*)(void*,int,unsigned)>(lv_obj_set_style_text_align)(l,compact?1:2,0);
   };
   action(close_,fw-(check_?360:240),104,0);action(empty_,fw-248,112,1);action(begin_,fw-128,116,check_?2:1);
@@ -287,7 +287,7 @@ private:
   return title;
  }
  static void style(void*p,std::uintptr_t s){stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_add_style)(p,reinterpret_cast<void*>(s),0);}
- void*label(void*p,const std::string&s,int x,int y,int w,int h){auto*l=stock_function<void*(*)(void*)>(lv_label_create)(p);if(!l)throw std::runtime_error("Procedure label allocation failed");stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(l,reinterpret_cast<void*>(0x26297a0),0);stock_function<void(*)(void*,std::uint32_t,unsigned)>(lv_obj_set_style_text_color)(l,0xffeeeeeeU,0);stock_function<void(*)(void*,const char*)>(lv_label_set_text)(l,s.c_str());if(h<0){stock_function<void(*)(void*,int,int)>(lv_obj_set_pos)(l,x,y);stock_function<void(*)(void*,int)>(lv_obj_set_width)(l,w);}else stock_object_place(l,x,y,w,h);return l;}
+ void*label(void*p,const std::string&s,int x,int y,int w,int h){auto*l=stock_function<void*(*)(void*)>(lv_label_create)(p);if(!l)throw std::runtime_error("Procedure label allocation failed");stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(l,reinterpret_cast<void*>(MyriadPro_Regular_16),0);stock_function<void(*)(void*,std::uint32_t,unsigned)>(lv_obj_set_style_text_color)(l,0xffeeeeeeU,0);stock_function<void(*)(void*,const char*)>(lv_label_set_text)(l,s.c_str());if(h<0){stock_function<void(*)(void*,int,int)>(lv_obj_set_pos)(l,x,y);stock_function<void(*)(void*,int)>(lv_obj_set_width)(l,w);}else stock_object_place(l,x,y,w,h);return l;}
  bool bind(void*object,const std::string&action){bindings_.push_back({this,object,root_,action});if(stock_function<void*(*)(void*,void(*)(void*),int,void*)>(lv_obj_add_event_cb)(object,&event,0,&bindings_.back()))return true;bindings_.pop_back();return false;}
  static void header_enabled(void*object,bool enabled){
   stock_function<void(*)(void*,unsigned)>(enabled?lv_obj_clear_state:lv_obj_add_state)(object,128);
@@ -297,7 +297,7 @@ private:
  void*header(const std::string&id,const std::string&text,int x,int w){
   auto*b=stock_function<void*(*)(void*)>(lv_obj_create)(root_);if(!b)throw std::runtime_error("Procedure action allocation failed");
   stock_dialog_backdrop(b);stock_object_place(b,x,0,w,34);auto*l=label(b,text,4,2,w-8,26);
-  stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(l,reinterpret_cast<void*>(0xf84928),0);
+  stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(l,reinterpret_cast<void*>(MyriadPro_Bold_20),0);
   stock_function<void(*)(void*,int,unsigned)>(lv_obj_set_style_text_align)(l,2,0);
   if(!bind(b,id))throw std::runtime_error("Procedure action binding failed");
   return b;

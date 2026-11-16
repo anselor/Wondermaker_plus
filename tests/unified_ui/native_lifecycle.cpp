@@ -28,7 +28,7 @@ int async_success(void(*callback)(void*),void*data){async_data=data;async_callba
 int async_failure(void(*)(void*),void*){return 0;}
 struct Event;
 struct Callback {void(*fn)(void*);int code;void*data;};
-struct Node {std::string text,image,options;bool pending_layout=false,open=false,is_image=false,is_label=false;unsigned selected=0,state=0,zoom_factor=256,disable_writes=0;int text_alignment=0,label_long_mode=-1;std::uintptr_t font_address=0;std::uint32_t text_color=0,background_color=0;int opacity=255,background_opacity=255;std::vector<std::uintptr_t>styles;std::uint32_t tint[2]={0,0};unsigned tint_opa[2]={0,0};Node*parent=nullptr;std::vector<Node*>children;std::vector<Callback>callbacks;bool live=true;unsigned flags=0;int x=0,y=0,w=800,h=480,scroll=0,dir=0,inset_x=0,inset_y=0;};
+struct Node {std::string text,image,options;unsigned layout_updates=0;bool pending_layout=false,open=false,is_image=false,is_label=false;unsigned selected=0,state=0,zoom_factor=256,disable_writes=0;int text_alignment=0,label_long_mode=-1;std::uintptr_t font_address=0;std::uint32_t text_color=0,background_color=0;int opacity=255,background_opacity=255;std::vector<std::uintptr_t>styles;std::uint32_t tint[2]={0,0};unsigned tint_opa[2]={0,0};Node*parent=nullptr;std::vector<Node*>children;std::vector<Callback>callbacks;bool live=true;unsigned flags=0;int x=0,y=0,w=800,h=480,scroll=0,dir=0,inset_x=0,inset_y=0;};
 struct Event {Node*node;int code;void*data;};
 std::vector<std::unique_ptr<Node>>nodes;
 Node* make(void*p){nodes.emplace_back(new Node);auto*n=nodes.back().get();n->parent=static_cast<Node*>(p);if(p)n->parent->children.push_back(n);return n;}
@@ -49,7 +49,7 @@ int width(void*p){auto*n=static_cast<Node*>(p);return n->pending_layout?0:n->w-n
 void coords(void*p,void*out){auto*n=static_cast<Node*>(p);auto*a=static_cast<short*>(out);a[0]=n->x;a[1]=n->y;a[2]=n->x+n->w-1;a[3]=n->y+n->h-1;}
 unsigned count(void*p){return static_cast<Node*>(p)->children.size();}void*child(void*p,int i){return static_cast<Node*>(p)->children.at(i);}void*parent(void*p){return static_cast<Node*>(p)->parent;}
 void send(Node*n,int code){auto callbacks=n->callbacks;for(auto cb:callbacks)if(cb.code==code||cb.code==0){Event e{n,code,cb.data};cb.fn(&e);}}
-void del(void*p){auto*n=static_cast<Node*>(p);assert(n->live);send(n,33);auto children=n->children;for(auto*c:children)del(c);n->live=false;if(n->parent){auto&v=n->parent->children;v.erase(std::remove(v.begin(),v.end(),n),v.end());}}
+void del(void*p){auto*n=static_cast<Node*>(p);assert(n->live);send(n,33);auto children=n->children;for(auto*c:children)del(c);n->live=false;n->callbacks.clear();if(n->parent){auto&v=n->parent->children;v.erase(std::remove(v.begin(),v.end(),n),v.end());}}
 void clean(void*p){auto children=static_cast<Node*>(p)->children;for(auto*c:children)del(c);}
 bool unbind(void*p,void(*fn)(void*)){auto&v=static_cast<Node*>(p)->callbacks;for(auto it=v.begin();it!=v.end();++it)if(it->fn==fn){v.erase(it);return true;}return false;}
 const char*get_text(void*p){return static_cast<Node*>(p)->text.c_str();}
@@ -79,7 +79,7 @@ void background_colour(void*p,std::uint32_t v,int){static_cast<Node*>(p)->backgr
 void text_alignment(void*p,int v,unsigned){static_cast<Node*>(p)->text_alignment=v;}
 void text_colour(void*p,std::uint32_t v,int){static_cast<Node*>(p)->text_color=v;}
 unsigned text_writes=0;
-void remove_style(void*,void*,unsigned){}void style(void*,int,int){}void color(void*,std::uint32_t,int){}void one_int(void*,int){}void text(void*p,const char*value){++text_writes;static_cast<Node*>(p)->text=value;}void update(void*p){auto*n=static_cast<Node*>(p);n->pending_layout=false;for(auto*c:n->children)update(c);}
+void remove_style(void*,void*,unsigned){}void style(void*,int,int){}void color(void*,std::uint32_t,int){}void one_int(void*,int){}void text(void*p,const char*value){++text_writes;static_cast<Node*>(p)->text=value;}void update(void*p){auto*n=static_cast<Node*>(p);++n->layout_updates;n->pending_layout=false;for(auto*c:n->children)update(c);}
 const void*image_source(void*p){return static_cast<Node*>(p)->image.c_str();}
 int image_type(const void*p){return p&&*static_cast<const char*>(p)?1:3;}
 bool decoder_fails=false;
@@ -252,7 +252,10 @@ struct Http : wmp_openace::HttpPort {
 int main(int argc,char**argv){
  {auto*button=fake::make(nullptr);auto*caption=fake::make(button);button->w=130;button->h=54;button->pending_layout=true;
  wmp_ui::native::center_button_caption(button,caption,"Choose source");
- assert(!button->pending_layout&&caption->w>0&&caption->h>0);}
+ assert(!button->pending_layout&&caption->w>0&&caption->h==MyriadPro_Bold_20_line_height);
+ button->h=64;center_button_caption(button,caption,"Confirm",40);
+ assert(caption->h==25&&caption->y==(40-25)/2);
+ }
 
  assert(argc==3);std::ifstream input(argv[1]);Json data;input>>data;StubBackend backend;App app(backend);app.update(data);app.event("nav:filaments");
  {
@@ -718,8 +721,8 @@ int main(int argc,char**argv){
   assert(overlay->w==670&&overlay->h==400&&(overlay->flags&2)&&overlay->background_opacity==0);
   assert(card->w==560&&card->h==280&&card->x==55&&card->y==60);
   auto*body=card->children[0];assert(body->flags&16);
-  assert(body->children[0]->font_address==0x34b82a8&&body->children[0]->text=="Verify selected filament.");
-  for(auto*button:card->children)if(button!=body){assert(button->h==56&&button->children[0]->h==40&&button->children[0]->font_address==0x1a57128);}
+  assert(body->children[0]->font_address==MyriadPro_Regular_22&&body->children[0]->text=="Verify selected filament.");
+  for(auto*button:card->children)if(button!=body){assert(button->h==56&&button->children[0]->h==40&&button->children[0]->font_address==MyriadPro_Bold_24);}
   tap("CANCEL");assert(accepted==0&&dismissed==1&&!confirm.active());
   assert(confirm.show(parent,"Verify selected filament.","PRINT"));tap("PRINT");assert(accepted==1&&dismissed==1&&!confirm.active());
   fake::del(parent);
@@ -1716,10 +1719,17 @@ int main(int argc,char**argv){
   state["calibration_save_result"]=receipt;state["calibration_save_result"]["request"]=std::string(32,'d');view.update(state);assert(has("Printer restarted. Calibration result could not be confirmed."));
   state["calibration_save_result"]=receipt;state["calibration_save_result"]["session"]=next;view.update(state);assert(has("Printer restarted. Calibration result could not be confirmed."));
   state["calibration_save_result"]=receipt;state["fresh"]=false;view.update(state);assert(has("Printer restarted. Calibration result could not be confirmed."));
-  state["fresh"]=true;state["calibration_session"]=origin;state["calibration_failed"]="Earlier PID failure";view.update(state);
+  state["fresh"]=true;state["calibration_session"]=origin;state["calibration_failed"]="Earlier PID failure";
+  state["calibration_attempt"]={{"session",origin},{"request",request},{"state","failed"},{"error","Earlier PID failure"}};view.update(state);
   state["calibration_session"]=next;state["calibration_failed"]="";view.update(state);assert(has("Printer restarted. Calibration result could not be confirmed.")&&!has("Calibration settings saved."));
   // Deliberate START resets the same retained page, without a constructor.
   view.begin(next,std::string(32,'e'));state["maintenance_save_requested"]=false;view.update(state);assert(page->children.empty());
+  // Old global errors and unrelated attempts cannot poison an explicit retry.
+  state["calibration_failed"]="Earlier PID failure";view.update(state);assert(page->children.empty());
+  state["calibration_attempt"]={{"session",next},{"request",std::string(32,'e')},{"state","running"},{"error",""}};
+  view.update(state);assert(page->children.empty());
+  state["calibration_save_result"]={{"protocol",1},{"session",next},{"request",std::string(32,'e')},{"state","confirmed"}};
+  state["calibration_session"]=std::string(32,'f');view.update(state);assert(has("Calibration settings saved."));
   assert(calibration_save_result(receipt)==receipt);
   for(const auto&bad:{Json{{"protocol",1}},Json{{"protocol",true}},Json{{"protocol",2}}})assert(calibration_save_result(bad).empty());
   auto malformed=receipt;malformed["request"]="invalid token";assert(calibration_save_result(malformed).empty());
@@ -1832,7 +1842,7 @@ int main(int argc,char**argv){
   view.update(state,"Setup checkpoint pending");
   fake::Node*body=nullptr;for(auto&n:fake::nodes)if(n->live&&n->text=="Setup checkpoint pending")body=n.get();
   auto*overlay=page->children.front();
-  assert(body&&body->font_address==0x34b82a8&&overlay->x==0&&overlay->y==0&&overlay->background_opacity==255);
+  assert(body&&body->font_address==MyriadPro_Regular_22&&overlay->x==0&&overlay->y==0&&overlay->background_opacity==255);
   unsigned backs=0;view.back=[&]{++backs;};fake::Node*back=nullptr;
   for(auto*child:overlay->children)for(auto*label:child->children)if(label->text=="BACK")back=child;
   assert(back);fake::send(back,7);assert(backs==1);
@@ -2180,8 +2190,8 @@ int main(int argc,char**argv){
   assert(card->w==704&&card->h==260&&card->x==48&&card->y==110);
   assert(caption("CLOSE")->w==160&&caption("CLOSE")->h==56);
   auto*large_caption=caption("CLOSE")->children.front();
-  assert(large_caption->font_address==0x1a57128&&large_caption->h==40);
-  assert(title->font_address==0x34b82a8&&root->background_opacity==0);
+  assert(large_caption->font_address==MyriadPro_Bold_24&&large_caption->h==40);
+  assert(title->font_address==MyriadPro_Regular_22&&root->background_opacity==0);
   assert(caption("CLOSE")->y+56<=card->y+card->h);
   auto stage_colour=[&](const std::string&text){
    for(const auto&node:fake::nodes)if(node->live&&!(node->flags&1)&&node->text==text)return node->text_color;
@@ -2464,6 +2474,15 @@ int main(int argc,char**argv){
   auto*root=choices->parent->parent;auto*steps=root->children[1];
   assert(steps->children[0]->text=="1. Prepare"&&steps->children[0]->text_color==0xff888888U);
   assert(steps->children[1]->text_color==0xffff6600U&&steps->children[2]->text_color==0xffeeeeeeU);
+  const auto row_layouts=steps->children[0]->layout_updates;
+  view["instruction"]="127 / 160 C";panel.update(view);
+  assert(steps->children[0]->layout_updates==row_layouts);
+  view["steps"][1]["state"]="failed";panel.update(view);
+  assert(steps->children[1]->text_color==0xffff6666U);
+  view["steps_width"]=200;panel.update(view);assert(steps->w==200);
+  view["steps_width"]=9999;panel.update(view);assert(steps->w==520);
+  auto malformed=view;malformed["steps"]=Json::object();panel.update(malformed);
+  assert(steps->children[1]->text_color==0xffff6666U&&steps->w==520);
   view["instruction"]="";view["decisions"]=false;panel.update(view);
   assert(steps->w==680&&(choices->parent->flags&1)&&decision->live);
   view["steps"]=Json::array();view["instruction"]="Print cancelled.";panel.update(view);
@@ -2513,7 +2532,7 @@ int main(int argc,char**argv){
   for(auto*n:card->children)for(auto*l:n->children)if(l->text.find("The print is paused.")==0)assert(l->text_color==0xffeeeeeeU);
   assert(card->w<=560&&card->h<=280&&card->x==(fake::screen->w-card->w)/2&&card->y==(fake::screen->h-card->h)/2);
   assert(overlay->w==fake::screen->w&&overlay->h==fake::screen->h&&(overlay->flags&2)&&overlay->background_opacity==0);
-  assert(title()->font_address==0x34b82a8&&button("LOAD")->children[0]->font_address==0x1a57128&&button("LOAD")->children[0]->h==40);
+  assert(title()->font_address==MyriadPro_Regular_22&&button("LOAD")->children[0]->font_address==MyriadPro_Bold_24&&button("LOAD")->children[0]->h==40);
   const auto count=fake::nodes.size();prompt.update(paused);assert(fake::nodes.size()==count);
   auto*retained=button("LOAD");auto stale=paused;stale["fresh"]=false;prompt.update(stale);
   assert(title()&&button("LOAD")==retained&&(retained->state&128)&&fake::nodes.size()==count);
@@ -2998,13 +3017,13 @@ int main(int argc,char**argv){
   assert(root->w==800&&root->h==480&&root->background_opacity==0&&(root->flags&2));
   assert(card->x==48&&card->y==90&&card->w==704&&card->h==300&&!(card->flags&1));
   auto*cancel=caption("CANCEL");auto*begin=caption(check?"LOADED":unload?"UNLOAD":"LOAD");assert(cancel&&begin);
-  assert(begin->h==56&&begin->children.front()->h==40&&begin->children.front()->font_address==0x1a57128);
-  assert(root->children.at(1)->font_address==0x34b82a8);
+  assert(begin->h==56&&begin->children.front()->h==40&&begin->children.front()->font_address==MyriadPro_Bold_24);
+  assert(root->children.at(1)->font_address==MyriadPro_Bold_24);
   assert(begin->y>=card->y&&begin->y+begin->h<=card->y+card->h);
   if(check)assert(caption("EMPTY")&&caption("EMPTY")->h==56);
   else{
    auto*body=root->children.at(2);assert((body->flags&16)&&body->dir==12);
-   auto*description=body->children.back();assert(description->label_long_mode==0&&description->w==640&&description->font_address==0x34b82a8);
+   auto*description=body->children.back();assert(description->label_long_mode==0&&description->w==640&&description->font_address==MyriadPro_Regular_22);
    assert(description->text.find(long_note)!=std::string::npos);
    body->scroll=96;modal.update(data);assert(body->scroll==96&&description->text.find("End of transition instructions.")!=std::string::npos);
   }
@@ -3152,7 +3171,7 @@ int main(int argc,char**argv){
   begin=find("STOPPED");assert(begin&&(begin->state&128));fake::send(begin,7);assert(tool_recoveries==1);
   fake::send(find("CLOSE"),7);assert(!dialog.active());
   assert(dialog.open_tracking(parent,tool_recovery,"h2","take",Receipt{"tool-interrupted","pending","Taking head"}));
-  assert(!step("2. Verify attachment sensors"));assert(procedure_backend.calls==1);
+  assert(step("2. Verify attachment sensors"));assert(procedure_backend.calls==1);
   dialog.close();
   unsigned confirmations=0;std::string confirmed_state;
   procedure_data["identity_revision"]=std::string(64,'b');procedure_data["capabilities"]["confirm_filament"]=true;
@@ -3256,6 +3275,25 @@ int main(int argc,char**argv){
   RuntimeReceiptTest::slot_action(procedure_runtime,"unload-source:s");assert(RuntimeReceiptTest::filament_notice(procedure_runtime));
   fake::del(runtime_page);assert(!RuntimeReceiptTest::filament_notice(procedure_runtime));
 
+ }
+ // Take/Dock use the same numbered progress panel as filament operations.
+ for(const auto*action:{"take","dock"}){
+  StockFilamentProcedure dialog;auto*parent=fake::make(fake::screen);parent->w=670;parent->h=340;
+  Json snapshot={{"owner","standalone"},{"session","tool-session"},{"fresh",true},
+   {"toolhead_operation",{{"id","tool-progress"},{"session","tool-session"},{"head","h3"},
+    {"action",action},{"state","running"},{"phase","moving"},
+    {"steps",Json::array({{{"phase","checking"},{"label","Check head attachment"}},
+     {{"phase","moving"},{"label",std::string(action)=="take"?"Mount head":"Dock head"}},
+     {{"phase","verifying"},{"label","Verify attachment sensors"}}})}}}};
+  auto find=[&](const std::string&text){for(const auto&n:fake::nodes)if(n->live&&n->text==text&&!(n->flags&1))for(auto*p=n->parent;p;p=p->parent)if(p==parent)return n.get();return static_cast<fake::Node*>(nullptr);};
+  assert(dialog.open_tracking(parent,snapshot,"h3",action,{"tool-progress","pending","Taking head"}));
+  assert(find("1. Check head attachment"));
+  auto*move=find(std::string("2. ")+(std::string(action)=="take"?"Mount head":"Dock head"));
+  assert(move&&move->text_color==0xffff6600U);
+  assert(find("3. Verify attachment sensors"));
+  snapshot["toolhead_operation"]["phase"]="verifying";dialog.update(snapshot);
+  assert(find("3. Verify attachment sensors")->text_color==0xffff6600U);
+  dialog.close();fake::del(parent);
  }
  // Unload progress survives navigation without repeating motion or cancellation.
  // Failure at withdrawal must not paint the later verification stage complete.

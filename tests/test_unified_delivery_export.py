@@ -8,12 +8,14 @@ import preload_bundle as bundle
 import package_unified_ui_delivery as delivery
 
 ROOT = Path(__file__).resolve().parents[1]
-CANDIDATE = ROOT / 'analysis/unified-ui-native'
+CANDIDATE = None
 CLIENT = ROOT / 'analysis/fw_1.1.13_payload/root/home/t13dp/TM_T1/bin/client'
 
 
 @pytest.fixture(autouse=True)
-def available():
+def available(native_candidate):
+    global CANDIDATE
+    CANDIDATE = native_candidate
     if not CLIENT.is_file() or not (CANDIDATE / 'manifest.json').is_file():
         pytest.skip('local native build and vendor profile required')
 

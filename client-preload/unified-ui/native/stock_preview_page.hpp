@@ -31,7 +31,7 @@ public:
   if(!rows_.mount(widgets_,white)){close();return false;}
   notice_=stock_function<void*(*)(void*)>(lv_label_create)(widgets_.content);
   if(!notice_){close();return false;}
-  stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(notice_,reinterpret_cast<void*>(0x26297a0),0);
+  stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(notice_,reinterpret_cast<void*>(MyriadPro_Regular_16),0);
   stock_function<void(*)(void*,std::uint32_t,unsigned)>(lv_obj_set_style_text_color)(notice_,0xffeeeeeeU,0);
   if(stock_object_valid(widgets_.thumbnail)){
    stock_function<void(*)(void*,unsigned)>(lv_obj_add_flag)(widgets_.thumbnail,2); // CLICKABLE

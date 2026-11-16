@@ -64,7 +64,11 @@ def test_reprint_native_event_intercepts_before_vendor_prefix(tmp_path):
 struct Node {explicit Node(Node*p):parent(p){} Node*parent;bool live=true;bool hidden=false;};
 struct Event {Node*target;int code;std::uintptr_t kind;};
 static Node top{nullptr}, panel{&top}, button{&panel}, close_button{&panel};
-static unsigned delegated=0,queued=0;
+static unsigned delegated=0,queued=0,shown=0,cleared=0,updates=0;
+static void update(){++updates;}
+static bool printing(){return true;}
+static void show_card(){++shown;}
+static void clear_card(){++cleared;}
 static void(*queued_fn)(void*)=nullptr;static void*queued_data=nullptr;
 static int code(void*p){return static_cast<Event*>(p)->code;}
 static void* user(void*p){return reinterpret_cast<void*>(static_cast<Event*>(p)->kind);}
@@ -123,15 +127,20 @@ void*test_resolve(std::uintptr_t a){
  MAP(lv_event_get_code,code);MAP(lv_event_get_user_data,user);MAP(lv_event_get_target,target);
  MAP(lv_disp_get_layer_top,layer);MAP(lv_obj_is_valid,valid);MAP(lv_obj_has_flag,hidden);
  MAP(lv_obj_get_parent,parent);MAP(lv_async_call,queue);MAP(lv_obj_add_flag,hide);
+ MAP(main_update_common,update);MAP(main_update_printing,update);MAP(main_update_tips,update);
+ MAP(stock_is_printing,printing);MAP(main_show_printing,show_card);MAP(main_hide_printing,clear_card);
 #undef MAP
  assert(false);return nullptr;
 }
 }}
 int main(){
  using namespace wmp_openace;
- for(auto address:{0x384e000UL,0x386e000UL})assert(mmap(reinterpret_cast<void*>(address),4096,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS|MAP_FIXED,-1,0)!=MAP_FAILED);
+ for(auto address:{0x384e000UL,0x386e000UL,0x386c000UL,0xe645000UL})assert(mmap(reinterpret_cast<void*>(address),4096,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS|MAP_FIXED,-1,0)!=MAP_FAILED);
  *reinterpret_cast<void**>(0x386ebe8)=&button;*reinterpret_cast<void**>(0x386ebe0)=&close_button;
  original_popup_event.store(&vendor);
+ auto&state=*new(reinterpret_cast<void*>(0xe645338))std::string("complete");
+ auto&filename=*new(reinterpret_cast<void*>(0xe645430))std::string("part.gcode");
+ *reinterpret_cast<unsigned char*>(0x386ceb8)=1;
  for(int kind:{5,6}){
   *reinterpret_cast<int*>(0x384e938)=kind;
   reprint_gate.begin(kind);assert(reprint_gate.arm(&button,"part.gcode",true));
@@ -141,6 +150,14 @@ int main(){
   assert(*reinterpret_cast<int*>(0x384e938)==kind); // stock dismissal prefix never ran
   unified_popup_event(&e);assert(delegated==before&&queued==before_queue+1);
   e.target=&close_button;unified_popup_event(&e);assert(delegated==before+1);
+  unified_main_refresh();assert(*reinterpret_cast<unsigned char*>(0x386ceb8)==(kind==6?0:1));
+  const auto hidden_count=cleared;
+  unified_main_refresh();assert(cleared==hidden_count); // stays hidden without repeated transitions
+  assert(state=="complete"&&filename=="part.gcode"); // backend-facing state untouched
+  state="printing";unified_main_refresh();assert(*reinterpret_cast<unsigned char*>(0x386ceb8)==1);
+  state="complete";unified_main_refresh(); // same file's next completion is visible
+  assert(*reinterpret_cast<unsigned char*>(0x386ceb8)==1&&updates>0);
+  if(kind==6)assert(shown>0);
   queued_fn(queued_data); // cancelled request must not touch navigation or runtime
   e.target=&button;button.hidden=true;unified_popup_event(&e);button.hidden=false;
   assert(delegated==before+1&&queued==before_queue+1);

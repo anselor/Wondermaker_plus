@@ -5,8 +5,9 @@ from pathlib import Path
 import subprocess
 import sys
 import json
+import struct
 CLIENT_SHA='b60c96c5caf980a127a3d284e5ac98e799dfd79691cb1a52aafd06fd818c4715'
-NAMES='''lv_font_montserrat_14 lv_obj_set_width lv_img_get_src lv_img_src_get_type lv_img_decoder_get_info lv_obj_check_type lv_img_class lv_obj_get_width lv_obj_get_height lv_textarea_add_text lv_textarea_del_char lv_async_call lv_obj_get_event_user_data lv_obj_remove_event_cb lv_textarea_set_text lv_textarea_get_text lv_obj_add_style lv_obj_clear_state lv_dropdown_create lv_dropdown_set_options lv_dropdown_set_selected lv_dropdown_get_selected lv_dropdown_is_open lv_dropdown_get_list lv_dropdown_close lv_imgbtn_set_src lv_img_create lv_img_set_src lv_img_set_zoom lv_img_set_pivot lv_obj_create lv_btn_create lv_label_create lv_label_set_text lv_label_set_long_mode
+NAMES='''lv_label_class lv_label_get_text MyriadPro_Regular_16 MyriadPro_Regular_20 MyriadPro_Regular_22 MyriadPro_Regular_24 MyriadPro_Bold_20 MyriadPro_Bold_24 MyriadPro_Bold_30 lv_font_montserrat_14 lv_obj_set_width lv_img_get_src lv_img_src_get_type lv_img_decoder_get_info lv_obj_check_type lv_img_class lv_obj_get_width lv_obj_get_height lv_textarea_add_text lv_textarea_del_char lv_async_call lv_obj_get_event_user_data lv_obj_remove_event_cb lv_textarea_set_text lv_textarea_get_text lv_obj_add_style lv_obj_clear_state lv_dropdown_create lv_dropdown_set_options lv_dropdown_set_selected lv_dropdown_get_selected lv_dropdown_is_open lv_dropdown_get_list lv_dropdown_close lv_imgbtn_set_src lv_img_create lv_img_set_src lv_img_set_zoom lv_img_set_pivot lv_obj_create lv_btn_create lv_label_create lv_label_set_text lv_label_set_long_mode
 lv_obj_align lv_obj_get_content_width lv_obj_get_content_height lv_obj_set_pos lv_obj_set_size lv_obj_add_flag lv_obj_clear_flag lv_obj_add_state lv_obj_clear_state
 lv_obj_set_scroll_dir lv_obj_set_scrollbar_mode lv_obj_get_scroll_y lv_obj_scroll_to_y
 lv_obj_get_parent lv_obj_get_child lv_obj_get_child_cnt lv_obj_is_valid lv_obj_has_flag lv_obj_has_state
@@ -40,10 +41,18 @@ def main():
                  "indev_read_zero":0x6c4398,"indev_continue_capture":0x698f90,
                  "indev_continue_loop":0x699124})
  symbols.update({'maintenance_calibration_worker':0x4b7558})
+ symbols.update({'main_refresh':0x51ebf8,'main_update_common':0x51dc9c,
+                 'main_update_printing':0x51e174,'main_update_tips':0x51e898,
+                 'stock_is_printing':0x519600,'main_show_printing':0x51ee18,
+                 'main_hide_printing':0x51ec98})
  rows=[];header=['// Generated from verified stock 1.1.13 ELF. SPDX-License-Identifier: GPL-3.0-or-later','#pragma once','#include <cstdint>','namespace wmp_ui { namespace native {','struct Window {std::uintptr_t address;unsigned char bytes[32];};']
  for name,address in symbols.items():
   raw=data[address-0x400000:address-0x400000+32];rows.append({'name':name,'address':hex(address),'bytes':raw.hex()})
   header.append('constexpr std::uintptr_t '+name+' = '+hex(address)+';')
+  if name.startswith('MyriadPro_'):
+   line_height=struct.unpack_from('<H',data,address-0x400000+16)[0]
+   if not 16<=line_height<=48:raise SystemExit('Unexpected font layout: '+name)
+   header.append('constexpr int '+name+'_line_height = '+str(line_height)+';')
  header.append('static const Window windows[] = {')
  for row in rows:header.append('{'+row['address']+', {'+','.join('0x'+row['bytes'][i:i+2] for i in range(0,64,2))+'}},')
  header.extend(['};','}}'])

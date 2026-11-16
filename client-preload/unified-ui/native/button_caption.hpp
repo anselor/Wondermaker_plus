@@ -14,13 +14,14 @@ template<class F> inline F button_caption_fn(std::uintptr_t address){
  return reinterpret_cast<F>(address);
 #endif
 }
-inline void center_button_caption(void*button,void*label,const std::string&text){
+inline void center_button_caption(void*button,void*label,const std::string&text,int visible_height=0){
  button_caption_fn<void(*)(void*)>(lv_obj_update_layout)(button);
  const int w=button_caption_fn<int(*)(void*)>(lv_obj_get_content_width)(button);
  const int h=button_caption_fn<int(*)(void*)>(lv_obj_get_content_height)(button);
- const int ch=std::min(h-4,22*(1+int(std::count(text.begin(),text.end(),'\n'))));
+ const int bar=visible_height>0?std::min(h,visible_height):h;
+ const int ch=std::max(1,std::min(bar-4,MyriadPro_Bold_20_line_height*(1+int(std::count(text.begin(),text.end(),'\n')))));
  button_caption_fn<void(*)(void*,int,int)>(lv_obj_set_size)(label,w-12,ch);
- button_caption_fn<void(*)(void*,int,int,int)>(lv_obj_align)(label,1,6,(h-ch)/2);
+ button_caption_fn<void(*)(void*,int,int,int)>(lv_obj_align)(label,1,6,(bar-ch)/2);
  button_caption_fn<void(*)(void*,int,unsigned)>(lv_obj_set_style_text_align)(label,2,0);
 }
 }}

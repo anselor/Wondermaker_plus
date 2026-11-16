@@ -44,7 +44,7 @@ public:
   }
   current_=d;d->notice=stock_function<void*(*)(void*)>(lv_label_create)(modal);
   if(!d->notice){erase(modal);return false;}
-  stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(d->notice,reinterpret_cast<void*>(0x26297a0),0);
+  stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(d->notice,reinterpret_cast<void*>(MyriadPro_Regular_16),0);
   stock_function<void(*)(void*,int,int)>(lv_obj_set_pos)(d->notice,89,8);
   stock_function<void(*)(void*,int,int)>(lv_obj_set_size)(d->notice,696,24);
   stock_function<void(*)(void*,const char*)>(lv_label_set_text)(d->notice,"Target temperature (C)");
@@ -78,7 +78,7 @@ private:
   stock_function<void(*)(void*,int,unsigned)>(lv_obj_set_style_radius)(cover,5,0);
   auto*label=stock_function<void*(*)(void*)>(lv_label_create)(cover);if(!label)return false;
   stock_function<void(*)(void*,unsigned)>(lv_obj_clear_flag)(label,2);
-  stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(label,reinterpret_cast<void*>(0xf84928),0);
+  stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(label,reinterpret_cast<void*>(MyriadPro_Bold_20),0);
   stock_function<void(*)(void*,std::uint32_t,unsigned)>(lv_obj_set_style_text_color)(label,0xffeeeeeeU,0);
   stock_function<void(*)(void*,const char*)>(lv_label_set_text)(label,text);
   center_button_caption(cover,label,text);return true;

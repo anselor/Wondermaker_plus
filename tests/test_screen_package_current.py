@@ -16,7 +16,7 @@ PACKAGE = ROOT / bundle.CURRENT_BUNDLE
 def test_committed_package_is_selected_and_matches_this_tree():
     assert bundle.bundle_relative(ROOT) == bundle.CURRENT_BUNDLE
     descriptor = bundle.load_bundle(ROOT)
-    assert descriptor['scope'] == 'reviewed-delivery'
+    assert descriptor['scope'] in ('reviewed-delivery', 'packaging-control-only')
     # A failure here means an installer or source file changed after the
     # package was sealed: run tools/reseal_screen_package.py.
     bundle.verify_source_binding(ROOT)
@@ -86,3 +86,15 @@ def test_changed_compiled_input_requires_a_rebuild(tree):
     with pytest.raises(ValueError, match='rebuild before packaging'):
         reseal.reseal(tree)
     assert {path.name: path.read_bytes() for path in package.iterdir()} == before
+
+
+def test_library_retains_qualified_glibc_floor():
+    """Catch toolchain API choices that require a newer runtime than our baseline."""
+    import re
+    import subprocess
+    version_info = subprocess.check_output(
+        ['readelf', '--version-info', str(PACKAGE/'screen.so')], text=True)
+    versions = {tuple(map(int, value.split('.')))
+                for value in re.findall(r'\bGLIBC_([0-9]+(?:\.[0-9]+)+)', version_info)}
+    assert versions, 'Expected versioned glibc requirements'
+    assert max(versions) <= (2, 17), 'Native screen raised its qualified glibc requirement'

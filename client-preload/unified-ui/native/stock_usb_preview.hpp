@@ -45,7 +45,7 @@ public:
   stock_function<void(*)(void*,int)>(lv_obj_set_scroll_dir)(panel,12);
   stock_function<void(*)(void*,int)>(lv_obj_set_scrollbar_mode)(panel,3);
   message_=stock_function<void*(*)(void*)>(lv_label_create)(panel);if(!message_){close();return false;}
-  stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(message_,reinterpret_cast<void*>(0x26297a0),0);
+  stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(message_,reinterpret_cast<void*>(MyriadPro_Regular_16),0);
   stock_function<void(*)(void*,int,int)>(lv_obj_set_pos)(message_,8,8);
   // A new LVGL label has content-sized height. Constrain only its width so
   // wrapped filenames grow the scrollable stock panel rather than being clipped.

@@ -11,12 +11,12 @@ class StockPausePrompt {
  void*root_=nullptr,*panel_=nullptr,*screen_=nullptr,*load_=nullptr,*body_=nullptr;
  Json data_=Json::object();std::string shown_,dismissed_;
  static void place(void*p,int x,int y,int w,int h){stock_function<void(*)(void*,int,int)>(lv_obj_set_size)(p,w,h);stock_function<void(*)(void*,int,int,int)>(lv_obj_align)(p,1,x,y);}
- static void label(void*p,const std::string&text){stock_function<void(*)(void*,std::uint32_t,unsigned)>(lv_obj_set_style_text_color)(p,0xffeeeeeeU,0);stock_function<void(*)(void*,const char*)>(lv_label_set_text)(p,text.c_str());stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(p,reinterpret_cast<void*>(0x34b82a8),0);}
+ static void label(void*p,const std::string&text){stock_function<void(*)(void*,std::uint32_t,unsigned)>(lv_obj_set_style_text_color)(p,0xffeeeeeeU,0);stock_function<void(*)(void*,const char*)>(lv_label_set_text)(p,text.c_str());stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(p,reinterpret_cast<void*>(MyriadPro_Regular_22),0);}
  static std::string key(const Json&d){return d.value("session","")+":"+d.value("paused_filament",Json::object()).value("origin",Json::object()).dump();}
  void*button(const char*text,int x,int y,int width){
   auto*b=stock_function<void*(*)(void*)>(lv_obj_create)(panel_);stock_dialog_backdrop(b);
   place(b,x,y,width,56);auto*l=stock_function<void*(*)(void*)>(lv_label_create)(b);label(l,text);center_button_caption(b,l,text);
-  stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(l,reinterpret_cast<void*>(0x1a57128),0);
+  stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(l,reinterpret_cast<void*>(MyriadPro_Bold_24),0);
   place(l,4,8,width-8,40);
   stock_function<void*(*)(void*,void(*)(void*),int,void*)>(lv_obj_add_event_cb)(b,&pressed,7,this);return b;
  }

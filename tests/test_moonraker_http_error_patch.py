@@ -5,6 +5,7 @@ import sys
 import traceback
 
 import pytest
+pytest.importorskip("tornado", reason="Moonraker HTTP compatibility tests require Tornado")
 import tornado.web
 import tornado.testing
 
@@ -20,6 +21,7 @@ def handler(source):
     return namespace['AuthorizedRequestHandler'].write_error
 
 
+@pytest.mark.skipif(tornado.version_info >= (6, 5), reason="Factory HTTP reason handling requires Tornado 6.3.3; see README test command")
 class TestHTTPErrorResponse(tornado.testing.AsyncHTTPTestCase):
     def runTest(self):
         pass  # Tornado 6.3 test adapter expects this on Python 3.12.
@@ -52,6 +54,7 @@ class TestHTTPErrorResponse(tornado.testing.AsyncHTTPTestCase):
             assert 'HTTPError' in error['traceback']
 
 
+@pytest.mark.skipif(tornado.version_info >= (6, 5), reason="Factory HTTP reason handling requires Tornado 6.3.3; see README test command")
 class TestOriginalHTTPError(tornado.testing.AsyncHTTPTestCase):
     def runTest(self):
         pass

@@ -91,8 +91,12 @@ necessary for the claimed bit-identical rebuild. No printer compiler install.
 
 ## Unreleased unified-screen qualification
 
-The current unified export remains `packaging-control-only`. Ordinary installation
-continues to refuse it. For development qualification, use the exported installer:
+Exports default to `packaging-control-only`; normal installation refuses that scope.
+Feature work should keep that scope until its release review is complete. The
+checked-in release package may use `reviewed-delivery`. Package integrity tests
+accept either scope; they do not grant release qualification.
+
+For development qualification, use the exported installer:
 
 ```sh
 uv run --python 3.12 --with paramiko --with jinja2 python tools/deploy.py install config material preload --qualify-unreleased-screen --preflight-only

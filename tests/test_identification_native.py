@@ -23,11 +23,11 @@ def test_identification_constructor_and_retired_entries_are_exactly_profiled():
     assert data[0x52a4cc-0x400000:0x52a4cc-0x400000+16].hex() == 'fd7bbba9fd030091f30b00f9e01700f9'
 
 
-def test_built_arm_retired_identification_paths_only_return():
+def test_built_arm_retired_identification_paths_only_return(native_candidate):
     import hashlib
     import json
     import struct
-    artifact = ROOT / 'analysis/unified-ui-native/libwmp_unified_screen_candidate.so'
+    artifact = native_candidate / 'libwmp_unified_screen_candidate.so'
     manifest = json.loads(artifact.with_name('manifest.json').read_text())
     for name, digest in manifest['source_inputs'].items():
         assert hashlib.sha256((ROOT / name).read_bytes()).hexdigest() == digest, 'Rebuild stale ARM candidate'

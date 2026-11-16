@@ -158,7 +158,7 @@ public:
      if(chosen){
       place(s.card,{12,80,180,height-182});
       place(s.colour,{4,0,83,83});place(s.material,{92,36,80,38});place(s.material_label,{0,5,80,28});
-      stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(s.material_label,reinterpret_cast<void*>(0x26297a0),0);
+      stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(s.material_label,reinterpret_cast<void*>(MyriadPro_Regular_16),0);
       stock_function<void(*)(void*,unsigned)>(lv_obj_add_flag)(s.number,1);
       for(auto*child:{s.colour,s.material})stock_function<void(*)(void*,unsigned)>(lv_obj_clear_flag)(child,1);
       if(valid(tool_labels_[i]))stock_function<void(*)(void*,unsigned)>(lv_obj_add_flag)(tool_labels_[i],1);
@@ -186,7 +186,7 @@ public:
     stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_add_style)(s.card,reinterpret_cast<void*>(ace_filter_&&i==tool_head_?0x463c918:0x463c908),0);
     for(auto*child:{s.number,s.colour,s.material})if(valid(child))stock_function<void(*)(void*,unsigned)>(lv_obj_add_flag)(child,1);
     if(!tool_labels_[i]){tool_labels_[i]=stock_function<void*(*)(void*)>(lv_label_create)(s.card);
-     stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(tool_labels_[i],reinterpret_cast<void*>(0xf84928),0);}
+     stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(tool_labels_[i],reinterpret_cast<void*>(MyriadPro_Bold_20),0);}
     const auto title="Head "+std::to_string(i+1);
     stock_function<void(*)(void*,const char*)>(lv_label_set_text)(tool_labels_[i],title.c_str());place(tool_labels_[i],{8,8,(width-24)/4-24,26});center_button_caption(s.card,tool_labels_[i],title);
    }
@@ -295,7 +295,7 @@ private:
     stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_add_style)(finish_,reinterpret_cast<void*>(0x463c8e8),0);
     auto*label=stock_function<void*(*)(void*)>(lv_label_create)(finish_);
     stock_function<void(*)(void*,const char*)>(lv_label_set_text)(label,"FINISH");
-    stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(label,reinterpret_cast<void*>(0x26297a0),0);
+    stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(label,reinterpret_cast<void*>(MyriadPro_Regular_16),0);
     place(finish_,{12,height-44,176,38});center_button_caption(finish_,label,"FINISH");
     stock_function<void*(*)(void*,void(*)(void*),int,void*)>(lv_obj_add_event_cb)(finish_,&finish_setup_event,7,navigation_binding_);
    }
@@ -321,7 +321,7 @@ private:
    stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_add_style)(navigation_,reinterpret_cast<void*>(0x463c8e8),0);
    stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_add_style)(navigation_,reinterpret_cast<void*>(0x463c8f8),0x20);
    auto*label=stock_function<void*(*)(void*)>(lv_label_create)(navigation_);
-   stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(label,reinterpret_cast<void*>(0x26297a0),0);
+   stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(label,reinterpret_cast<void*>(MyriadPro_Regular_16),0);
    stock_function<void(*)(void*,const char*)>(lv_label_set_text)(label,"Toolheads");
    place(label,{6,8,164,22});
    stock_function<void(*)(void*,int,unsigned)>(lv_obj_set_style_text_align)(label,2,0);

@@ -39,7 +39,7 @@ public:
   auto*label=stock_function<void*(*)(void*)>(lv_label_create)(body);if(!label){close();return false;}
   caption(label,message);
   if(confirming){
-   stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(label,reinterpret_cast<void*>(0x34b82a8),0);
+   stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(label,reinterpret_cast<void*>(MyriadPro_Regular_22),0);
    stock_function<void(*)(void*,int,int)>(lv_obj_set_pos)(label,0,0);
    stock_function<void(*)(void*,int)>(lv_obj_set_width)(label,pw-40);
    stock_function<void(*)(void*,int)>(lv_label_set_long_mode)(label,0);
@@ -62,12 +62,12 @@ public:
  }
 private:
  static void large_button(void*button,void*label){
-  stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(label,reinterpret_cast<void*>(0x1a57128),0);
+  stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(label,reinterpret_cast<void*>(MyriadPro_Bold_24),0);
   const int width=stock_function<int(*)(void*)>(lv_obj_get_width)(button);
   stock_object_place(label,4,8,width-8,40);
  }
  static void style(void*p,std::uintptr_t address){stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_add_style)(p,reinterpret_cast<void*>(address),0);}
- static void caption(void*p,const std::string&s){stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(p,reinterpret_cast<void*>(0x26297a0),0);stock_function<void(*)(void*,std::uint32_t,unsigned)>(lv_obj_set_style_text_color)(p,0xffeeeeeeU,0);stock_function<void(*)(void*,const char*)>(lv_label_set_text)(p,s.c_str());}
+ static void caption(void*p,const std::string&s){stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(p,reinterpret_cast<void*>(MyriadPro_Regular_16),0);stock_function<void(*)(void*,std::uint32_t,unsigned)>(lv_obj_set_style_text_color)(p,0xffeeeeeeU,0);stock_function<void(*)(void*,const char*)>(lv_label_set_text)(p,s.c_str());}
  static void deleted(void*e)noexcept{try{auto*o=static_cast<StockNotice*>(stock_function<void*(*)(void*)>(lv_event_get_user_data)(e));if(o&&stock_function<void*(*)(void*)>(lv_event_get_target)(e)==o->root_){o->root_=nullptr;o->close_=nullptr;o->confirm_=nullptr;}}catch(...){} }
  static void pressed(void*e)noexcept{try{
   auto*o=static_cast<StockNotice*>(stock_function<void*(*)(void*)>(lv_event_get_user_data)(e));if(!o||!o->active())return;auto*target=stock_function<void*(*)(void*)>(lv_event_get_target)(e);if(target!=o->close_&&target!=o->confirm_)return;

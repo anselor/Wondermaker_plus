@@ -9,7 +9,7 @@ class StockIdentification {
  void*page_=nullptr,*panel_=nullptr,*body_=nullptr,*action_=nullptr,*caption_=nullptr,*back_=nullptr;
  std::vector<void*>steps_;std::string rendered_;bool permitted_=false,setup_=false,can_back_=true;
  static void place(void*p,int x,int y,int w,int h){stock_function<void(*)(void*,int,int)>(lv_obj_set_size)(p,w,h);stock_function<void(*)(void*,int,int,int)>(lv_obj_align)(p,1,x,y);}
- static void label(void*p,const std::string&s){stock_function<void(*)(void*,const char*)>(lv_label_set_text)(p,s.c_str());stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(p,reinterpret_cast<void*>(0x26297a0),0);stock_function<void(*)(void*,std::uint32_t,unsigned)>(lv_obj_set_style_text_color)(p,0xffffffffU,0);}
+ static void label(void*p,const std::string&s){stock_function<void(*)(void*,const char*)>(lv_label_set_text)(p,s.c_str());stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(p,reinterpret_cast<void*>(MyriadPro_Regular_16),0);stock_function<void(*)(void*,std::uint32_t,unsigned)>(lv_obj_set_style_text_color)(p,0xffffffffU,0);}
  bool visible()const{
   auto*screen=stock_function<void*(*)(void*)>(lv_disp_get_scr_act)(nullptr);auto*p=page_;
   for(unsigned i=0;p&&i<20;++i){if(!stock_object_valid(p)||stock_function<bool(*)(void*,unsigned)>(lv_obj_has_flag)(p,1))return false;if(p==screen)return true;p=stock_function<void*(*)(void*)>(lv_obj_get_parent)(p);}return false;
@@ -18,7 +18,7 @@ class StockIdentification {
  void* button(int x,const char*text,bool action){
   auto*b=stock_function<void*(*)(void*)>(lv_obj_create)(panel_);stock_dialog_backdrop(b);place(b,x,0,110,40);
   auto*l=stock_function<void*(*)(void*)>(lv_label_create)(b);label(l,text);center_button_caption(b,l,text);
-  stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(l,reinterpret_cast<void*>(0xf84928),0);
+  stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(l,reinterpret_cast<void*>(MyriadPro_Bold_20),0);
   stock_function<void*(*)(void*,void(*)(void*),int,void*)>(lv_obj_add_event_cb)(b,action?&pressed:&back_pressed,7,this);
   if(action){action_=b;caption_=l;}return b;
  }
@@ -50,7 +50,7 @@ public:
   const std::string signature=message+rows.dump()+(restart?"restart":"start")+(enabled?"yes":"no")+(can_back?"back":"locked")+(data.value("fresh",false)?"fresh":"stale");
   if(signature==rendered_)return;
   if(stock_object_valid(back_))stock_function<void(*)(void*,unsigned)>(can_back?lv_obj_clear_flag:lv_obj_add_flag)(back_,1);
-  label(body_,message);label(caption_,restart?"RESTART":"START");stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(caption_,reinterpret_cast<void*>(0xf84928),0);center_button_caption(action_,caption_,restart?"RESTART":"START");
+  label(body_,message);label(caption_,restart?"RESTART":"START");stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(caption_,reinterpret_cast<void*>(MyriadPro_Bold_20),0);center_button_caption(action_,caption_,restart?"RESTART":"START");
   stock_function<void(*)(void*,int,unsigned)>(lv_obj_set_style_text_opa)(caption_,enabled?255:100,0);
   unsigned visible_rows=0;
   for(unsigned i=0;i<steps_.size();++i){

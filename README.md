@@ -189,7 +189,7 @@ Run configuration validation and the local test suite:
 
 ```bash
 uv run --with jinja2 python tools/validate_klipper_config.py
-uv run --with pytest --with jinja2 --with unicorn --with capstone python -m pytest -q tests
+uv run --with pytest --with jinja2 --with unicorn --with capstone --with tornado==6.3.3 python -m pytest -q tests klipper_extras
 ```
 
 Some tests need local vendor extracts or optional packages and skip without them.

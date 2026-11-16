@@ -358,3 +358,9 @@ def test_stock_remote_start_mapping_backup_boundary(tmp_path):
     executable = tmp_path/'mapping-backup'
     compile_cpp(ROOT/'tests/unified_ui/stock_mapping_backup.cpp', executable)
     subprocess.run([str(executable)], check=True, timeout=15)
+
+
+def test_completed_display_dismissal_and_next_job(tmp_path):
+    executable = tmp_path/'completed-display'
+    compile_cpp(ROOT/'tests/unified_ui/completed_display.cpp', executable)
+    subprocess.run([str(executable)], check=True)

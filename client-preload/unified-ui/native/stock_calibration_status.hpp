@@ -12,7 +12,7 @@ class StockCalibrationStatus {
  StockProgressPanel progress_;
  void*page_=nullptr,*panel_=nullptr,*body_=nullptr;std::string rendered_,failure_,session_,request_;bool setup_=false,restarted_=false;
  static void place(void*p,int x,int y,int w,int h){stock_function<void(*)(void*,int,int)>(lv_obj_set_size)(p,w,h);stock_function<void(*)(void*,int,int,int)>(lv_obj_align)(p,1,x,y);}
- static void label(void*p,const std::string&s){stock_function<void(*)(void*,std::uint32_t,unsigned)>(lv_obj_set_style_text_color)(p,0xffffffffU,0);stock_function<void(*)(void*,const char*)>(lv_label_set_text)(p,s.c_str());stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(p,reinterpret_cast<void*>(0x26297a0),0);}
+ static void label(void*p,const std::string&s){stock_function<void(*)(void*,std::uint32_t,unsigned)>(lv_obj_set_style_text_color)(p,0xffffffffU,0);stock_function<void(*)(void*,const char*)>(lv_label_set_text)(p,s.c_str());stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(p,reinterpret_cast<void*>(MyriadPro_Regular_16),0);}
  bool visible()const{
   auto*screen=stock_function<void*(*)(void*)>(lv_disp_get_scr_act)(nullptr);auto*p=page_;
   for(unsigned i=0;p&&i<20;++i){if(!stock_object_valid(p)||stock_function<bool(*)(void*,unsigned)>(lv_obj_has_flag)(p,1))return false;if(p==screen)return true;p=stock_function<void*(*)(void*)>(lv_obj_get_parent)(p);}return false;
@@ -35,7 +35,12 @@ public:
    // durable save receipt can confirm the saved settings in the new session.
    if(session_.empty())session_=session;
    else if(session!=session_)restarted_=true;
-   const auto error=data.value("calibration_failed","");
+   // A bound page reports only its own attempt. The global failure may still
+   // belong to the previous run while this START is queued for admission.
+   const auto attempt=data.value("calibration_attempt",Json::object());
+   const bool bound=!request_.empty();
+   const bool matches=attempt.value("session","")==session_&&attempt.value("request","")==request_;
+   const auto error=bound?(matches&&attempt.value("state","")=="failed"?attempt.value("error",""):std::string()):data.value("calibration_failed","");
    if(session==session_&&!error.empty())failure_=error.substr(0,512);
   }
   if(!visible()){clear();return;}
@@ -69,7 +74,7 @@ public:
    auto*title=stock_function<void*(*)(void*)>(lv_label_create)(panel_);label(title,"Calibration");place(title,12,10,w-260,30);
    {auto*b=stock_function<void*(*)(void*)>(lv_obj_create)(panel_);stock_dialog_backdrop(b);place(b,w-230,0,120,40);
    auto*l=stock_function<void*(*)(void*)>(lv_label_create)(b);label(l,"BACK");center_button_caption(b,l,"BACK");
-   stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(l,reinterpret_cast<void*>(0xf84928),0);
+   stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(l,reinterpret_cast<void*>(MyriadPro_Bold_20),0);
    stock_function<void*(*)(void*,void(*)(void*),int,void*)>(lv_obj_add_event_cb)(b,&pressed,7,this);}
    auto*rule=stock_function<void*(*)(void*)>(lv_obj_create)(panel_);stock_dialog_backdrop(rule);place(rule,12,40,w-124,1);
    stock_function<void(*)(void*,std::uint32_t,unsigned)>(lv_obj_set_style_bg_color)(rule,0xff606060U,0);stock_function<void(*)(void*,int,unsigned)>(lv_obj_set_style_bg_opa)(rule,255,0);

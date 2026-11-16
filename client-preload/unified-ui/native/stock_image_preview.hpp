@@ -50,7 +50,7 @@ public:
 
 private:
  static void style(void*p,std::uintptr_t address){stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_add_style)(p,reinterpret_cast<void*>(address),0);}
- static void caption(void*p,const std::string&s){stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(p,reinterpret_cast<void*>(0x26297a0),0);stock_function<void(*)(void*,const char*)>(lv_label_set_text)(p,s.c_str());}
+ static void caption(void*p,const std::string&s){stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(p,reinterpret_cast<void*>(MyriadPro_Regular_16),0);stock_function<void(*)(void*,const char*)>(lv_label_set_text)(p,s.c_str());}
  static void deleted(void*e)noexcept{try{auto*o=static_cast<StockImagePreview*>(stock_function<void*(*)(void*)>(lv_event_get_user_data)(e));if(o&&stock_function<void*(*)(void*)>(lv_event_get_target)(e)==o->root_){o->root_=nullptr;o->close_=nullptr;}}catch(...){} }
  static void pressed(void*e)noexcept{try{
   auto*o=static_cast<StockImagePreview*>(stock_function<void*(*)(void*)>(lv_event_get_user_data)(e));if(!o||!o->active()||stock_function<void*(*)(void*)>(lv_event_get_target)(e)!=o->close_)return;

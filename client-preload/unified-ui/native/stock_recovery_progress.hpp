@@ -31,7 +31,7 @@ class StockRecoveryProgress {
   // Overlay parents can inherit the stock theme's dark foreground. Give all
   // captions/status text a readable default; stage states override it below.
   colour(l,0xffeeeeeeU);
-  stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(l,reinterpret_cast<void*>(compact_?0x34b82a8:0x26297a0),0);return l;
+  stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(l,reinterpret_cast<void*>(compact_?MyriadPro_Regular_22:MyriadPro_Regular_16),0);return l;
  }
  void center_caption(void*button,void*label,const std::string&value){
   center_button_caption(button,label,value);
@@ -40,7 +40,7 @@ class StockRecoveryProgress {
  }
  void*button(const char*s,int x){auto*b=stock_function<void*(*)(void*)>(lv_obj_create)(root_);stock_dialog_backdrop(b);place(b,dialog_x_+x,compact_?dialog_y_+dialog_h_-72:0,compact_?160:110,compact_?56:40);
   auto*l=label(b,s,0,0,compact_?160:110,compact_?56:40);center_caption(b,l,s);
-  stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(l,reinterpret_cast<void*>(compact_?0x1a57128:0xf84928),0);
+  stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(l,reinterpret_cast<void*>(compact_?MyriadPro_Bold_24:MyriadPro_Bold_20),0);
   stock_function<void*(*)(void*,void(*)(void*),int,void*)>(lv_obj_add_event_cb)(b,&pressed,7,this);return b;
  }
  bool can_stop()const{const auto state=result_.value("receipt",Json::object()).value("state","");

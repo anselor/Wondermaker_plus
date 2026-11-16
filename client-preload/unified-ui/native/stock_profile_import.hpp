@@ -58,7 +58,7 @@ public:
  }catch(...){close();return false;}
 private:
  static void style(void*p,std::uintptr_t address){stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_add_style)(p,reinterpret_cast<void*>(address),0);}
- static void caption(void*p,const std::string&s){stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(p,reinterpret_cast<void*>(0x26297a0),0);stock_function<void(*)(void*,std::uint32_t,unsigned)>(lv_obj_set_style_text_color)(p,0xffeeeeeeU,0);stock_function<void(*)(void*,const char*)>(lv_label_set_text)(p,s.c_str());}
+ static void caption(void*p,const std::string&s){stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(p,reinterpret_cast<void*>(MyriadPro_Regular_16),0);stock_function<void(*)(void*,std::uint32_t,unsigned)>(lv_obj_set_style_text_color)(p,0xffeeeeeeU,0);stock_function<void(*)(void*,const char*)>(lv_label_set_text)(p,s.c_str());}
  void label(void*parent,const std::string&text,int x,int y,int w,int h){
   auto*node=stock_function<void*(*)(void*)>(lv_label_create)(parent);if(!node)throw std::runtime_error("Import label allocation failed");caption(node,text);stock_object_place(node,x,y,w,h);
  }
@@ -70,7 +70,7 @@ private:
   center_button_caption(node,stock_function<void*(*)(void*,int)>(lv_obj_get_child)(node,0),text);
   if(header){
    auto*caption=stock_function<void*(*)(void*,int)>(lv_obj_get_child)(node,0);
-   stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(caption,reinterpret_cast<void*>(0xf84928),0);
+   stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(caption,reinterpret_cast<void*>(MyriadPro_Bold_20),0);
    stock_function<void(*)(void*,int,unsigned)>(lv_obj_set_style_text_align)(caption,2,0);
    if(!enabled)stock_function<void(*)(void*,std::uint32_t,unsigned)>(lv_obj_set_style_text_color)(caption,0xff888888U,0);
   }

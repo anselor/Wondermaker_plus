@@ -377,6 +377,11 @@
       "bytes": "fd7bbda9fd030091e00f00f9e15f0039e00f40f9e01700f9000000f001801391"
     },
     {
+      "name": "lv_label_get_text",
+      "address": "0x6d9c94",
+      "bytes": "ff8300d1e00700f9e00740f9e00f00f9e00f40f9001c40f9ff830091c0035fd6"
+    },
+    {
       "name": "lv_textarea_add_text",
       "address": "0x6de1fc",
       "bytes": "fd7bbaa9fd030091f30b00f9e01700f9e11300f9e01340f91f0000f1c1010054"
@@ -432,6 +437,41 @@
       "bytes": "fd7bbda9fd030091e00f00f9e00f40f9e01700f9e01740f9001c40f921008052"
     },
     {
+      "name": "MyriadPro_Bold_20",
+      "address": "0xf84928",
+      "bytes": "301d6c0000000000601c6c00000000001900060000fc0100f848f80000000000"
+    },
+    {
+      "name": "MyriadPro_Bold_24",
+      "address": "0x1a50440",
+      "bytes": "301d6c0000000000601c6c00000000001d00070000fb01001004a50100000000"
+    },
+    {
+      "name": "MyriadPro_Bold_30",
+      "address": "0x1a57128",
+      "bytes": "301d6c0000000000601c6c00000000002400080000fc0100f870a50100000000"
+    },
+    {
+      "name": "MyriadPro_Regular_16",
+      "address": "0x26297a0",
+      "bytes": "301d6c0000000000601c6c00000000001400050000fd01007097620200000000"
+    },
+    {
+      "name": "MyriadPro_Regular_20",
+      "address": "0x2a4b0b0",
+      "bytes": "301d6c0000000000601c6c00000000001a00070000fc010080b0a40200000000"
+    },
+    {
+      "name": "MyriadPro_Regular_22",
+      "address": "0x2f19bd8",
+      "bytes": "301d6c0000000000601c6c00000000001c00070000fb0100a89bf10200000000"
+    },
+    {
+      "name": "MyriadPro_Regular_24",
+      "address": "0x34b82a8",
+      "bytes": "301d6c0000000000601c6c00000000001e00070000fb010078824b0300000000"
+    },
+    {
       "name": "lv_font_montserrat_14",
       "address": "0x363b260",
       "bytes": "301d6c0000000000601c6c00000000001000030000ff010030b2630300000000"
@@ -440,6 +480,11 @@
       "name": "lv_img_class",
       "address": "0x363d830",
       "bytes": "2863630300000000dc806d0000000000bc816d00000000000000000000000000"
+    },
+    {
+      "name": "lv_label_class",
+      "address": "0x363d980",
+      "bytes": "286363030000000004ae6d0000000000f0ae6d00000000000000000000000000"
     },
     {
       "name": "popup_build",
@@ -900,6 +945,41 @@
       "name": "maintenance_calibration_worker",
       "address": "0x4b7558",
       "bytes": "ff4319d1fd7b00a9fd030091f35301a9409d019000603091000040b91f380071"
+    },
+    {
+      "name": "main_refresh",
+      "address": "0x51ebf8",
+      "bytes": "fd7bbfa9fd03009127fcff975cfdff9724ffff977deaff97011c0012609a01d0"
+    },
+    {
+      "name": "main_update_common",
+      "address": "0x51dc9c",
+      "bytes": "fd7bbda9fd030091f30b00f9609a01f000203e91040040f94009079000701091"
+    },
+    {
+      "name": "main_update_printing",
+      "address": "0x51e174",
+      "bytes": "fd7ba6a9fd030091f30b00f920edff97001c001200000052001c00121f000071"
+    },
+    {
+      "name": "main_update_tips",
+      "address": "0x51e898",
+      "bytes": "fd7bbea9fd030091f30b00f957ebff97001c001200000052001c00121f000071"
+    },
+    {
+      "name": "stock_is_printing",
+      "address": "0x519600",
+      "bytes": "fd7bb8a9fd030091f35301a9a09a01900060199100fcdf08001c001200000012"
+    },
+    {
+      "name": "main_show_printing",
+      "address": "0x51ee18",
+      "bytes": "fd7bbaa9fd030091f30b00f9e06301918aa0fc97e0630191e3e30091e20300aa"
+    },
+    {
+      "name": "main_hide_printing",
+      "address": "0x51ec98",
+      "bytes": "fd7bbaa9fd030091f30b00f9e0630191eaa0fc97e0630191e3e30091e20300aa"
     }
   ]
 }

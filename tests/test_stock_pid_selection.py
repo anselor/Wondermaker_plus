@@ -68,11 +68,11 @@ def test_verified_pid_callsite_and_sender_prologue_match_profile():
     (0x51095c, 'T0'), (0x51095c, 'T3'), (0x51095c, 'T4'),
     (0x4b7cbc, 'T0'), (0x4b7d90, 'T3'),
 ])
-def test_built_arm_wrapper_passes_original_caller_to_guard(caller, command):
+def test_built_arm_wrapper_passes_original_caller_to_guard(caller, command, native_candidate):
     """Run actual ARM entry; verify preserved caller and original string at dispatch."""
     unicorn = pytest.importorskip('unicorn')
     from unicorn.arm64_const import UC_ARM64_REG_X0, UC_ARM64_REG_X1, UC_ARM64_REG_X2, UC_ARM64_REG_X30, UC_ARM64_REG_SP, UC_ARM64_REG_PC
-    candidate = ROOT / 'analysis/unified-ui-native'
+    candidate = native_candidate
     artifact = candidate / 'libwmp_unified_screen_candidate.so'
     if not artifact.is_file():
         pytest.skip('ARM candidate required')

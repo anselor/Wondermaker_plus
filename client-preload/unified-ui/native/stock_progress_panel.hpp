@@ -11,15 +11,15 @@ namespace wmp_ui { namespace native {
 class StockProgressPanel {
  void*title_=nullptr;
  void*root_=nullptr,*steps_body_=nullptr,*details_=nullptr,*instruction_=nullptr,*choices_=nullptr;
- std::vector<void*>rows_;Json rendered_;int width_=0,height_=0;bool rendered_valid_=false;
+ std::vector<void*>rows_;Json rendered_,rendered_steps_;int rendered_left_=-1,width_=0,height_=0;bool rendered_valid_=false;
  static void place(void*p,int x,int y,int w,int h){stock_function<void(*)(void*,int,int)>(lv_obj_set_size)(p,w,h);stock_function<void(*)(void*,int,int)>(lv_obj_set_pos)(p,x,y);}
  static void hidden(void*p,bool value){stock_function<void(*)(void*,unsigned)>(value?lv_obj_add_flag:lv_obj_clear_flag)(p,1);}
  static void style_label(void*p){
-  stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(p,reinterpret_cast<void*>(0x34b82a8),0);
+  stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(p,reinterpret_cast<void*>(MyriadPro_Regular_22),0);
   stock_function<void(*)(void*,std::uint32_t,unsigned)>(lv_obj_set_style_text_color)(p,0xffeeeeeeU,0);
   stock_function<void(*)(void*,int)>(lv_label_set_long_mode)(p,0);
  }
- void reset(){title_=root_=steps_body_=details_=instruction_=choices_=nullptr;rows_.clear();rendered_valid_=false;}
+ void reset(){title_=root_=steps_body_=details_=instruction_=choices_=nullptr;rows_.clear();rendered_valid_=false;rendered_left_=-1;rendered_steps_=Json();}
  static void deleted(void*e)noexcept{try{
   auto*self=static_cast<StockProgressPanel*>(stock_function<void*(*)(void*)>(lv_event_get_user_data)(e));
   if(self&&stock_function<void*(*)(void*)>(lv_event_get_target)(e)==self->root_)self->reset();
@@ -39,6 +39,7 @@ public:
   stock_function<void(*)(void*,std::uint32_t,unsigned)>(lv_obj_set_style_bg_color)(root_,0xff3c3f43U,0);
   stock_function<void(*)(void*,int,unsigned)>(lv_obj_set_style_bg_opa)(root_,255,0);
   title_=stock_function<void*(*)(void*)>(lv_label_create)(root_);if(!title_){close();return false;}style_label(title_);
+  stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(title_,reinterpret_cast<void*>(MyriadPro_Bold_24),0);
   steps_body_=stock_function<void*(*)(void*)>(lv_obj_create)(root_);
   details_=stock_function<void*(*)(void*)>(lv_obj_create)(root_);
   if(!steps_body_||!details_){close();return false;}
@@ -57,7 +58,7 @@ public:
  // Operation-specific radio buttons or other decisions live here. Updates do
  // not replace the container or its children, preserving presses and drafts.
  void*choices_parent()const{return stock_object_valid(choices_)?choices_:nullptr;}
- void show(bool shown){if(stock_object_valid(root_)){hidden(root_,!shown);if(!shown)for(auto*row:rows_)hidden(row,true);rendered_valid_=false;}}
+ void show(bool shown){if(stock_object_valid(root_)){hidden(root_,!shown);if(!shown){for(auto*row:rows_)hidden(row,true);rendered_left_=-1;}rendered_valid_=false;}}
  void update(const Json&view){
   if(!attached()||(rendered_valid_&&rendered_==view))return;
   const auto steps=view.value("steps",Json::array());
@@ -69,7 +70,8 @@ public:
   const int top=title.empty()?0:48,body_height=height_-top;
   const bool decisions=view.value("decisions",false);
   const bool split=(!instruction.empty()||decisions)&&!steps.empty();
-  const int left=split?std::max(220,width_*42/100):width_;
+  const int requested=view.value("steps_width",width_*42/100);
+  const int left=split?std::max(160,std::min(requested,width_-160)):width_;
   const int right=split?width_-left-16:width_;
   hidden(steps_body_,steps.empty());hidden(details_,instruction.empty()&&!decisions);
   place(steps_body_,0,top,left,body_height);
@@ -77,17 +79,20 @@ public:
   while(rows_.size()<steps.size()){
    auto*l=stock_function<void*(*)(void*)>(lv_label_create)(steps_body_);if(!l)return;style_label(l);rows_.push_back(l);
   }
+  if(rendered_steps_!=steps||rendered_left_!=left){
   int y=0;
   for(unsigned i=0;i<rows_.size();++i){
    auto*l=rows_[i];hidden(l,i>=steps.size());if(i>=steps.size())continue;
    const auto step=steps[i];const auto state=step.value("state","");
    const auto text=std::to_string(i+1)+". "+step.value("label","");
    stock_function<void(*)(void*,const char*)>(lv_label_set_text)(l,text.c_str());
-   stock_function<void(*)(void*,std::uint32_t,unsigned)>(lv_obj_set_style_text_color)(l,state=="complete"?0xff888888U:state=="running"?0xffff6600U:0xffeeeeeeU,0);
+   stock_function<void(*)(void*,std::uint32_t,unsigned)>(lv_obj_set_style_text_color)(l,state=="complete"?0xff888888U:state=="running"?0xffff6600U:state=="failed"?0xffff6666U:0xffeeeeeeU,0);
    stock_function<void(*)(void*,int)>(lv_obj_set_width)(l,left-16);
    stock_function<void(*)(void*,int,int)>(lv_obj_set_pos)(l,8,y);
    stock_function<void(*)(void*)>(lv_obj_update_layout)(l);
    y+=std::max(30,stock_function<int(*)(void*)>(lv_obj_get_height)(l))+8;
+  }
+  rendered_steps_=steps;rendered_left_=left;
   }
   hidden(instruction_,instruction.empty());
   stock_function<void(*)(void*,const char*)>(lv_label_set_text)(instruction_,instruction.c_str());

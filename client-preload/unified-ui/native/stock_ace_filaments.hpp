@@ -293,7 +293,7 @@ private:
   }
  }
  void*panel(void*parent,int x,int y,int w,int h,const std::string&key=""){auto*p=widget(parent,lv_obj_create,"panel:"+(key.empty()?position_key(x,y):key));if(!p)throw std::runtime_error("ACE content allocation failed");style(p,0x463c908);fn<void(*)(void*,unsigned)>(lv_obj_clear_flag)(p,16);rect(p,x,y,w,h);return p;}
- void*label(void*parent,const std::string&t,int x,int y,int w,int h){auto*p=widget(parent,lv_label_create,position_key(x,y));if(!p)throw std::runtime_error("ACE label allocation failed");fn<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(p,reinterpret_cast<void*>(0x26297a0),0);fn<void(*)(void*,std::uint32_t,unsigned)>(lv_obj_set_style_text_color)(p,0xffeeeeeeU,0);if(!record(p).text_set||record(p).text!=t){fn<void(*)(void*,const char*)>(lv_label_set_text)(p,t.c_str());record(p).text=t;record(p).text_set=true;}rect(p,x,y,w,h);return p;}
+ void*label(void*parent,const std::string&t,int x,int y,int w,int h){auto*p=widget(parent,lv_label_create,position_key(x,y));if(!p)throw std::runtime_error("ACE label allocation failed");fn<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(p,reinterpret_cast<void*>(MyriadPro_Regular_16),0);fn<void(*)(void*,std::uint32_t,unsigned)>(lv_obj_set_style_text_color)(p,0xffeeeeeeU,0);if(!record(p).text_set||record(p).text!=t){fn<void(*)(void*,const char*)>(lv_label_set_text)(p,t.c_str());record(p).text=t;record(p).text_set=true;}rect(p,x,y,w,h);return p;}
  void*button(void*parent,const std::string&id,const std::string&t,int x,int y,int w,int h,bool enabled=true){auto*p=widget(parent,lv_btn_create,id+":"+position_key(x,y));if(!p)throw std::runtime_error("ACE button allocation failed");style(p,0x463c8e8);style(p,0x463c8f8,0x20);rect(p,x,y,w,h);label(p,t,6,4,w-12,h-8);center_button_caption(p,fn<void*(*)(void*,int)>(lv_obj_get_child)(p,0),t);bind(p,id);StockAceFilaments::enabled(p,!((!fresh_&&id!="unit-back"&&id!="slot-cancel"&&id!="remove-cancel"&&id!="adopt-cancel"&&id!="adopt-status"&&id!="source-back"&&id!="picker-close"&&id!="picker-back")||!enabled));return p;}
  void source_card(void*card,const Json&s,const std::string&head,int width,int height,const std::string&title){
   auto identity=s.value("identity",Json::object());bool empty=false,loaded=false;
@@ -382,7 +382,7 @@ private:
  void render_brand(int width,const std::string&selected,bool editable){
   auto*p=button(pane_,"source-brand",selected,156,44,width-168,46,editable);
   auto*caption=fn<void*(*)(void*,int)>(lv_obj_get_child)(p,0);
-  fn<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(caption,reinterpret_cast<void*>(0x2a4b0b0),0);
+  fn<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(caption,reinterpret_cast<void*>(MyriadPro_Regular_20),0);
   fn<void(*)(void*,int,int)>(lv_obj_set_size)(caption,width-180,26);
   fn<void(*)(void*,int,int,int)>(lv_obj_align)(caption,1,0,10);
   fn<void(*)(void*,int,unsigned)>(lv_obj_set_style_text_align)(caption,0,0);
@@ -429,7 +429,7 @@ private:
   stock_dialog_backdrop(object);rect(object,x,0,width,34);bind(object,id);
   label(object,text,4,2,width-8,26);
   auto*caption=fn<void*(*)(void*,int)>(lv_obj_get_child)(object,0);
-  fn<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(caption,reinterpret_cast<void*>(0xf84928),0);
+  fn<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(caption,reinterpret_cast<void*>(MyriadPro_Bold_20),0);
   fn<void(*)(void*,int,unsigned)>(lv_obj_set_style_text_align)(caption,2,0);
   StockAceFilaments::enabled(object,enabled);if(!enabled){fn<void(*)(void*,std::uint32_t,unsigned)>(lv_obj_set_style_text_color)(caption,0xff888888U,0);}
  }
@@ -475,7 +475,7 @@ private:
   auto*materials=widget(pane_,lv_dropdown_create,"material");
   if(!materials)throw std::runtime_error("Material selector allocation failed");
   style(materials,0x463c8e8);rect(materials,156,100,width-168,46);
-  fn<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(materials,reinterpret_cast<void*>(0x2a4b0b0),0);
+  fn<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(materials,reinterpret_cast<void*>(MyriadPro_Regular_20),0);
   fn<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(materials,reinterpret_cast<void*>(lv_font_montserrat_14),0x20000);
   fn<void(*)(void*,int,unsigned)>(lv_obj_set_style_pad_top)(materials,10,0);
   fn<void(*)(void*,std::uint32_t,unsigned)>(lv_obj_set_style_text_color)(materials,0xffeeeeeeU,0);
@@ -502,7 +502,7 @@ private:
    label(pane_,"Profile",12,224,136,28);
    auto*profiles=widget(pane_,lv_dropdown_create,"profile");if(!profiles)throw std::runtime_error("Profile selector allocation failed");
    style(profiles,0x463c8e8);rect(profiles,156,212,width-168,46);
-   fn<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(profiles,reinterpret_cast<void*>(0x2a4b0b0),0);
+   fn<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(profiles,reinterpret_cast<void*>(MyriadPro_Regular_20),0);
    fn<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(profiles,reinterpret_cast<void*>(lv_font_montserrat_14),0x20000);
    fn<void(*)(void*,int,unsigned)>(lv_obj_set_style_pad_top)(profiles,10,0);
    fn<void(*)(void*,std::uint32_t,unsigned)>(lv_obj_set_style_text_color)(profiles,0xffeeeeeeU,0);
@@ -556,7 +556,7 @@ private:
   const auto unit=unit_preview_.draft();const bool valid_draft=unit_preview_.valid(snapshot_);
   auto*name=button(pane_,"unit-name",unit.value("name",unit.value("id","")),12,0,width-240,46,valid_draft);
   auto*caption=fn<void*(*)(void*,int)>(lv_obj_get_child)(name,0);
-  fn<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(caption,reinterpret_cast<void*>(0xf84928),0);
+  fn<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(caption,reinterpret_cast<void*>(MyriadPro_Bold_20),0);
   if(quick_assign_){
    label(pane_,valid_draft?"Assign all four slots to one head":"Printer context changed - reopen unit details",12,36,width-24,28);
    int x=12;for(const auto&h:snapshot_.value("heads",Json::array())){
@@ -744,7 +744,7 @@ private:
  }
  static void style_list(void*object){
   auto*list=fn<void*(*)(void*)>(lv_dropdown_get_list)(object);if(!list)return;
-  fn<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(list,reinterpret_cast<void*>(0x26297a0),0);
+  fn<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(list,reinterpret_cast<void*>(MyriadPro_Regular_16),0);
   for(unsigned part:{0U,0x40000U,0x40001U,0x40020U,0x40021U}){
    fn<void(*)(void*,std::uint32_t,unsigned)>(lv_obj_set_style_text_color)(list,0xffeeeeeeU,part);
    fn<void(*)(void*,std::uint32_t,unsigned)>(lv_obj_set_style_bg_color)(list,part?0xffbf4900U:0xff3c3e42U,part);

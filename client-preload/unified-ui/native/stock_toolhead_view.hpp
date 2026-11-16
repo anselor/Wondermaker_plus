@@ -153,7 +153,7 @@ private:
     stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_add_style)(object,reinterpret_cast<void*>(0x463c8f8),0x20);
     caption=stock_function<void*(*)(void*)>(lv_label_create)(object);
    }
-   stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(caption,reinterpret_cast<void*>(0x26297a0),0);stock_function<void(*)(void*,std::uint32_t,unsigned)>(lv_obj_set_style_text_color)(caption,0xffeeeeeeU,0);
+   stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(caption,reinterpret_cast<void*>(MyriadPro_Regular_16),0);stock_function<void(*)(void*,std::uint32_t,unsigned)>(lv_obj_set_style_text_color)(caption,0xffeeeeeeU,0);
    bindings_.push_back({this,object,content_,id});auto*b=&bindings_.back();
    stock_function<void*(*)(void*,void(*)(void*),int,void*)>(lv_obj_add_event_cb)(object,&event,0,b);
    it=objects_.emplace(id,std::make_pair(object,caption)).first;

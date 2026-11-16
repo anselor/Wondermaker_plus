@@ -105,7 +105,7 @@ private:
  void clear(){for(auto*p:owned_)if(stock_object_valid(p))stock_function<void(*)(void*)>(lv_obj_del)(p);owned_.clear();rows_.clear();}
  void*create(std::uintptr_t ctor,void*parent){auto*p=stock_function<void*(*)(void*)>(ctor)(parent);if(!p){fresh_=false;signature_.clear();throw std::runtime_error("Preview widget allocation failed");}owned_.push_back(p);return p;}
  static void place(void*p,int x,int y,int w,int h){stock_function<void(*)(void*,int,int)>(lv_obj_set_size)(p,w,h);stock_function<void(*)(void*,int,int,int)>(lv_obj_align)(p,1,x,y);}
- void label(void*p,const std::string&text,int x,int y,int w,int h){place(p,x,y,w,h);stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(p,reinterpret_cast<void*>(0x26297a0),0);stock_function<void(*)(void*,std::uint32_t,unsigned)>(lv_obj_set_style_text_color)(p,0xffeeeeeeU,0);stock_function<void(*)(void*,const char*)>(lv_label_set_text)(p,text.c_str());}
+ void label(void*p,const std::string&text,int x,int y,int w,int h){place(p,x,y,w,h);stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(p,reinterpret_cast<void*>(MyriadPro_Regular_16),0);stock_function<void(*)(void*,std::uint32_t,unsigned)>(lv_obj_set_style_text_color)(p,0xffeeeeeeU,0);stock_function<void(*)(void*,const char*)>(lv_label_set_text)(p,text.c_str());}
  void colour(void*p,const std::string&hex,int x,int y,bool image_button){
   stock_function<void(*)(void*,unsigned)>(lv_obj_clear_flag)(p,1);stock_function<void(*)(void*,unsigned)>(lv_obj_clear_flag)(p,2);place(p,x,y,50,50);
   if(image_button)for(int state:{0,1})stock_function<void(*)(void*,int,const void*,const void*,const void*)>(lv_imgbtn_set_src)(p,state,nullptr,white_.c_str(),nullptr);
