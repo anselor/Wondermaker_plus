@@ -106,8 +106,13 @@ def home():
 
 def ensure_klippy_cache(ssh=None):
     extras = os.path.join(CACHE, "extras")
-    wanted = ["shaper_calibrate.py", "shaper_defs.py"]
-    if all(os.path.exists(os.path.join(extras, f)) for f in wanted):
+    # Local name -> path below klippy/ on the printer. mathutil/queuelogger
+    # are imported by shaper_defs when the shaper backport is installed.
+    wanted = {"extras/shaper_calibrate.py": "extras/shaper_calibrate.py",
+              "extras/shaper_defs.py": "extras/shaper_defs.py",
+              "mathutil.py": "mathutil.py",
+              "queuelogger.py": "queuelogger.py"}
+    if all(os.path.exists(os.path.join(CACHE, f)) for f in wanted):
         return
     print("fetching Klipper analysis modules from printer...")
     os.makedirs(extras, exist_ok=True)
@@ -116,9 +121,9 @@ def ensure_klippy_cache(ssh=None):
     if own:
         ssh = ssh_connect()
     sftp = ssh.open_sftp()
-    for f in wanted:
-        sftp.get(f"/home/t13dp/klipper/klippy/extras/{f}",
-                 os.path.join(extras, f))
+    for local, remote in wanted.items():
+        sftp.get(f"/home/t13dp/klipper/klippy/{remote}",
+                 os.path.join(CACHE, local))
     if own:
         ssh.close()
 
@@ -128,6 +133,18 @@ def load_helper():
     import numpy  # noqa: F401  (fail early with a clear error)
     from extras import shaper_calibrate
     return shaper_calibrate
+
+
+def process_samples(helper, data):
+    """Call process_accelerometer_data on either Klipper helper API.
+
+    Klipper after v0.12 takes (name, data); the vendor base takes (data).
+    """
+    import inspect
+    params = inspect.signature(helper.process_accelerometer_data).parameters
+    if "name" in params:
+        return helper.process_accelerometer_data(None, data)
+    return helper.process_accelerometer_data(data)
 
 
 def spectrum(helper_mod, csv_path):
@@ -148,7 +165,7 @@ def spectrum(helper_mod, csv_path):
     class Data:
         def get_samples(self):
             return rows
-    cal = helper.process_accelerometer_data(Data())
+    cal = process_samples(helper, Data())
     cal.normalize_to_frequencies()
     return helper, cal, np.array(cal.freq_bins), np.array(cal.psd_sum)
 

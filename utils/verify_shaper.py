@@ -86,7 +86,11 @@ def spectrum(csv_local):
     class D:
         def get_samples(self):
             return rows
-    cal = helper.process_accelerometer_data(D())
+    import inspect
+    if "name" in inspect.signature(helper.process_accelerometer_data).parameters:
+        cal = helper.process_accelerometer_data(None, D())
+    else:
+        cal = helper.process_accelerometer_data(D())
     cal.normalize_to_frequencies()
     f = np.array(cal.freq_bins)
     psd = np.array(cal.psd_sum)
