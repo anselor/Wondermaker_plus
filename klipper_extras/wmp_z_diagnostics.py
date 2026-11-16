@@ -51,13 +51,13 @@ class ZDiagnostics:
         state = self.printer.lookup_object('print_stats').get_status(now)['state']
         paused = self.printer.lookup_object('pause_resume').get_status(now)['is_paused']
         if self.active or state not in ('standby', 'complete', 'cancelled') or paused:
-            raise gcmd.error('Z-max diagnostic requires an idle printer with no paused print')
+            raise gcmd.error('Z-max diagnostic requires an idle printer with no paused print: ' + ('diagnostic already active' if self.active else 'print_stats.state=' + repr(state)[:80] if state not in ('standby', 'complete', 'cancelled') else 'pause_resume.is_paused=' + repr(paused)[:80]))
         settings = self.printer.lookup_object('configfile').get_status(now)['settings']
         z = settings['stepper_z']
         if (settings['printer']['kinematics'] != 'corexy'
                 or z['endstop_pin'] != 'PD2' or not z['homing_positive_dir']
                 or z['position_endstop'] != 300.0 or z['homing_retract_dist'] != 2.0):
-            raise gcmd.error('Z-max diagnostic requires the supported Wondermaker Z configuration; check stepper_z settings.')
+            raise gcmd.error('Z-max diagnostic requires the supported Wondermaker Z configuration: ' + ('printer.kinematics=' + repr(settings['printer']['kinematics'])[:80] if settings['printer']['kinematics'] != 'corexy' else 'stepper_z.endstop_pin=' + repr(z['endstop_pin'])[:80] if z['endstop_pin'] != 'PD2' else 'stepper_z.homing_positive_dir is false' if not z['homing_positive_dir'] else 'stepper_z.position_endstop=' + repr(z['position_endstop'])[:80] if z['position_endstop'] != 300.0 else 'stepper_z.homing_retract_dist=' + repr(z['homing_retract_dist'])[:80]))
         # Observe these outputs; do not pulse/reset them as part of the test.
         for name in ('LEVELING', 'GANTRY'):
             value = self.printer.lookup_object('output_pin ' + name).get_status(now)['value']
