@@ -274,8 +274,8 @@ def material(ctx):
     ctx.ssh()
     ctx.sftp()
     home = '/home/' + ctx.user
-    sources = {name: ROOT / 'klipper_extras' / name for name in
-               ('wm_material.py', 'wmp_orca_profiles.py', 'wmp_nozzles.py', 'wmp_saved_variables.py', 'wmp_recovery_retirement.py', 'wmp_recovery_file_envelope.py')}
+    from components.material import HELPERS
+    sources = {name: ROOT / 'klipper_extras' / name for name in HELPERS}
     for source in sources.values():
         local_python(source)
     validate_klipper(ctx, {str(ROOT / 'klipper_extras/wm_material.cfg'):

@@ -438,7 +438,7 @@ def install(ctx):
                 except (ValueError,OSError) as error:
                     raise ctx.DeployError('native source delivery unavailable: '+str(error)) from error
                 if location==preload_bundle.CURRENT_BUNDLE:
-                    for relative in preload_bundle.CONFIG_BASELINES:
+                    for relative in preload_bundle.CONFIG_BASELINES + ('client-preload/unified-ui/native/runtime_inputs.py',):
                         _checked(ctx,c,'mkdir -p '+shq(posixpath.dirname(stage+'/'+relative)))
                         sftp.put(str(Path(ROOT)/relative),stage+'/'+relative)
                 screen_selected=True

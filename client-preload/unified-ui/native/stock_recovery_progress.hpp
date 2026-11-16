@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
+#include "stock_api.hpp"
 #include "button_caption.hpp"
 #include "stock_progress_panel.hpp"
 #include "plr_progress_steps.hpp"
@@ -18,31 +19,29 @@ class StockRecoveryProgress {
  void*root_=nullptr,*screen_=nullptr,*stop_=nullptr,*review_=nullptr,*summary_=nullptr,*close_=nullptr,*title_=nullptr;
  bool compact_=false;int dialog_x_=0,dialog_y_=0,dialog_h_=0;
  Json result_=Json::object();std::string id_;bool cancel_mode_=false,externally_deleted_=false,rendered_=false;
- template<class F>static F fn(std::uintptr_t a){return dialog_function<F>(a);}
- static bool valid(void*p){return p&&fn<bool(*)(void*)>(lv_obj_is_valid)(p);}
- static void place(void*p,int x,int y,int w,int h){fn<void(*)(void*,int,int)>(lv_obj_set_size)(p,w,h);fn<void(*)(void*,int,int,int)>(lv_obj_align)(p,1,x,y);}
- static void text(void*p,const std::string&s){fn<void(*)(void*,const char*)>(lv_label_set_text)(p,s.c_str());}
- static void colour(void*p,std::uint32_t c){fn<void(*)(void*,std::uint32_t,unsigned)>(lv_obj_set_style_text_color)(p,c,0);}
+ static void place(void*p,int x,int y,int w,int h){stock_function<void(*)(void*,int,int)>(lv_obj_set_size)(p,w,h);stock_function<void(*)(void*,int,int,int)>(lv_obj_align)(p,1,x,y);}
+ static void text(void*p,const std::string&s){stock_function<void(*)(void*,const char*)>(lv_label_set_text)(p,s.c_str());}
+ static void colour(void*p,std::uint32_t c){stock_function<void(*)(void*,std::uint32_t,unsigned)>(lv_obj_set_style_text_color)(p,c,0);}
  void*label(void*parent,const std::string&s,int x,int y,int w,int h){
-  auto*l=fn<void*(*)(void*)>(lv_label_create)(parent);text(l,s);
+  auto*l=stock_function<void*(*)(void*)>(lv_label_create)(parent);text(l,s);
   // Negative height requests wrapping with the label's native content height,
   // not a literal negative LVGL size (which collapses the status summary).
-  if(h<0){fn<void(*)(void*,int)>(lv_obj_set_width)(l,w);fn<void(*)(void*,int,int,int)>(lv_obj_align)(l,1,x,y);}
+  if(h<0){stock_function<void(*)(void*,int)>(lv_obj_set_width)(l,w);stock_function<void(*)(void*,int,int,int)>(lv_obj_align)(l,1,x,y);}
   else place(l,x,y,w,h);
   // Overlay parents can inherit the stock theme's dark foreground. Give all
   // captions/status text a readable default; stage states override it below.
   colour(l,0xffeeeeeeU);
-  fn<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(l,reinterpret_cast<void*>(compact_?0x34b82a8:0x26297a0),0);return l;
+  stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(l,reinterpret_cast<void*>(compact_?0x34b82a8:0x26297a0),0);return l;
  }
  void center_caption(void*button,void*label,const std::string&value){
   center_button_caption(button,label,value);
-  if(compact_){fn<void(*)(void*,int,int)>(lv_obj_set_size)(label,148,40);
-   fn<void(*)(void*,int,int,int)>(lv_obj_align)(label,1,6,8);}
+  if(compact_){stock_function<void(*)(void*,int,int)>(lv_obj_set_size)(label,148,40);
+   stock_function<void(*)(void*,int,int,int)>(lv_obj_align)(label,1,6,8);}
  }
- void*button(const char*s,int x){auto*b=fn<void*(*)(void*)>(lv_obj_create)(root_);stock_dialog_backdrop(b);place(b,dialog_x_+x,compact_?dialog_y_+dialog_h_-72:0,compact_?160:110,compact_?56:40);
+ void*button(const char*s,int x){auto*b=stock_function<void*(*)(void*)>(lv_obj_create)(root_);stock_dialog_backdrop(b);place(b,dialog_x_+x,compact_?dialog_y_+dialog_h_-72:0,compact_?160:110,compact_?56:40);
   auto*l=label(b,s,0,0,compact_?160:110,compact_?56:40);center_caption(b,l,s);
-  fn<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(l,reinterpret_cast<void*>(compact_?0x1a57128:0xf84928),0);
-  fn<void*(*)(void*,void(*)(void*),int,void*)>(lv_obj_add_event_cb)(b,&pressed,7,this);return b;
+  stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(l,reinterpret_cast<void*>(compact_?0x1a57128:0xf84928),0);
+  stock_function<void*(*)(void*,void(*)(void*),int,void*)>(lv_obj_add_event_cb)(b,&pressed,7,this);return b;
  }
  bool can_stop()const{const auto state=result_.value("receipt",Json::object()).value("state","");
   return !cancel_mode_&&result_.value("fresh",false)&&!result_.contains("stop")&&(state=="pending"||state=="running");}
@@ -86,13 +85,13 @@ class StockRecoveryProgress {
   const auto action=resolution.value("request",Json::object()).value("action","");
   const bool verified=cancel_verified(), actionable=can_confirm()&&!verified;
   text(title_,"Cancel print");
-  auto*close_caption=fn<void*(*)(void*,int)>(lv_obj_get_child)(close_,0);
+  auto*close_caption=stock_function<void*(*)(void*,int)>(lv_obj_get_child)(close_,0);
   text(close_caption,verified?"DONE":"CLOSE");center_caption(close_,close_caption,verified?"DONE":"CLOSE");
-  fn<void(*)(void*,unsigned)>(lv_obj_add_flag)(review_,1);
-  text(fn<void*(*)(void*,int)>(lv_obj_get_child)(review_,0),"");
-  fn<void(*)(void*,unsigned)>(actionable?lv_obj_clear_flag:lv_obj_add_flag)(stop_,1);
-  fn<void(*)(void*,unsigned)>(actionable?lv_obj_clear_state:lv_obj_add_state)(stop_,128);
-  auto*caption=fn<void*(*)(void*,int)>(lv_obj_get_child)(stop_,0);
+  stock_function<void(*)(void*,unsigned)>(lv_obj_add_flag)(review_,1);
+  text(stock_function<void*(*)(void*,int)>(lv_obj_get_child)(review_,0),"");
+  stock_function<void(*)(void*,unsigned)>(actionable?lv_obj_clear_flag:lv_obj_add_flag)(stop_,1);
+  stock_function<void(*)(void*,unsigned)>(actionable?lv_obj_clear_state:lv_obj_add_state)(stop_,128);
+  auto*caption=stock_function<void*(*)(void*,int)>(lv_obj_get_child)(stop_,0);
   const char*button=action=="discard_saved_job"?"DISCARD":"FINISH";
   text(caption,button);center_caption(stop_,caption,button);
   std::string summary;
@@ -109,7 +108,7 @@ class StockRecoveryProgress {
    else summary+="\nPress FINISH to turn heaters off and clear the paused state.";
   }
   text(summary_,summary);
-  if(progress_.attached()){progress_.update({{"instruction",summary},{"steps",Json::array()}});fn<void(*)(void*,unsigned)>(lv_obj_add_flag)(summary_,1);}
+  if(progress_.attached()){progress_.update({{"instruction",summary},{"steps",Json::array()}});stock_function<void(*)(void*,unsigned)>(lv_obj_add_flag)(summary_,1);}
  }
 public:
  std::function<bool()>stop;
@@ -119,78 +118,78 @@ public:
  std::function<void()>show_retirement_result;
  std::function<bool(const std::string&)>confirm_retirement;
  std::function<bool(const std::string&)>review_resolution,confirm_resolution;
- bool active()const{return valid(root_);}
+ bool active()const{return stock_object_valid(root_);}
  bool take_external_deletion(){const bool deleted=externally_deleted_;externally_deleted_=false;return deleted;}
  bool tracks(const std::string&id)const{return active()&&id_==id;}
- void close(){progress_.close();rendered_=false;externally_deleted_=false;auto*p=root_;root_=screen_=stop_=review_=summary_=title_=nullptr;id_.clear();if(valid(p))fn<void(*)(void*)>(lv_obj_del)(p);}
+ void close(){progress_.close();rendered_=false;externally_deleted_=false;auto*p=root_;root_=screen_=stop_=review_=summary_=title_=nullptr;id_.clear();if(stock_object_valid(p))stock_function<void(*)(void*)>(lv_obj_del)(p);}
  bool open(void*parent,const Json&result){
-  close();if(!valid(parent)||result.value("id","").empty())return false;
-  const int full_w=fn<int(*)(void*)>(lv_obj_get_content_width)(parent),full_h=fn<int(*)(void*)>(lv_obj_get_content_height)(parent);
+  close();if(!stock_object_valid(parent)||result.value("id","").empty())return false;
+  const int full_w=stock_function<int(*)(void*)>(lv_obj_get_content_width)(parent),full_h=stock_function<int(*)(void*)>(lv_obj_get_content_height)(parent);
   if(full_w<400||full_h<280)return false;
   compact_=result.value("retirement_mode",false);
   const int w=compact_?std::min(full_w-48,704):full_w,h=compact_?260:full_h;
   dialog_x_=compact_?(full_w-w)/2:0;dialog_y_=compact_?(full_h-h)/2:0;dialog_h_=h;
   cancel_mode_=result.value("kind","")=="print_cancel";
-  screen_=fn<void*(*)(void*)>(lv_disp_get_scr_act)(nullptr);id_=result.at("id");
-  root_=fn<void*(*)(void*)>(lv_obj_create)(parent);stock_dialog_backdrop(root_);place(root_,0,0,full_w,full_h);
-  fn<void(*)(void*,std::uint32_t,unsigned)>(lv_obj_set_style_bg_color)(root_,0xff3c3f43U,0);
-  fn<void(*)(void*,int,unsigned)>(lv_obj_set_style_bg_opa)(root_,compact_?0:255,0);
-  if(compact_){auto*card=fn<void*(*)(void*)>(lv_obj_create)(root_);stock_dialog_backdrop(card);
+  screen_=stock_function<void*(*)(void*)>(lv_disp_get_scr_act)(nullptr);id_=result.at("id");
+  root_=stock_function<void*(*)(void*)>(lv_obj_create)(parent);stock_dialog_backdrop(root_);place(root_,0,0,full_w,full_h);
+  stock_function<void(*)(void*,std::uint32_t,unsigned)>(lv_obj_set_style_bg_color)(root_,0xff3c3f43U,0);
+  stock_function<void(*)(void*,int,unsigned)>(lv_obj_set_style_bg_opa)(root_,compact_?0:255,0);
+  if(compact_){auto*card=stock_function<void*(*)(void*)>(lv_obj_create)(root_);stock_dialog_backdrop(card);
    place(card,dialog_x_,dialog_y_,w,h);
-   fn<void(*)(void*,std::uint32_t,unsigned)>(lv_obj_set_style_bg_color)(card,0xff3c3f43U,0);
-   fn<void(*)(void*,int,unsigned)>(lv_obj_set_style_bg_opa)(card,255,0);
+   stock_function<void(*)(void*,std::uint32_t,unsigned)>(lv_obj_set_style_bg_color)(card,0xff3c3f43U,0);
+   stock_function<void(*)(void*,int,unsigned)>(lv_obj_set_style_bg_opa)(card,255,0);
   }
-  if(!fn<void*(*)(void*,void(*)(void*),int,void*)>(lv_obj_add_event_cb)(root_,&deleted,33,this)){close();return false;}
+  if(!stock_function<void*(*)(void*,void(*)(void*),int,void*)>(lv_obj_add_event_cb)(root_,&deleted,33,this)){close();return false;}
   title_=label(root_,"",dialog_x_+(compact_?16:12),dialog_y_+(compact_?8:4),compact_?w-32:w-360,compact_?36:30);
   close_=button("CLOSE",w-(compact_?360:348));review_=button("REVIEW",w-232);stop_=button("STOP",w-(compact_?180:116));
-  auto*rule=fn<void*(*)(void*)>(lv_obj_create)(root_);stock_dialog_backdrop(rule);place(rule,dialog_x_+12,dialog_y_+(compact_?48:40),w-24,1);
-  fn<void(*)(void*,std::uint32_t,unsigned)>(lv_obj_set_style_bg_color)(rule,0xff606060U,0);
-  fn<void(*)(void*,int,unsigned)>(lv_obj_set_style_bg_opa)(rule,255,0);
-  auto*body=fn<void*(*)(void*)>(lv_obj_create)(root_);stock_dialog_backdrop(body);place(body,dialog_x_+(compact_?16:8),dialog_y_+(compact_?64:48),w-(compact_?32:16),compact_?h-144:h-56);
-  fn<void(*)(void*,unsigned)>(lv_obj_add_flag)(body,16);fn<void(*)(void*,int)>(lv_obj_set_scroll_dir)(body,12);
-  summary_=label(body,"",8,0,w-(compact_?64:48),-1);fn<void(*)(void*,int)>(lv_label_set_long_mode)(summary_,0);
+  auto*rule=stock_function<void*(*)(void*)>(lv_obj_create)(root_);stock_dialog_backdrop(rule);place(rule,dialog_x_+12,dialog_y_+(compact_?48:40),w-24,1);
+  stock_function<void(*)(void*,std::uint32_t,unsigned)>(lv_obj_set_style_bg_color)(rule,0xff606060U,0);
+  stock_function<void(*)(void*,int,unsigned)>(lv_obj_set_style_bg_opa)(rule,255,0);
+  auto*body=stock_function<void*(*)(void*)>(lv_obj_create)(root_);stock_dialog_backdrop(body);place(body,dialog_x_+(compact_?16:8),dialog_y_+(compact_?64:48),w-(compact_?32:16),compact_?h-144:h-56);
+  stock_function<void(*)(void*,unsigned)>(lv_obj_add_flag)(body,16);stock_function<void(*)(void*,int)>(lv_obj_set_scroll_dir)(body,12);
+  summary_=label(body,"",8,0,w-(compact_?64:48),-1);stock_function<void(*)(void*,int)>(lv_label_set_long_mode)(summary_,0);
   // Stock popup dismissal hides this shared overlay before handing off.
   // Reveal it only after our opaque managed panel has been constructed.
-  fn<void(*)(void*,unsigned)>(lv_obj_clear_flag)(parent,1);
+  stock_function<void(*)(void*,unsigned)>(lv_obj_clear_flag)(parent,1);
   if(!compact_)progress_.attach(body,0,0,w-16,h-56);
   update(result);return true;
  }
  void update(const Json&result){
   if(!active())return;
-  if(screen_!=fn<void*(*)(void*)>(lv_disp_get_scr_act)(nullptr)){close();return;}
+  if(screen_!=stock_function<void*(*)(void*)>(lv_disp_get_scr_act)(nullptr)){close();return;}
   if(result.value("id","")!=id_)return;
   // Identical syncs must not invalidate text/layout or compete with input.
   // Check screen lifetime first; a new screen still closes this panel.
   if(rendered_&&result==result_)return;
   rendered_=true;result_=result;const auto resolution=result.value("resolution",Json::object());
   if(cancel_mode_){update_cancel();return;}
-  fn<void(*)(void*,unsigned)>(cancel_mode_&&!can_review()?lv_obj_add_flag:lv_obj_clear_flag)(stop_,1);
-  if(cancel_mode_)text(fn<void*(*)(void*,int)>(lv_obj_get_child)(review_,0),"");
+  stock_function<void(*)(void*,unsigned)>(cancel_mode_&&!can_review()?lv_obj_add_flag:lv_obj_clear_flag)(stop_,1);
+  if(cancel_mode_)text(stock_function<void*(*)(void*,int)>(lv_obj_get_child)(review_,0),"");
   const bool confirm=can_confirm();const bool discard=can_review()&&!confirm;
   const bool retiring=result.value("retirement_mode",false);const auto retire_action=retirement_action();
   const bool recovery_refused=retiring&&result.value("state","")=="refused"
    &&result.value("retirement",Json::object()).value("state","")!="complete";
   text(title_,retiring&&!recovery_refused?"Discard PLR":cancel_mode_?"Cancel print":"Power Loss Recovery (PLR)");
-  auto*close_caption=fn<void*(*)(void*,int)>(lv_obj_get_child)(close_,0);
+  auto*close_caption=stock_function<void*(*)(void*,int)>(lv_obj_get_child)(close_,0);
   const bool refused_selection=!retiring&&result.value("state","")=="refused"&&result.value("receipt",Json::object()).empty();
   const char*close_text=refused_selection?"BACK":retiring&&!recovery_refused&&retire_action=="DISCARD"?"CANCEL":"CLOSE";
   text(close_caption,close_text);center_caption(close_,close_caption,close_text);
   const bool ready=retiring?retire_action=="DISCARD":confirm||discard||can_stop();
-  if(retiring)fn<void(*)(void*,unsigned)>(retire_action=="DISCARD"?lv_obj_clear_flag:lv_obj_add_flag)(stop_,1);
-  auto*caption=fn<void*(*)(void*,int)>(lv_obj_get_child)(stop_,0);
+  if(retiring)stock_function<void(*)(void*,unsigned)>(retire_action=="DISCARD"?lv_obj_clear_flag:lv_obj_add_flag)(stop_,1);
+  auto*caption=stock_function<void*(*)(void*,int)>(lv_obj_get_child)(stop_,0);
   const char*action=retiring?(retire_action.empty()?"DISCARD":retire_action.c_str()):confirm?"CONFIRM":discard?(cancel_mode_?"REVIEW":"DISCARD"):"STOP";text(caption,action);center_caption(stop_,caption,action);
   // Read-only resolution runs automatically; expose only actionable choices below.
-  fn<void(*)(void*,unsigned)>(lv_obj_add_flag)(review_,1);
-  if(retiring)fn<void(*)(void*,unsigned)>(lv_obj_add_flag)(review_,1);
-  fn<void(*)(void*,unsigned)>(ready?lv_obj_clear_state:lv_obj_add_state)(stop_,128);
-  colour(fn<void*(*)(void*,int)>(lv_obj_get_child)(stop_,0),ready?0xffeeeeeeU:0xff888888U);
+  stock_function<void(*)(void*,unsigned)>(lv_obj_add_flag)(review_,1);
+  if(retiring)stock_function<void(*)(void*,unsigned)>(lv_obj_add_flag)(review_,1);
+  stock_function<void(*)(void*,unsigned)>(ready?lv_obj_clear_state:lv_obj_add_state)(stop_,128);
+  colour(stock_function<void*(*)(void*,int)>(lv_obj_get_child)(stop_,0),ready?0xffeeeeeeU:0xff888888U);
   if(!retiring&&(resolution.contains("choices")||!confirm)){
    const bool use=!resolution_choice("reconcile").empty(),discard_ready=!resolution_choice("abandon").empty();
-   fn<void(*)(void*,unsigned)>(use?lv_obj_clear_flag:lv_obj_add_flag)(review_,1);
-   auto*use_caption=fn<void*(*)(void*,int)>(lv_obj_get_child)(review_,0);
+   stock_function<void(*)(void*,unsigned)>(use?lv_obj_clear_flag:lv_obj_add_flag)(review_,1);
+   auto*use_caption=stock_function<void*(*)(void*,int)>(lv_obj_get_child)(review_,0);
    text(use_caption,"USE SAVED");center_caption(review_,use_caption,"USE SAVED");
-   fn<void(*)(void*,unsigned)>(discard_ready||can_stop()?lv_obj_clear_flag:lv_obj_add_flag)(stop_,1);
-   fn<void(*)(void*,unsigned)>(discard_ready||can_stop()?lv_obj_clear_state:lv_obj_add_state)(stop_,128);
+   stock_function<void(*)(void*,unsigned)>(discard_ready||can_stop()?lv_obj_clear_flag:lv_obj_add_flag)(stop_,1);
+   stock_function<void(*)(void*,unsigned)>(discard_ready||can_stop()?lv_obj_clear_state:lv_obj_add_state)(stop_,128);
    text(caption,discard_ready?"DISCARD":"STOP");center_caption(stop_,caption,discard_ready?"DISCARD":"STOP");
   }
   const auto retirement=result.value("retirement",Json::object());
@@ -276,18 +275,18 @@ public:
   if(progress_.attached()){
    const bool terminal=failed||phase=="complete"||phase=="abandoned"||phase=="printing"||phase=="paused";
    progress_.update({{"instruction",summary},{"steps",terminal?Json::array():plr_progress_steps(stages)}});
-   fn<void(*)(void*,unsigned)>(lv_obj_add_flag)(summary_,1);
+   stock_function<void(*)(void*,unsigned)>(lv_obj_add_flag)(summary_,1);
     return;
   }
 
  }
 private:
- static void deleted(void*e)noexcept{auto*o=static_cast<StockRecoveryProgress*>(fn<void*(*)(void*)>(lv_event_get_user_data)(e));
-  if(o&&fn<void*(*)(void*)>(lv_event_get_target)(e)==o->root_){o->externally_deleted_=true;o->root_=o->screen_=o->stop_=o->review_=o->summary_=o->title_=nullptr;o->id_.clear();}}
+ static void deleted(void*e)noexcept{auto*o=static_cast<StockRecoveryProgress*>(stock_function<void*(*)(void*)>(lv_event_get_user_data)(e));
+  if(o&&stock_function<void*(*)(void*)>(lv_event_get_target)(e)==o->root_){o->externally_deleted_=true;o->root_=o->screen_=o->stop_=o->review_=o->summary_=o->title_=nullptr;o->id_.clear();}}
  static void pressed(void*e)noexcept{try{
-  auto*o=static_cast<StockRecoveryProgress*>(fn<void*(*)(void*)>(lv_event_get_user_data)(e));if(!o||!o->active())return;
-  if(o->screen_!=fn<void*(*)(void*)>(lv_disp_get_scr_act)(nullptr)){o->close();return;}
-  auto*target=fn<void*(*)(void*)>(lv_event_get_target)(e);
+  auto*o=static_cast<StockRecoveryProgress*>(stock_function<void*(*)(void*)>(lv_event_get_user_data)(e));if(!o||!o->active())return;
+  if(o->screen_!=stock_function<void*(*)(void*)>(lv_disp_get_scr_act)(nullptr)){o->close();return;}
+  auto*target=stock_function<void*(*)(void*)>(lv_event_get_target)(e);
   if(target!=o->stop_&&target!=o->review_){
    if(o->allow_close&&!o->allow_close())return;
    if(o->result_.value("retirement_mode",false)&&o->retirement_action()=="DISCARD"&&o->cancel_retirement)o->cancel_retirement();

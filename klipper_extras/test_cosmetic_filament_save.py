@@ -36,7 +36,7 @@ def test_cosmetic_save_preserves_cas_and_identification_exclusion(material):
     old = profile_command(material)
     save_identity(material, color='#123456')
     with pytest.raises(ValueError, match='changed'): material.cmd_SET_FILAMENT(old)
-    material._identification_pending = lambda now: True
+    material._material_settings()._identification_pending = lambda now: True
     with pytest.raises(ValueError, match='identification'): save_identity(material, brand='new')
 
 
@@ -79,11 +79,11 @@ def test_active_service_plan_keeps_recipe_and_load_evidence(service_material):
     obj, _, _ = service_material
     plan = obj._filament_plan(2, 'load', 1)
     physical = {key: copy.deepcopy(plan[key]) for key in ('target','class','feed_mm','purge_mm','previous_material')}
-    flags = copy.deepcopy(obj._load_filament_flags())
+    flags = copy.deepcopy(obj._filament_state()._load_filament_flags())
     obj.filament_operation = {'state':'running','head':'h2'}
     save_identity(obj, color='#123456', brand='new')
     assert {key: plan[key] for key in physical} == physical
-    assert obj._load_filament_flags() == flags
+    assert obj._filament_state()._load_filament_flags() == flags
     assert obj._filament_context_valid(plan, 1)
 
 from test_wm_material import (recovery_startup, committed_recovery, bound_recovery,
@@ -96,10 +96,10 @@ def test_cosmetic_change_preserves_checkpoint_capture_publication_and_saved_byte
     path = Path(obj._recovery_job_path())
     original = path.read_bytes()
     save_identity(obj, color='#123456')
-    assert obj._queue_recovery_execution()
+    assert obj._execution_evidence()._queue_recovery_execution()
     save_identity(obj, brand='new')
     objects['toolhead'].check_busy = lambda now: (100., 100., False)
-    assert obj._publish_recovery_execution()
+    assert obj._execution_evidence()._publish_recovery_execution()
     assert path.read_bytes() == original
     assert not obj._retire_changed_print_recovery()
 

@@ -100,7 +100,7 @@ def test_missing_actuator_refuses_without_motion(actuator_machine):
 
 def coupling_command(material, objects, calls, lock=True):
     material.session_id='test-session'; material._command_generation=0
-    material._print_cancel_unresolved=lambda: False
+    material._cancellation()._print_cancel_unresolved=lambda: False
     material.printer.is_shutdown=lambda: False
     material.printer.get_reactor=lambda: NS(monotonic=lambda: 0.)
     saved={'fail_flag':0}

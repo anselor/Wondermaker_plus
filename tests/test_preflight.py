@@ -255,12 +255,12 @@ def test_http_collision_check_uses_loaded_config_not_status_objects(monkeypatch,
     preflight.config(config_context({}, config_only=True, objects=(), collision=True))
 
 
-@pytest.mark.parametrize('broken', ['wm_material.py', 'wmp_orca_profiles.py', 'wmp_nozzles.py', 'wmp_saved_variables.py'])
+@pytest.mark.parametrize('broken', deploy.REGISTRY['material'].HELPERS)
 @pytest.mark.parametrize('missing', [True, False])
 def test_material_preflight_checks_all_helpers_before_remote_work(monkeypatch, tmp_path, broken, missing):
     directory = tmp_path / 'klipper_extras'
     directory.mkdir()
-    for name in ('wm_material.py', 'wmp_orca_profiles.py', 'wmp_nozzles.py', 'wmp_saved_variables.py'):
+    for name in deploy.REGISTRY['material'].HELPERS:
         if missing and name == broken:
             continue
         (directory / name).write_text('invalid python !' if name == broken else 'value = 1\n')
@@ -284,7 +284,7 @@ def test_material_preflight_parses_helpers_with_klipper_interpreter(monkeypatch)
     assert len(scripts) == 1
     code, interpreter = scripts[0]
     assert interpreter == '/home/test/klippy-env/bin/python'
-    for name in ('wm_material.py', 'wmp_orca_profiles.py', 'wmp_nozzles.py', 'wmp_saved_variables.py'):
+    for name in deploy.REGISTRY['material'].HELPERS:
         assert repr((ROOT / 'klipper_extras' / name).read_text()) in code
 
 

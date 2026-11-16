@@ -58,7 +58,7 @@ def parser_restore():
 def test_restore_parser_modes_and_g92_without_changing_pose(parser_restore, absolute, extrude):
     material, parser, execution, calls, transforms, objects = parser_restore
     execution.update(absolute_coordinates=absolute, absolute_extrude=extrude)
-    assert material._restore_recovery_parser(execution)
+    assert material._recovery_motion()._restore_recovery_parser(execution)
     assert parser.base_position == pytest.approx([10., 20., .1, 81.])
     assert parser.last_position == [11., 22., .3, 99.]
     assert transforms == [([11., 22., .3, 99.], pytest.approx(160.))]
@@ -78,7 +78,7 @@ def test_restore_parser_refuses_before_dispatch(parser_restore, drift):
     else:
         execution['speed'] = float('nan')
     with pytest.raises(ValueError):
-        material._restore_recovery_parser(execution)
+        material._recovery_motion()._restore_recovery_parser(execution)
     assert calls == transforms == []
 
 
@@ -87,7 +87,7 @@ def test_restore_parser_detects_ignored_command(parser_restore):
     dispatch = objects['gcode'].run_script_from_command
     objects['gcode'].run_script_from_command = lambda script: None if script.startswith('G92') else dispatch(script)
     with pytest.raises(ValueError, match='not confirmed'):
-        material._restore_recovery_parser(execution)
+        material._recovery_motion()._restore_recovery_parser(execution)
 
 
 @pytest.mark.parametrize('motion', [(100., 99., True), (100., 101., False)])
@@ -95,7 +95,7 @@ def test_restore_parser_waits_for_actual_motion_completion(parser_restore, motio
     material, parser, execution, calls, transforms, objects = parser_restore
     objects['toolhead'].check_busy = lambda now: motion
     with pytest.raises(ValueError, match='movement has not completed'):
-        material._restore_recovery_parser(execution)
+        material._recovery_motion()._restore_recovery_parser(execution)
     assert calls == []
 
 
@@ -125,7 +125,7 @@ def travel_frame(parser_restore):
 
 def test_machine_frame_clears_mesh_g92_offsets_without_motion(travel_frame):
     material, parser, machine, calls, transforms, objects = travel_frame
-    assert material._recovery_machine_frame(lambda: None) == machine
+    assert material._recovery_motion()._recovery_machine_frame(lambda: None) == machine
     assert parser.base_position[:3] == pytest.approx([0., 0., 0.])
     assert parser.base_position[3] == 42.
     assert parser.homing_position[:3] == [0., 0., 0.]
@@ -141,7 +141,7 @@ def test_machine_frame_requires_each_state_change(travel_frame, ignored):
     dispatch = objects['gcode'].run_script_from_command
     objects['gcode'].run_script_from_command = lambda script: None if script.startswith(ignored) else dispatch(script)
     with pytest.raises(ValueError, match='frame was not confirmed'):
-        material._recovery_machine_frame(lambda: None)
+        material._recovery_motion()._recovery_machine_frame(lambda: None)
     assert transforms == []
 
 
@@ -152,7 +152,7 @@ def test_machine_frame_refuses_before_commands(travel_frame, failure):
     elif failure == 'unhomed': objects['toolhead'].get_status = lambda now: {'position': machine, 'homed_axes': 'xy'}
     elif failure == 'mutex': objects['gcode'].get_mutex = lambda: NS(test=lambda: False)
     else: machine[2] = float('nan')
-    with pytest.raises(ValueError): material._recovery_machine_frame(lambda: None)
+    with pytest.raises(ValueError): material._recovery_motion()._recovery_machine_frame(lambda: None)
     assert calls == transforms == []
 
 
@@ -161,5 +161,5 @@ def test_machine_frame_stops_on_owner_change(travel_frame):
     def guard():
         if calls: raise ValueError('owner changed')
     with pytest.raises(ValueError, match='owner changed'):
-        material._recovery_machine_frame(guard)
+        material._recovery_motion()._recovery_machine_frame(guard)
     assert calls == ['BED_MESH_CLEAR']

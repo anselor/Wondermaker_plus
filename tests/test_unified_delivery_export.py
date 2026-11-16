@@ -141,7 +141,7 @@ for name,content in original.items():
  actual=(cfg/name).read_bytes()
  assert (actual.replace(reconcile.BLOCK.encode(),b'') if name=='printer.cfg' else actual)==content
 assert (cfg/'wm_material.cfg').read_bytes()==(root/'klipper_extras/wm_material.cfg').read_bytes()
-expected_helpers={'wm_material.py','wmp_orca_profiles.py','wmp_nozzles.py','wmp_saved_variables.py','wmp_recovery_retirement.py','wmp_recovery.py','wmp_identification.py','wmp_case_light.py'}
+expected_helpers=set(material.HELPERS)|{'wmp_recovery.py','wmp_identification.py','wmp_case_light.py'}
 assert set(preload_bundle.verify_backend_helpers(root,home))==expected_helpers
 # Import and construct the published backend, not the checkout's module. Missing
 # legacy metadata must still allow standalone startup and four sensor projections.
@@ -231,7 +231,7 @@ print(json.dumps({'helpers':len(expected_helpers),'openace_required':False,'pres
     result = subprocess.run([sys.executable, '-I', '-c', script, str(root), str(home)],
                             cwd=tmp_path, text=True, capture_output=True)
     assert result.returncode == 0, result.stderr
-    assert '"helpers": 8' in result.stdout
+    assert ('"helpers": %d' % (len(deploy.REGISTRY['material'].HELPERS) + 3)) in result.stdout
 
 
 @pytest.mark.parametrize('name', ['tools/deploy.py', 'tools/components/material.py',

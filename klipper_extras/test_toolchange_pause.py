@@ -40,10 +40,10 @@ def job(tmp_path):
     material = WMMaterial.__new__(WMMaterial)
     material.printer, material.session_id = printer, 'session'
     material._command_generation = 0
-    material._print_cancel_active = lambda: False
-    material._execution_command_completed = lambda boundary: events.append(('completed', boundary[2]))
-    material._begin_explicit_physical_action = lambda action: events.append(('admit', action))
-    material._attachment = lambda now: {'state': 'attached', 'head': 'h3'}
+    material._cancellation()._print_cancel_active = lambda: False
+    material._execution_evidence()._execution_command_completed = lambda boundary: events.append(('completed', boundary[2]))
+    material._command_routing()._begin_explicit_physical_action = lambda action: events.append(('admit', action))
+    material._material_status()._attachment = lambda now: {'state': 'attached', 'head': 'h3'}
     saved = {'fail_flag': -2, 't3_flow_extruder': 100., **{'box_modify_t%d'%i:i for i in range(4)}}
     context = {'pending': 1, 'success': 0, 'position': [120., 130., 4.], 'feedrate': 1800.,
                'absolute': True, 'absolute_e': True, 'override': 1., 'acceleration': 5000.}

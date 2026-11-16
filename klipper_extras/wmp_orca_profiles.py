@@ -10,8 +10,14 @@ import hashlib
 import io
 import json
 import math
+import os
 import re
 import zipfile
+
+try:
+    from .wmp_persistence import atomic_write
+except ImportError:
+    from wmp_persistence import atomic_write
 
 MAX_FILE = 2 * 1024 * 1024
 MAX_BUNDLE = 20 * 1024 * 1024
@@ -226,8 +232,6 @@ def _validate_record(profile):
 
 def save_catalogue(path, selected, expected_revision):
     """Merge confirmed records atomically. Caller serializes writers."""
-    import os
-    import tempfile
     profiles, revision = read_catalogue(path)
     if revision != expected_revision:
         raise ValueError('Filament catalogue changed; review again')
@@ -241,20 +245,7 @@ def save_catalogue(path, selected, expected_revision):
     raw = json.dumps({'version': 1, 'profiles': profiles}, sort_keys=True, ensure_ascii=True).encode()
     if len(raw) > MAX_FILE:
         raise ValueError('Filament catalogue is too large')
-    parent = os.path.dirname(os.path.abspath(path))
-    fd, temporary = tempfile.mkstemp(prefix='.wmp-catalogue-', dir=parent)
-    try:
-        with os.fdopen(fd, 'wb') as stream:
-            stream.write(raw); stream.flush(); os.fsync(stream.fileno())
-        os.replace(temporary, path)
-        directory = os.open(parent, os.O_RDONLY)
-        try:
-            os.fsync(directory)
-        finally:
-            os.close(directory)
-    finally:
-        if os.path.exists(temporary):
-            os.unlink(temporary)
+    atomic_write(os.path.abspath(path), raw, '.wmp-catalogue-')
     return profiles, catalogue_revision(profiles)
 
 

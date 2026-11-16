@@ -25,7 +25,7 @@ def pickup(actuator_machine):
     material, objects, calls, faults, unused = actuator_machine
     material.session_id = 'session'
     material._command_generation = 0
-    material._print_cancel_active = lambda: False
+    material._cancellation()._print_cancel_active = lambda: False
     saved = dict(fail_flag=0, current_extruder=99, is_nozzle_setting=0,
                  **{'t%d_position' % n: [40. + 60*n, 340.] for n in range(4)})
     pos = [20., 270., 10., 0.]

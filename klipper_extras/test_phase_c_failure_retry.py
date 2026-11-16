@@ -9,7 +9,7 @@ def historical_fault(material, objects):
     variables = {'fail_flag': -3, 'is_nozzle_setting': 0}
     objects['save_variables'] = NS(get_status=lambda now: {'variables': variables})
     objects['wmp_recovery'] = NS(get_status=lambda now: {'calibration_active': False, 'homing': False})
-    material._attachment = lambda now: {'state': 'attached', 'head': 'h2'}
+    material._material_status()._attachment = lambda now: {'state': 'attached', 'head': 'h2'}
     return variables
 
 
@@ -46,7 +46,7 @@ def test_fresh_retry_still_checks_current_conditions(guarded_legacy_dispatch, co
     objects['virtual_sdcard'].is_active = lambda: False
     objects['virtual_sdcard'].is_cmd_from_sd = lambda: False
     if condition == 'running': material.toolhead_operation = {'state': 'running'}
-    elif condition == 'contradictory': material._attachment = lambda now: {'state': 'unknown'}
+    elif condition == 'contradictory': material._material_status()._attachment = lambda now: {'state': 'unknown'}
     else: material.printer.is_shutdown = lambda: True
     with pytest.raises(ValueError): material._begin_explicit_physical_action('console motion')
     assert variables['fail_flag'] == -3 and not events
@@ -58,7 +58,7 @@ def test_stationary_unlock_can_address_current_attachment_disagreement(guarded_l
     variables = historical_fault(material, objects)
     objects['virtual_sdcard'].is_active = lambda: False
     objects['virtual_sdcard'].is_cmd_from_sd = lambda: False
-    material._attachment = lambda now: {'state': 'unknown'}
+    material._material_status()._attachment = lambda now: {'state': 'unknown'}
     dispatcher.gcode_handlers['UNLOCK'] = lambda command: events.append('unlock')
     dispatcher.run_script('UNLOCK')
     assert variables['fail_flag'] == 0 and events == ['unlock']
@@ -72,7 +72,7 @@ def test_sd_begin_only_clears_history_once_for_actual_start_line(recovery_startu
     sd = objects['virtual_sdcard']
     sd.file_position, sd.next_file_position = 0, len('START_PRINT INITIAL_TOOL=0\n')
     objects['gcode_macro START_PRINT'] = NS(get_status=lambda now: {'print_body_ready': False})
-    material._attachment = lambda now: {'state': 'attached', 'head': 'h2'}
+    material._material_status()._attachment = lambda now: {'state': 'attached', 'head': 'h2'}
     variables['fail_flag'] = -3
     material.printer.is_shutdown = lambda: False
     material._pending_recovery_submission = None
@@ -134,7 +134,7 @@ def test_fresh_managed_retry_after_repeated_physical_failure(toolhead_material, 
                 variables['fail_flag'] = -3
                 raise ValueError('release still failed')
             wanted = {'state': 'attached', 'head': 'h2'} if action == 'take' else {'state': 'empty', 'head': ''}
-            material._attachment = lambda now: wanted
+            material._material_status()._attachment = lambda now: wanted
     objects['gcode'].run_script_from_command = dispatch
     material.cmd_TOOLHEAD_ACTION(toolhead_command(material, ACTION=action))
     callbacks.pop()(1)
@@ -155,9 +155,9 @@ def test_recovery_review_reads_history_without_clearing_it(native_recovery_reque
     if history is None: variables.pop('fail_flag', None)
     else: variables['fail_flag'] = history
     states['wmp_recovery']['calibration_failed'] = 'old calibration failed'
-    material._recovery_request_review(json.dumps(request).encode().hex())
+    material._recovery_review_service()._recovery_request_review(json.dumps(request).encode().hex())
     assert variables.get('fail_flag') == history and not calls
-    result = material._consume_recovery_request(json.dumps(request).encode().hex())
+    result = material._recovery_review_service()._consume_recovery_request(json.dumps(request).encode().hex())
     assert result['state'] == 'complete' and variables['fail_flag'] == 0
 
 
@@ -173,6 +173,6 @@ def test_recovery_new_failure_after_admission_is_not_cleared(native_recovery_req
         if script == '_WMP_RECOVERY_BEGIN': variables['fail_flag'] = -3
     objects['gcode'].run_script_from_command = dispatch
     with pytest.raises(ValueError, match='fault state changed'):
-        material._consume_recovery_request(json.dumps(request).encode().hex())
+        material._recovery_review_service()._consume_recovery_request(json.dumps(request).encode().hex())
     assert variables['fail_flag'] == -3
     assert '_WMP_HOME_Z_BOTTOM' not in calls and not body

@@ -76,11 +76,11 @@ static bool popup_button_live(void*button,int kind){
  // prompt remains visible beneath our discard panel. Its current LVGL buttons
  // and callback still identify that prompt; do not rewrite vendor state.
  if(!button||(current_kind!=kind&&!(kind==3&&current_kind==-1)))return false;
- auto*top=dialog_function<void*(*)(void*)>(lv_disp_get_layer_top)(nullptr);
+ auto*top=stock_function<void*(*)(void*)>(lv_disp_get_layer_top)(nullptr);
  for(unsigned depth=0;button&&depth<12;++depth){
-  if(!dialog_function<bool(*)(void*)>(lv_obj_is_valid)(button)||dialog_function<bool(*)(void*,unsigned)>(lv_obj_has_flag)(button,1))return false;
+  if(!stock_function<bool(*)(void*)>(lv_obj_is_valid)(button)||stock_function<bool(*)(void*,unsigned)>(lv_obj_has_flag)(button,1))return false;
   if(button==top)return true;
-  button=dialog_function<void*(*)(void*)>(lv_obj_get_parent)(button);
+  button=stock_function<void*(*)(void*)>(lv_obj_get_parent)(button);
  }
  return false;
 }
@@ -104,12 +104,12 @@ static void review_reprint(void*data)noexcept {
   if(!reprint_gate.take(call->request))return;
   // Match only the popup dismissal prefix. Do not run stock mapping writes,
   // loading flags, mesh selection, or its direct print-file submission.
-  auto*top=wmp_ui::native::dialog_function<void*(*)(void*)>(wmp_ui::native::lv_disp_get_layer_top)(nullptr);
-  wmp_ui::native::dialog_function<void(*)(void*,unsigned)>(wmp_ui::native::lv_obj_add_flag)(top,1);
+  auto*top=wmp_ui::native::stock_function<void*(*)(void*)>(wmp_ui::native::lv_disp_get_layer_top)(nullptr);
+  wmp_ui::native::stock_function<void(*)(void*,unsigned)>(wmp_ui::native::lv_obj_add_flag)(top,1);
   *reinterpret_cast<int*>(0x384e938)=-1;
   page("filelist_local_page");
   auto*parent=*reinterpret_cast<void*volatile*>(0x3864330);
-  if(!parent||!wmp_ui::native::dialog_function<bool(*)(void*)>(wmp_ui::native::lv_obj_is_valid)(parent))return;
+  if(!parent||!wmp_ui::native::stock_function<bool(*)(void*)>(wmp_ui::native::lv_obj_is_valid)(parent))return;
   // cur_page_ui is the vendor's char[80] (page_to copies into it with
   // strcpy), not a std::string. Reading it as a string rejects this handoff.
   if(std::strncmp(reinterpret_cast<const char*>(0x463c500),"filelist_local_page",80)!=0)return;
@@ -124,9 +124,9 @@ static bool hide_recovery_offer(void*button,void*top){
  using namespace wmp_ui::native;
  auto*popup=button;
  for(unsigned depth=0;popup&&depth<12;++depth){
-  if(!dialog_function<bool(*)(void*)>(lv_obj_is_valid)(popup))return false;
-  auto*parent=dialog_function<void*(*)(void*)>(lv_obj_get_parent)(popup);
-  if(parent==top){dialog_function<void(*)(void*,unsigned)>(lv_obj_add_flag)(popup,1);return true;}
+  if(!stock_function<bool(*)(void*)>(lv_obj_is_valid)(popup))return false;
+  auto*parent=stock_function<void*(*)(void*)>(lv_obj_get_parent)(popup);
+  if(parent==top){stock_function<void(*)(void*,unsigned)>(lv_obj_add_flag)(popup,1);return true;}
   popup=parent;
  }
  return false;
@@ -135,12 +135,12 @@ extern "C" void unified_popup_event(void*event)noexcept {
  try{
   if(!event)return;
   using namespace wmp_ui::native;
-  const auto kind=reinterpret_cast<std::uintptr_t>(dialog_function<void*(*)(void*)>(lv_event_get_user_data)(event));
+  const auto kind=reinterpret_cast<std::uintptr_t>(stock_function<void*(*)(void*)>(lv_event_get_user_data)(event));
   if(kind==3){
    // The stock Cancel prefix deletes PLR records and queues PARK_CURRENT_TOOL.
    // Keep its prompt underneath our opaque review until verified retirement.
-   const int code=dialog_function<int(*)(void*)>(lv_event_get_code)(event);
-   auto*target=dialog_function<void*(*)(void*)>(lv_event_get_target)(event);
+   const int code=stock_function<int(*)(void*)>(lv_event_get_code)(event);
+   auto*target=stock_function<void*(*)(void*)>(lv_event_get_target)(event);
    auto*button=*reinterpret_cast<void*volatile*>(0x386ebe8);
    auto*close=*reinterpret_cast<void*volatile*>(0x386ebe0);
    if(code!=7||(target!=button&&target!=close)||!popup_button_live(target,3))return;
@@ -149,7 +149,7 @@ extern "C" void unified_popup_event(void*event)noexcept {
     const auto generation=popup_generation.load();
     if(r)r->native_continue_started([button,generation]{
      if(popup_generation.load()!=generation||*reinterpret_cast<void*volatile*>(0x386ebe8)!=button||!popup_button_live(button,3))return;
-     auto*top=dialog_function<void*(*)(void*)>(lv_disp_get_layer_top)(nullptr);
+     auto*top=stock_function<void*(*)(void*)>(lv_disp_get_layer_top)(nullptr);
      if(hide_recovery_offer(button,top))*reinterpret_cast<int*>(0x384e938)=-1;
     });
     auto original=original_popup_event.load();if(original)original(event);return;
@@ -159,11 +159,11 @@ extern "C" void unified_popup_event(void*event)noexcept {
    r->request_native_discard([close,generation]{
     if(popup_generation.load()!=generation)return;
     if(*reinterpret_cast<void*volatile*>(0x386ebe0)!=close||!popup_button_live(close,3))return;
-    auto*top=dialog_function<void*(*)(void*)>(lv_disp_get_layer_top)(nullptr);
+    auto*top=stock_function<void*(*)(void*)>(lv_disp_get_layer_top)(nullptr);
     auto*popup=close;
     for(unsigned depth=0;depth<12;++depth){
-     auto*parent=dialog_function<void*(*)(void*)>(lv_obj_get_parent)(popup);
-     if(parent==top){dialog_function<void(*)(void*,unsigned)>(lv_obj_add_flag)(popup,1);
+     auto*parent=stock_function<void*(*)(void*)>(lv_obj_get_parent)(popup);
+     if(parent==top){stock_function<void(*)(void*,unsigned)>(lv_obj_add_flag)(popup,1);
       *reinterpret_cast<int*>(0x384e938)=-1;return;}
      if(!parent)return;
      popup=parent;
@@ -174,25 +174,25 @@ extern "C" void unified_popup_event(void*event)noexcept {
    // Stock Stop confirmation calls stop_printing_handler (quick_stop first)
    // and reset_plr_files before its worker reaches CANCEL_PRINT. Intercept
    // here so the managed owner records intent before either destructive prefix.
-   const int code=dialog_function<int(*)(void*)>(lv_event_get_code)(event);
-   auto*target=dialog_function<void*(*)(void*)>(lv_event_get_target)(event);
+   const int code=stock_function<int(*)(void*)>(lv_event_get_code)(event);
+   auto*target=stock_function<void*(*)(void*)>(lv_event_get_target)(event);
    auto*button=*reinterpret_cast<void*volatile*>(0x386ebe8);
    auto*close=*reinterpret_cast<void*volatile*>(0x386ebe0);
    if(code!=7||(target!=button&&target!=close)||!popup_button_live(target,69))return;
    if(target==close){auto original=original_popup_event.load();if(original)original(event);return;}
    auto*r=runtime.load();if(!r)return;
    if(!r->route_print_cancel()){auto original=original_popup_event.load();if(original)original(event);return;}
-   auto*top=dialog_function<void*(*)(void*)>(lv_disp_get_layer_top)(nullptr);
+   auto*top=stock_function<void*(*)(void*)>(lv_disp_get_layer_top)(nullptr);
    // The managed result is another child of this same overlay layer. Hide
    // only the old stock popup, otherwise its new progress panel is invisible.
    auto*popup=target;
    for(unsigned depth=0;depth<12;++depth){
-    auto*parent=dialog_function<void*(*)(void*)>(lv_obj_get_parent)(popup);
+    auto*parent=stock_function<void*(*)(void*)>(lv_obj_get_parent)(popup);
     if(parent==top)break;
     if(!parent)return;
     popup=parent;
    }
-   dialog_function<void(*)(void*,unsigned)>(lv_obj_add_flag)(popup,1);
+   stock_function<void(*)(void*,unsigned)>(lv_obj_add_flag)(popup,1);
    *reinterpret_cast<int*>(0x384e938)=-1;
    return;
   }
@@ -200,20 +200,20 @@ extern "C" void unified_popup_event(void*event)noexcept {
    // Reset confirmation: stock first shows an endless progress popup and then
    // queues the destructive worker. Consume stale events and replace only the
    // live affirmative click; preserve the ordinary Cancel dismissal.
-   const int code=dialog_function<int(*)(void*)>(lv_event_get_code)(event);
-   auto*target=dialog_function<void*(*)(void*)>(lv_event_get_target)(event);
+   const int code=stock_function<int(*)(void*)>(lv_event_get_code)(event);
+   auto*target=stock_function<void*(*)(void*)>(lv_event_get_target)(event);
    auto*button=*reinterpret_cast<void*volatile*>(0x386ebe8);
    auto*close=*reinterpret_cast<void*volatile*>(0x386ebe0);
    if(code!=7||(target!=button&&target!=close)||!popup_button_live(target,21))return;
    if(target==close){auto original=original_popup_event.load();if(original)original(event);return;}
-   auto*top=dialog_function<void*(*)(void*)>(lv_disp_get_layer_top)(nullptr);
-   dialog_function<void(*)(void*,unsigned)>(lv_obj_add_flag)(top,1);
+   auto*top=stock_function<void*(*)(void*)>(lv_disp_get_layer_top)(nullptr);
+   stock_function<void(*)(void*,unsigned)>(lv_obj_add_flag)(top,1);
    *reinterpret_cast<int*>(0x384e938)=-1;
    unified_factory_reset();return;
   }
   if(kind!=5&&kind!=6){auto original=original_popup_event.load();if(original)original(event);return;}
-  const int code=dialog_function<int(*)(void*)>(lv_event_get_code)(event);
-  auto*target=dialog_function<void*(*)(void*)>(lv_event_get_target)(event);
+  const int code=stock_function<int(*)(void*)>(lv_event_get_code)(event);
+  auto*target=stock_function<void*(*)(void*)>(lv_event_get_target)(event);
   auto*button=*reinterpret_cast<void*volatile*>(0x386ebe8);
   auto*close=*reinterpret_cast<void*volatile*>(0x386ebe0);
   StockReprintGate::Request request;
@@ -223,7 +223,7 @@ extern "C" void unified_popup_event(void*event)noexcept {
   if(action==StockReprintGate::Action::Delegate){auto original=original_popup_event.load();if(original)original(event);return;}
   if(action!=StockReprintGate::Action::Review)return;
   std::unique_ptr<ReprintCall> call(new ReprintCall{request,button,int(kind)});
-  if(!queue_stock_async(dialog_function<int(*)(void(*)(void*),void*)>(lv_async_call),&review_reprint,std::move(call)))reprint_gate.invalidate();
+  if(!queue_stock_async(stock_function<int(*)(void(*)(void*),void*)>(lv_async_call),&review_reprint,std::move(call)))reprint_gate.invalidate();
  }catch(...){reprint_gate.invalidate();}
 }
 
@@ -316,7 +316,7 @@ extern "C" void unified_maintenance_event(void*event)noexcept {
   }
   if(gate)return;
   auto original=original_maintenance_event.load();if(!original)return;
-  const auto action=reinterpret_cast<std::uintptr_t>(wmp_ui::native::dialog_function<void*(*)(void*)>(wmp_ui::native::lv_event_get_user_data)(event));
+  const auto action=reinterpret_cast<std::uintptr_t>(wmp_ui::native::stock_function<void*(*)(void*)>(wmp_ui::native::lv_event_get_user_data)(event));
   auto*r=runtime.load();const bool starting=action==0;
   if(starting&&(!r||!r->begin_stock_calibration())){if(r)r->request_maintenance_refusal();return;}
   try{original(event);}catch(...){if(starting&&r)r->finish_stock_calibration_start();throw;}

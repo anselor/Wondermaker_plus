@@ -7,17 +7,17 @@ def test_sequenced_print_requests_do_not_exhaust_or_replay(print_material):
     material._print_requests = {'old-%d' % i for i in range(1024)}
     for sequence in range(1, 1030):
         candidate = dict(request, id='print_%d' % sequence, sequence=sequence)
-        assert material._remember_print_ticket(candidate)
-        assert not material._remember_print_ticket(candidate)
+        assert material._print_service()._remember_print_ticket(candidate)
+        assert not material._print_service()._remember_print_ticket(candidate)
     assert len(material._print_requests) == 1024
-    assert not material._remember_print_ticket(dict(request, id='print_1', sequence=1))
+    assert not material._print_service()._remember_print_ticket(dict(request, id='print_1', sequence=1))
 
 
 @pytest.mark.parametrize('sensor', ['empty', 'unknown'])
 def test_confirmation_never_overrides_empty_sensor(print_material, sensor):
     material, objects, request, path = print_material
     request['material_confirmation'] = True
-    material._sensor_filament_status = lambda now: {'h2': {'state': sensor}}
+    material._filament_state()._sensor_filament_status = lambda now: {'h2': {'state': sensor}}
     with pytest.raises(ValueError, match='sensor is empty or unavailable'):
         material.cmd_START_PRINT(start_command(request))
     assert objects['gcode'].scripts == []
@@ -25,8 +25,8 @@ def test_confirmation_never_overrides_empty_sensor(print_material, sensor):
 
 def test_present_filament_missing_profile_can_be_explicitly_confirmed(print_material):
     material, objects, request, path = print_material
-    material._profiles = lambda: ({}, 'empty-revision')
-    material._loaded_filament_status = lambda now: {}
+    material._material_settings()._profiles = lambda: ({}, 'empty-revision')
+    material._filament_state()._loaded_filament_status = lambda now: {}
     request.update(profile_revision='empty-revision', material_confirmation=True)
     material.cmd_START_PRINT(start_command(request))
     assert material.print_submission['state'] == 'submitted'
@@ -45,9 +45,9 @@ def test_sliced_material_mismatch_requires_confirmation(print_material):
 def test_staging_failure_is_optional_but_final_sensor_rechecked(print_material):
     material, objects, request, path = print_material
     def fail(*args):
-        material._sensor_filament_status = lambda now: {'h2': {'state': 'empty'}}
+        material._filament_state()._sensor_filament_status = lambda now: {'h2': {'state': 'empty'}}
         raise OSError('disk full')
-    material._stage_recovery_job = fail
+    material._recovery_jobs()._stage_recovery_job = fail
     with pytest.raises(ValueError, match='sensor is empty'):
         material.cmd_START_PRINT(start_command(request))
     assert material.print_submission['state'] == 'not_started'
@@ -56,7 +56,7 @@ def test_staging_failure_is_optional_but_final_sensor_rechecked(print_material):
 
 def test_staging_failure_does_not_abort_valid_print(print_material):
     material, objects, request, path = print_material
-    material._stage_recovery_job = lambda *args: (_ for _ in ()).throw(OSError('disk full'))
+    material._recovery_jobs()._stage_recovery_job = lambda *args: (_ for _ in ()).throw(OSError('disk full'))
     material.cmd_START_PRINT(start_command(request))
     assert material.print_submission['state'] == 'submitted'
     assert 'disk full' in material._print_recovery_error

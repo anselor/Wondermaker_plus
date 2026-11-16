@@ -2,14 +2,11 @@
 #pragma once
 #include "button_caption.hpp"
 #include "stock_progress_panel.hpp"
-#include "profile1113.hpp"
+#include "stock_api.hpp"
 #include "stock_dialog_backdrop.hpp"
 #include "filament_procedure_review.hpp"
 #include <list>
 namespace wmp_ui { namespace native {
-#ifdef WMP_NATIVE_TEST
-void*test_resolve(std::uintptr_t);
-#endif
 // Review and progress inside stock content; no new navigation shell.
 class StockFilamentProcedure {
  struct Binding{StockFilamentProcedure*owner;void*object;void*root;std::string action;};
@@ -45,7 +42,7 @@ public:
   update(latest_);
  }
  const std::string&open_failure()const{return open_failure_;}
- bool active()const{return valid(root_);}
+ bool active()const{return stock_object_valid(root_);}
  bool has_result()const{return submitted_&&result_.is_object();}
  bool has_tool_result()const{return has_result()&&tool_recovery();}
  static Json retained_result(const Json&data,const std::string&head){
@@ -60,7 +57,7 @@ public:
   }
   return Json();
  }
- void close(){progress_.close();rendered_=false;steps_.clear();source_buttons_.clear();card_=body_=title_=rule_=nullptr;compact_=false;auto*p=root_;root_=description_=begin_=empty_=close_=nullptr;if(valid(p))fn<void(*)(void*)>(lv_obj_del)(p);}
+ void close(){progress_.close();rendered_=false;steps_.clear();source_buttons_.clear();card_=body_=title_=rule_=nullptr;compact_=false;auto*p=root_;root_=description_=begin_=empty_=close_=nullptr;if(stock_object_valid(p))stock_function<void(*)(void*)>(lv_obj_del)(p);}
  static bool interrupted(const Json&data,bool tool=false){
   const auto op=data.value(tool?"toolhead_operation":"filament_operation",Json::object());const auto head=op.value("head","");
   return data.value("fresh",false)&&recovery_owner(data,tool)&&data.value(tool?"toolhead_recovery_protocol":"filament_recovery_protocol",0)==1&&
@@ -86,34 +83,34 @@ public:
  }
  bool open(void*parent,const Json&data,const std::string&head,const std::string&action,bool result_only=false,const std::string&source="")try{
   close();open_failure_.clear();
-  if(!valid(parent))return open_failed("Filament page parent is unavailable.");
+  if(!stock_object_valid(parent))return open_failed("Filament page parent is unavailable.");
   if((action=="take"||action=="dock")&&!result_only)return open_failed("Toolhead motion is not a filament review action: action="+action);
   check_=action=="confirm_filament";check_context_=data;check_head_=head;
   review_.open(data,head,action);if(!source.empty()&&!review_.select(data,source))return open_failed("Selected source could not bind to this review: source="+source+", head="+head);submitted_=false;recovering_=false;recipe_changed_=false;request_id_.clear();result_=Json();latest_=data;
-  int w=fn<int(*)(void*)>(lv_obj_get_content_width)(parent),h=fn<int(*)(void*)>(lv_obj_get_content_height)(parent);
+  int w=stock_function<int(*)(void*)>(lv_obj_get_content_width)(parent),h=stock_function<int(*)(void*)>(lv_obj_get_content_height)(parent);
   if(w<(check_?480:400)||h<280)return open_failed("Filament page dimensions unavailable: width="+std::to_string(w)+", height="+std::to_string(h));
   if(review_.sources().size()>32)return open_failed("Filament review source count exceeds 32: count="+std::to_string(review_.sources().size()));
-  root_=fn<void*(*)(void*)>(lv_obj_create)(parent);if(!root_)return open_failed("Filament dialog allocation failed.");
+  root_=stock_function<void*(*)(void*)>(lv_obj_create)(parent);if(!root_)return open_failed("Filament dialog allocation failed.");
   if(!bind(root_,""))return open_failed("Filament dialog event binding failed.");
-  stock_dialog_backdrop(root_);fn<void(*)(void*,std::uint32_t,unsigned)>(lv_obj_set_style_bg_color)(root_,0xff3c3f43U,0);fn<void(*)(void*,int,unsigned)>(lv_obj_set_style_bg_opa)(root_,255,0);place(root_,0,0,w,h);
-  fn<void(*)(void*,unsigned)>(lv_obj_clear_flag)(root_,16);
-  card_=fn<void*(*)(void*)>(lv_obj_create)(root_);if(!card_)return open_failed("Filament confirmation card allocation failed.");stock_dialog_backdrop(card_);fn<void(*)(void*,unsigned)>(lv_obj_add_flag)(card_,1);
+  stock_dialog_backdrop(root_);stock_function<void(*)(void*,std::uint32_t,unsigned)>(lv_obj_set_style_bg_color)(root_,0xff3c3f43U,0);stock_function<void(*)(void*,int,unsigned)>(lv_obj_set_style_bg_opa)(root_,255,0);stock_object_place(root_,0,0,w,h);
+  stock_function<void(*)(void*,unsigned)>(lv_obj_clear_flag)(root_,16);
+  card_=stock_function<void*(*)(void*)>(lv_obj_create)(root_);if(!card_)return open_failed("Filament confirmation card allocation failed.");stock_dialog_backdrop(card_);stock_function<void(*)(void*,unsigned)>(lv_obj_add_flag)(card_,1);
   title_=label(root_,(tool_recovery()?(action=="take"?"Mount head":"Dock head"):check_?"Check filament":action=="load"?"Load filament":"Unload filament")+std::string(" - Head ")+(head.size()==2?std::to_string(head[1]-'0'+1):"?"),12,2,w-(check_?370:260),28);
-  auto*body=fn<void*(*)(void*)>(lv_obj_create)(root_);if(!body)return open_failed("Filament dialog body allocation failed.");
-  body_=body;stock_dialog_backdrop(body);place(body,8,44,w-16,h-52);fn<void(*)(void*,int)>(lv_obj_set_scroll_dir)(body,12);fn<void(*)(void*,unsigned)>(lv_obj_add_flag)(body,16);
+  auto*body=stock_function<void*(*)(void*)>(lv_obj_create)(root_);if(!body)return open_failed("Filament dialog body allocation failed.");
+  body_=body;stock_dialog_backdrop(body);stock_object_place(body,8,44,w-16,h-52);stock_function<void(*)(void*,int)>(lv_obj_set_scroll_dir)(body,12);stock_function<void(*)(void*,unsigned)>(lv_obj_add_flag)(body,16);
   int y=8;
   if(!result_only&&source.empty()&&review_.sources().size()>1)for(const auto&source:review_.sources()){
    source_buttons_.push_back(button(body,"source:"+source.value("id",""),source_label(data,source),8,y,w-48,66));y+=72;
   }
   description_y_=y;
-  for(int i=0;i<8;++i){auto*l=label(body,"",8,y+i*30,w-48,28);steps_.push_back(l);fn<void(*)(void*,unsigned)>(lv_obj_add_flag)(l,1);}
+  for(int i=0;i<8;++i){auto*l=label(body,"",8,y+i*30,w-48,28);steps_.push_back(l);stock_function<void(*)(void*,unsigned)>(lv_obj_add_flag)(l,1);}
   description_=label(body,"",8,y,w-48,-1);
   // Content height follows wrapping; long backend descriptions stay scrollable.
-  fn<void(*)(void*,int)>(lv_label_set_long_mode)(description_,0);
+  stock_function<void(*)(void*,int)>(lv_label_set_long_mode)(description_,0);
   close_=header("close",action=="unload"?"CANCEL":"CLOSE",w-(check_?360:240),104);
   if(check_)empty_=header("empty","EMPTY",w-248,112);
   begin_=header("begin",check_?"LOADED":action=="load"?"LOAD":"UNLOAD",w-128,116);
-  auto*rule=fn<void*(*)(void*)>(lv_obj_create)(root_);stock_dialog_backdrop(rule);place(rule,12,34,w-24,1);fn<void(*)(void*,std::uint32_t,unsigned)>(lv_obj_set_style_bg_color)(rule,0xff55575bU,0);fn<void(*)(void*,int,unsigned)>(lv_obj_set_style_bg_opa)(rule,255,0);
+  auto*rule=stock_function<void*(*)(void*)>(lv_obj_create)(root_);stock_dialog_backdrop(rule);stock_object_place(rule,12,34,w-24,1);stock_function<void(*)(void*,std::uint32_t,unsigned)>(lv_obj_set_style_bg_color)(rule,0xff55575bU,0);stock_function<void(*)(void*,int,unsigned)>(lv_obj_set_style_bg_opa)(rule,255,0);
   rule_=rule;layout(data.value("owner","")=="standalone"&&!result_only&&(check_||review_.source().is_object()));
   update(data);return true;
  }catch(const std::exception&e){return open_failed(std::string("Filament dialog rendering failed: ")+e.what());}
@@ -142,14 +139,14 @@ public:
   const bool result_action=submitted_&&!check_&&(result_state=="complete"||
     (result_state=="pending"&&can_cancel())||can_recover());
   header_enabled(begin_,ready||result_action);
-  auto*close_caption=fn<void*(*)(void*,int)>(lv_obj_get_child)(close_,0);
-  fn<void(*)(void*,const char*)>(lv_label_set_text)(close_caption,!submitted_&&(compact_||review_.action()=="unload")?"CANCEL":"CLOSE");
+  auto*close_caption=stock_function<void*(*)(void*,int)>(lv_obj_get_child)(close_,0);
+  stock_function<void(*)(void*,const char*)>(lv_label_set_text)(close_caption,!submitted_&&(compact_||review_.action()=="unload")?"CANCEL":"CLOSE");
   if(empty_)header_enabled(empty_,ready);
-  for(auto*step:steps_)fn<void(*)(void*,unsigned)>(lv_obj_add_flag)(step,1);
-  if(submitted_)fn<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(description_,reinterpret_cast<void*>(data.value("owner","")=="standalone"?0x34b82a8:0x26297a0),0);
-  fn<void(*)(void*,int,int)>(lv_obj_set_pos)(description_,8,description_y_);
+  for(auto*step:steps_)stock_function<void(*)(void*,unsigned)>(lv_obj_add_flag)(step,1);
+  if(submitted_)stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(description_,reinterpret_cast<void*>(data.value("owner","")=="standalone"?0x34b82a8:0x26297a0),0);
+  stock_function<void(*)(void*,int,int)>(lv_obj_set_pos)(description_,8,description_y_);
   Json progress_view;progress_.show(false);
-  fn<void(*)(void*,unsigned)>(lv_obj_clear_flag)(description_,1);
+  stock_function<void(*)(void*,unsigned)>(lv_obj_clear_flag)(description_,1);
   std::string text;
   if(submitted_){
    const auto state=result_.value("state","unknown");
@@ -163,8 +160,8 @@ public:
    if(state!="complete"&&!detail.empty())text=detail;
    if(!check_){
     std::string caption=state=="pending"?(can_cancel()?"STOP":latest_.value("filament_operation",Json::object()).value("cancel_requested",false)?"STOPPING":"STOP"):can_recover()?"RECOVER":state=="complete"?"DONE":state=="refused"?"STOPPED":state=="failed"?"STOPPED":"RECOVER";
-    auto*child=fn<void*(*)(void*,int)>(lv_obj_get_child)(begin_,0);
-    fn<void(*)(void*,const char*)>(lv_label_set_text)(child,caption.c_str());
+    auto*child=stock_function<void*(*)(void*,int)>(lv_obj_get_child)(begin_,0);
+    stock_function<void(*)(void*,const char*)>(lv_label_set_text)(child,caption.c_str());
     if(can_recover())text+=tool_recovery()?"\nRECOVER checks head attachment.":"\nRECOVER checks stopped motion and turns the heater off.";
     else if(state=="partial"||state=="unknown")text+="\nRecovery unavailable for this printer state.";
    }
@@ -185,12 +182,12 @@ public:
       if(rows[active].value("phase","")=="heating")
        for(const auto&head:data.value("heads",Json::array()))if(head.value("id","")==review_.physical_head())
         line+="  "+std::to_string(head.value("actual",0))+" / "+std::to_string(head.value("target",0))+" °C";
-      fn<void(*)(void*,const char*)>(lv_label_set_text)(steps_[0],line.c_str());
-      fn<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(steps_[0],reinterpret_cast<void*>(0x26297a0),0);
-      fn<void(*)(void*,std::uint32_t,unsigned)>(lv_obj_set_style_text_color)(steps_[0],0xffeeeeeeU,0);
-      fn<void(*)(void*,int,int)>(lv_obj_set_pos)(steps_[0],8,description_y_);
-      fn<void(*)(void*,unsigned)>(lv_obj_clear_flag)(steps_[0],1);
-      fn<void(*)(void*,int,int)>(lv_obj_set_pos)(description_,8,description_y_+38);
+      stock_function<void(*)(void*,const char*)>(lv_label_set_text)(steps_[0],line.c_str());
+      stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(steps_[0],reinterpret_cast<void*>(0x26297a0),0);
+      stock_function<void(*)(void*,std::uint32_t,unsigned)>(lv_obj_set_style_text_color)(steps_[0],0xffeeeeeeU,0);
+      stock_function<void(*)(void*,int,int)>(lv_obj_set_pos)(steps_[0],8,description_y_);
+      stock_function<void(*)(void*,unsigned)>(lv_obj_clear_flag)(steps_[0],1);
+      stock_function<void(*)(void*,int,int)>(lv_obj_set_pos)(description_,8,description_y_+38);
      }
     }
     const auto guidance=operation.value("message","");
@@ -218,10 +215,10 @@ public:
    const auto op=data.value("filament_operation",Json::object());
    if(op.value("phase","")=="heating")for(const auto&head:data.value("heads",Json::array()))if(head.value("id","")==review_.physical_head())
     progress_view["instruction"]=text+"\n\n"+std::to_string(head.value("actual",0))+" / "+std::to_string(head.value("target",0))+" °C";
-   if(!progress_.attached())progress_.attach(body_,0,description_y_,fn<int(*)(void*)>(lv_obj_get_content_width)(body_),fn<int(*)(void*)>(lv_obj_get_content_height)(body_)-description_y_);
-   if(progress_.attached()){progress_.show(true);progress_.update(progress_view);fn<void(*)(void*,unsigned)>(lv_obj_add_flag)(description_,1);}
+   if(!progress_.attached())progress_.attach(body_,0,description_y_,stock_function<int(*)(void*)>(lv_obj_get_content_width)(body_),stock_function<int(*)(void*)>(lv_obj_get_content_height)(body_)-description_y_);
+   if(progress_.attached()){progress_.show(true);progress_.update(progress_view);stock_function<void(*)(void*,unsigned)>(lv_obj_add_flag)(description_,1);}
   }
-  fn<void(*)(void*,const char*)>(lv_label_set_text)(description_,text.c_str());
+  stock_function<void(*)(void*,const char*)>(lv_label_set_text)(description_,text.c_str());
   rendered_local_=std::move(local);rendered_=true;
  }
  void result(const Json&value){if(submitted_){result_=value;update(latest_);}}
@@ -232,26 +229,26 @@ private:
   compact_=compact;rendered_=false;
   // LVGL defers set_size: resolve the newly created/resized backdrop before
   // measuring it, otherwise the compact card can get zero/negative geometry.
-  fn<void(*)(void*)>(lv_obj_update_layout)(root_);
-  const int fw=fn<int(*)(void*)>(lv_obj_get_content_width)(root_),fh=fn<int(*)(void*)>(lv_obj_get_content_height)(root_);
+  stock_function<void(*)(void*)>(lv_obj_update_layout)(root_);
+  const int fw=stock_function<int(*)(void*)>(lv_obj_get_content_width)(root_),fh=stock_function<int(*)(void*)>(lv_obj_get_content_height)(root_);
   const int w=compact?std::min(fw-32,704):fw,h=compact?std::min(fh-24,300):fh,x=(fw-w)/2,y=(fh-h)/2;
-  fn<void(*)(void*,int,unsigned)>(lv_obj_set_style_bg_opa)(root_,compact?0:255,0);
-  fn<void(*)(void*,unsigned)>(compact?lv_obj_clear_flag:lv_obj_add_flag)(card_,1);
-  place(card_,x,y,w,h);fn<void(*)(void*,std::uint32_t,unsigned)>(lv_obj_set_style_bg_color)(card_,0xff3c3f43U,0);fn<void(*)(void*,int,unsigned)>(lv_obj_set_style_bg_opa)(card_,255,0);
-  place(title_,compact?x+16:12,compact?y+8:2,compact?w-32:w-(check_?370:260),compact?36:28);
-  fn<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(title_,reinterpret_cast<void*>(compact?0x34b82a8:0x26297a0),0);
-  place(rule_,x+12,y+(compact?50:34),w-24,1);
-  place(body_,compact?x+16:8,compact?y+60:44,w-(compact?32:16),h-(compact?140:52));
-  if(compact||submitted_){description_y_=8;for(auto*b:source_buttons_)fn<void(*)(void*,unsigned)>(lv_obj_add_flag)(b,1);}
-  fn<void(*)(void*,int)>(lv_obj_set_width)(description_,w-(compact?64:48));
-  fn<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(description_,reinterpret_cast<void*>(compact?0x34b82a8:0x26297a0),0);
-  for(auto*step:steps_)fn<void(*)(void*,int)>(lv_obj_set_width)(step,w-48);
+  stock_function<void(*)(void*,int,unsigned)>(lv_obj_set_style_bg_opa)(root_,compact?0:255,0);
+  stock_function<void(*)(void*,unsigned)>(compact?lv_obj_clear_flag:lv_obj_add_flag)(card_,1);
+  stock_object_place(card_,x,y,w,h);stock_function<void(*)(void*,std::uint32_t,unsigned)>(lv_obj_set_style_bg_color)(card_,0xff3c3f43U,0);stock_function<void(*)(void*,int,unsigned)>(lv_obj_set_style_bg_opa)(card_,255,0);
+  stock_object_place(title_,compact?x+16:12,compact?y+8:2,compact?w-32:w-(check_?370:260),compact?36:28);
+  stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(title_,reinterpret_cast<void*>(compact?0x34b82a8:0x26297a0),0);
+  stock_object_place(rule_,x+12,y+(compact?50:34),w-24,1);
+  stock_object_place(body_,compact?x+16:8,compact?y+60:44,w-(compact?32:16),h-(compact?140:52));
+  if(compact||submitted_){description_y_=8;for(auto*b:source_buttons_)stock_function<void(*)(void*,unsigned)>(lv_obj_add_flag)(b,1);}
+  stock_function<void(*)(void*,int)>(lv_obj_set_width)(description_,w-(compact?64:48));
+  stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(description_,reinterpret_cast<void*>(compact?0x34b82a8:0x26297a0),0);
+  for(auto*step:steps_)stock_function<void(*)(void*,int)>(lv_obj_set_width)(step,w-48);
   const int bw=compact?(check_?std::min(160,(w-48)/3):160):0;
   auto action=[&](void*b,int normal_x,int normal_w,int index){if(!b)return;
-   const int count=check_?3:2;place(b,compact?x+w-16-count*bw-(count-1)*8+index*(bw+8):normal_x,compact?y+h-72:0,compact?bw:normal_w,compact?56:34);
-   auto*l=fn<void*(*)(void*,int)>(lv_obj_get_child)(b,0);place(l,4,compact?8:2,compact?bw-8:normal_w-8,compact?40:26);
-   fn<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(l,reinterpret_cast<void*>(compact?0x1a57128:0xf84928),0);
-   fn<void(*)(void*,int,unsigned)>(lv_obj_set_style_text_align)(l,compact?1:2,0);
+   const int count=check_?3:2;stock_object_place(b,compact?x+w-16-count*bw-(count-1)*8+index*(bw+8):normal_x,compact?y+h-72:0,compact?bw:normal_w,compact?56:34);
+   auto*l=stock_function<void*(*)(void*,int)>(lv_obj_get_child)(b,0);stock_object_place(l,4,compact?8:2,compact?bw-8:normal_w-8,compact?40:26);
+   stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(l,reinterpret_cast<void*>(compact?0x1a57128:0xf84928),0);
+   stock_function<void(*)(void*,int,unsigned)>(lv_obj_set_style_text_align)(l,compact?1:2,0);
   };
   action(close_,fw-(check_?360:240),104,0);action(empty_,fw-248,112,1);action(begin_,fw-128,116,check_?2:1);
  }
@@ -289,39 +286,30 @@ private:
   if(!identity.empty())title+="\n"+identity_display_text(identity,"brand","Generic")+" "+identity.value("material","");
   return title;
  }
- template<class F>static F fn(std::uintptr_t a){
-#ifdef WMP_NATIVE_TEST
-  return reinterpret_cast<F>(test_resolve(a));
-#else
-  return reinterpret_cast<F>(a);
-#endif
- }
- static bool valid(void*p){return p&&fn<bool(*)(void*)>(lv_obj_is_valid)(p);}
- static void place(void*p,int x,int y,int w,int h){fn<void(*)(void*,int,int)>(lv_obj_set_pos)(p,x,y);fn<void(*)(void*,int,int)>(lv_obj_set_size)(p,w,h);}
- static void style(void*p,std::uintptr_t s){fn<void(*)(void*,const void*,unsigned)>(lv_obj_add_style)(p,reinterpret_cast<void*>(s),0);}
- void*label(void*p,const std::string&s,int x,int y,int w,int h){auto*l=fn<void*(*)(void*)>(lv_label_create)(p);if(!l)throw std::runtime_error("Procedure label allocation failed");fn<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(l,reinterpret_cast<void*>(0x26297a0),0);fn<void(*)(void*,std::uint32_t,unsigned)>(lv_obj_set_style_text_color)(l,0xffeeeeeeU,0);fn<void(*)(void*,const char*)>(lv_label_set_text)(l,s.c_str());if(h<0){fn<void(*)(void*,int,int)>(lv_obj_set_pos)(l,x,y);fn<void(*)(void*,int)>(lv_obj_set_width)(l,w);}else place(l,x,y,w,h);return l;}
- bool bind(void*object,const std::string&action){bindings_.push_back({this,object,root_,action});if(fn<void*(*)(void*,void(*)(void*),int,void*)>(lv_obj_add_event_cb)(object,&event,0,&bindings_.back()))return true;bindings_.pop_back();return false;}
+ static void style(void*p,std::uintptr_t s){stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_add_style)(p,reinterpret_cast<void*>(s),0);}
+ void*label(void*p,const std::string&s,int x,int y,int w,int h){auto*l=stock_function<void*(*)(void*)>(lv_label_create)(p);if(!l)throw std::runtime_error("Procedure label allocation failed");stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(l,reinterpret_cast<void*>(0x26297a0),0);stock_function<void(*)(void*,std::uint32_t,unsigned)>(lv_obj_set_style_text_color)(l,0xffeeeeeeU,0);stock_function<void(*)(void*,const char*)>(lv_label_set_text)(l,s.c_str());if(h<0){stock_function<void(*)(void*,int,int)>(lv_obj_set_pos)(l,x,y);stock_function<void(*)(void*,int)>(lv_obj_set_width)(l,w);}else stock_object_place(l,x,y,w,h);return l;}
+ bool bind(void*object,const std::string&action){bindings_.push_back({this,object,root_,action});if(stock_function<void*(*)(void*,void(*)(void*),int,void*)>(lv_obj_add_event_cb)(object,&event,0,&bindings_.back()))return true;bindings_.pop_back();return false;}
  static void header_enabled(void*object,bool enabled){
-  fn<void(*)(void*,unsigned)>(enabled?lv_obj_clear_state:lv_obj_add_state)(object,128);
-  auto*caption=fn<void*(*)(void*,int)>(lv_obj_get_child)(object,0);
-  fn<void(*)(void*,std::uint32_t,unsigned)>(lv_obj_set_style_text_color)(caption,enabled?0xffeeeeeeU:0xff888888U,0);
+  stock_function<void(*)(void*,unsigned)>(enabled?lv_obj_clear_state:lv_obj_add_state)(object,128);
+  auto*caption=stock_function<void*(*)(void*,int)>(lv_obj_get_child)(object,0);
+  stock_function<void(*)(void*,std::uint32_t,unsigned)>(lv_obj_set_style_text_color)(caption,enabled?0xffeeeeeeU:0xff888888U,0);
  }
  void*header(const std::string&id,const std::string&text,int x,int w){
-  auto*b=fn<void*(*)(void*)>(lv_obj_create)(root_);if(!b)throw std::runtime_error("Procedure action allocation failed");
-  stock_dialog_backdrop(b);place(b,x,0,w,34);auto*l=label(b,text,4,2,w-8,26);
-  fn<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(l,reinterpret_cast<void*>(0xf84928),0);
-  fn<void(*)(void*,int,unsigned)>(lv_obj_set_style_text_align)(l,2,0);
+  auto*b=stock_function<void*(*)(void*)>(lv_obj_create)(root_);if(!b)throw std::runtime_error("Procedure action allocation failed");
+  stock_dialog_backdrop(b);stock_object_place(b,x,0,w,34);auto*l=label(b,text,4,2,w-8,26);
+  stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(l,reinterpret_cast<void*>(0xf84928),0);
+  stock_function<void(*)(void*,int,unsigned)>(lv_obj_set_style_text_align)(l,2,0);
   if(!bind(b,id))throw std::runtime_error("Procedure action binding failed");
   return b;
  }
- void*button(void*p,const std::string&id,const std::string&s,int x,int y,int w,int h){auto*b=fn<void*(*)(void*)>(lv_btn_create)(p);if(!b)throw std::runtime_error("Procedure button allocation failed");style(b,0x463c8e8);place(b,x,y,w,h);auto*l=label(b,s,8,8,w-16,h-16);center_button_caption(b,l,s);if(!bind(b,id))throw std::runtime_error("Procedure button binding failed");return b;}
+ void*button(void*p,const std::string&id,const std::string&s,int x,int y,int w,int h){auto*b=stock_function<void*(*)(void*)>(lv_btn_create)(p);if(!b)throw std::runtime_error("Procedure button allocation failed");style(b,0x463c8e8);stock_object_place(b,x,y,w,h);auto*l=label(b,s,8,8,w-16,h-16);center_button_caption(b,l,s);if(!bind(b,id))throw std::runtime_error("Procedure button binding failed");return b;}
  static void event(void*e)noexcept{try{
-  auto*b=static_cast<Binding*>(fn<void*(*)(void*)>(lv_event_get_user_data)(e));if(!b)return;auto*o=b->owner;
-  const int code=fn<int(*)(void*)>(lv_event_get_code)(e);
+  auto*b=static_cast<Binding*>(stock_function<void*(*)(void*)>(lv_event_get_user_data)(e));if(!b)return;auto*o=b->owner;
+  const int code=stock_function<int(*)(void*)>(lv_event_get_code)(e);
   if(code==33){if(b->object==o->root_)o->root_=o->description_=o->begin_=o->empty_=o->close_=nullptr;for(auto i=o->bindings_.begin();i!=o->bindings_.end();++i)if(&*i==b){o->bindings_.erase(i);break;}return;}
-  if(code!=7||b->root!=o->root_||!o->active()||fn<void*(*)(void*)>(lv_event_get_target)(e)!=b->object)return;
-  auto*screen=fn<void*(*)(void*)>(lv_disp_get_scr_act)(fn<void*(*)()>(lv_disp_get_default)());bool visible=false;
-  for(void*p=o->root_;p;p=fn<void*(*)(void*)>(lv_obj_get_parent)(p)){if(!valid(p)||fn<bool(*)(void*,unsigned)>(lv_obj_has_flag)(p,1))return;if(p==screen){visible=true;break;}}
+  if(code!=7||b->root!=o->root_||!o->active()||stock_function<void*(*)(void*)>(lv_event_get_target)(e)!=b->object)return;
+  auto*screen=stock_function<void*(*)(void*)>(lv_disp_get_scr_act)(stock_function<void*(*)()>(lv_disp_get_default)());bool visible=false;
+  for(void*p=o->root_;p;p=stock_function<void*(*)(void*)>(lv_obj_get_parent)(p)){if(!stock_object_valid(p)||stock_function<bool(*)(void*,unsigned)>(lv_obj_has_flag)(p,1))return;if(p==screen){visible=true;break;}}
   if(!visible)return;
   const auto action=b->action;
   if(action=="close"){o->close();return;}

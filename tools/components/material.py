@@ -13,6 +13,47 @@ SRC = os.path.join(ROOT, "klipper_extras")
 EXTRA_DST = "klipper/klippy/extras/wm_material.py"      # relative to the printer user's home
 CFG_DST = "printer_data/config/wm_material.cfg"
 
+HELPERS = (
+    'wmp_orca_profiles.py',
+    'wmp_nozzles.py',
+    'wmp_saved_variables.py',
+    'wmp_recovery_retirement.py',
+    'wmp_recovery_file_envelope.py',
+    'wmp_plr_records.py',
+    'wmp_filament_types.py',
+    'wmp_filament_profiles.py',
+    'wmp_persistence.py',
+    'wmp_print_cancel.py',
+    'wmp_component.py',
+    'wmp_toolhead_service.py',
+    'wmp_plr_execution.py',
+    'wmp_plr_motion.py',
+    'wmp_plr_storage.py',
+    'wmp_plr_worker.py',
+    'wmp_plr_attempt.py',
+    'wmp_plr_clearance.py',
+    'wmp_plr_review.py',
+    'wmp_plr_jobs.py',
+    'wmp_print_submission.py',
+    'wmp_filament_planning.py',
+    'wmp_filament_service.py',
+    'wmp_toolchange_repair.py',
+    'wmp_paused_service.py',
+    'wmp_observation.py',
+    'wmp_material_settings.py',
+    'wmp_filament_state.py',
+    'wmp_config_save.py',
+    'wmp_material_status.py',
+    'wmp_command_routing.py',
+    'wmp_material_owners.py',
+    'wmp_calibration_records.py',
+    'wmp_probe_state.py',
+    'wmp_probe_editor.py',
+    'wmp_calibration.py',
+    'wm_material.py',
+)
+
+
 
 
 
@@ -104,7 +145,7 @@ def install(ctx, include_recovery=False, install_config=True, prepare=None):
         # Read every destination before publishing anything. Existing user
         # configuration is authoritative; defaults are only for first install.
         destinations = [(name, posixpath.join(posixpath.dirname(extra), name))
-                        for name in ("wmp_orca_profiles.py", "wmp_nozzles.py", "wmp_saved_variables.py", "wmp_recovery_retirement.py", "wmp_recovery_file_envelope.py", "wm_material.py")]
+                        for name in HELPERS]
         if include_recovery:
             destinations.append(('wmp_identification.py', posixpath.join(posixpath.dirname(extra), 'wmp_identification.py')))
             destinations.append(('wmp_recovery.py', posixpath.join(posixpath.dirname(extra), 'wmp_recovery.py')))
@@ -175,8 +216,7 @@ def uninstall(ctx):
         return
     sftp = ctx.sftp()
     extra, _ = _paths(ctx)
-    for name in ('wm_material.py', 'wmp_orca_profiles.py', 'wmp_nozzles.py',
-                 'wmp_saved_variables.py', 'wmp_recovery_retirement.py', 'wmp_recovery_file_envelope.py'):
+    for name in reversed(HELPERS):
         path = posixpath.join(posixpath.dirname(extra), name)
         if _read(sftp, path) is not None:
             sftp.remove(path)

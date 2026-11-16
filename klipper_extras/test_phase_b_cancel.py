@@ -59,11 +59,11 @@ def test_diagnostic_disk_failure_still_closes_job_and_clears_pause(managed_cance
     material, objects, states, calls, review, request, timers, body, locked = fixture
     original = material._write_recovery_json
     def fail_receipt(path, value):
-        if path == material._print_cancel_path():
+        if path == material._cancellation()._print_cancel_path():
             assert objects['virtual_sdcard'].must_pause_work
             raise OSError('diagnostic disk full')
         original(path, value)
-    monkeypatch.setattr(material, '_write_recovery_json', fail_receipt)
+    monkeypatch.setattr(material._recovery_storage(), '_write_recovery_json', fail_receipt)
     material._begin_print_cancel('disk-full-stop', binding)
     worker = timers[-1]
     locked[0] = False
@@ -84,7 +84,7 @@ def test_partial_cleanup_retires_work_queued_during_stop(guarded_legacy_dispatch
     locked[0] = False
     dispatcher.run_script('CANCEL_PRINT')
     def fail_cleanup(*args): raise ValueError('physical drain failed')
-    monkeypatch.setattr(material, '_cancel_print_cleanup', fail_cleanup)
+    monkeypatch.setattr(material._cancellation(), '_cancel_print_cleanup', fail_cleanup)
     waiting[0] = lambda: timers[-1].callback(2.)
     with pytest.raises(vendor.CommandError, match='invalidated'):
         dispatcher.run_script('G1 X5')
@@ -98,7 +98,7 @@ def test_partial_cleanup_retires_work_queued_during_stop(guarded_legacy_dispatch
 def test_nonmotion_housekeeping_is_restored_without_travel(managed_cancel_cleanup):
     fixture, binding, cleanup, original_worker = managed_cancel_cleanup
     material = fixture[0]
-    material._cancel_print_cleanup(binding)
+    material._cancellation()._cancel_print_cleanup(binding)
     for command in ('M107', 'BED_MESH_CLEAR', 'M220 S100', 'RESET_FLOW_EXTRUDER',
                     'SET_VELOCITY_LIMIT VELOCITY=500 ACCEL=10000', 'SET_IDLE_TIMEOUT TIMEOUT=600',
                     '_WMP_CASE_LIGHT_PRINT_END'):
@@ -112,10 +112,10 @@ def test_nonmotion_housekeeping_is_restored_without_travel(managed_cancel_cleanu
 def test_cancel_receipt_cache_cannot_disable_stop(managed_cancel_intent):
     fixture, binding, cleanup, original_worker = managed_cancel_intent
     material = fixture[0]
-    material._print_cancel_requests = {'previous-%d' % n for n in range(1024)}
+    material._cancellation()._print_cancel_requests = {'previous-%d' % n for n in range(1024)}
     material._begin_print_cancel('fresh-stop', binding)
     assert material._print_cancel['state'] == 'pending'
-    assert len(material._print_cancel_requests) <= 1024
+    assert len(material._cancellation()._print_cancel_requests) <= 1024
 
 
 def test_cancel_completes_after_retained_sd_error_unwind(managed_cancel_intent):
@@ -169,7 +169,7 @@ def test_error_label_does_not_substitute_for_confirmed_sd_stop(managed_cancel_cl
     sd.do_cancel = cancel
     phases = []
     with pytest.raises(ValueError):
-        material._cancel_print_cleanup(binding, lambda *stage: phases.append(stage))
+        material._cancellation()._cancel_print_cleanup(binding, lambda *stage: phases.append(stage))
     assert ('cancelling', 'complete') not in phases
     assert ('cancelling', 'failed') in phases
     if changed == 'replacement':
@@ -197,11 +197,11 @@ def test_cancel_resolution_reads_closed_error_only_with_original_binding(interru
     material, objects, states, calls, review, request, timers, body, locked = fixture
     objects['print_stats'].note_error('cancel interrupted a tool change')
     locked[0] = True
-    material._cancel_print_cleanup(binding)
+    material._cancellation()._cancel_print_cleanup(binding)
     locked[0] = False
     cleanup.clear()
     if change == 'different-file': objects['print_stats'].filename = 'new-job.gcode'
-    elif change == 'missing-binding': material._print_cancel_live_binding = None
+    elif change == 'missing-binding': material._cancellation()._print_cancel_live_binding = None
     elif change == 'active': objects['virtual_sdcard'].work_timer = object()
     if change != 'none':
         with pytest.raises(ValueError): cancel_resolution_review(material)
@@ -219,11 +219,11 @@ def test_cancel_resolution_read_refresh_reuses_exact_live_ticket(interrupted_pri
     fixture, binding, cleanup, original_worker = interrupted_print_cancel
     material, objects, states, calls, review, request, timers, body, locked = fixture
     first = cancel_resolution_review(material)
-    expiry = material._print_cancel_resolution_tickets[first['id']]['expires']
+    expiry = material._cancellation()._print_cancel_resolution_tickets[first['id']]['expires']
     for _ in range(10):
         assert cancel_resolution_review(material) == first
-    assert len(material._print_cancel_resolution_tickets) == 1
-    assert material._print_cancel_resolution_tickets[first['id']]['expires'] == expiry
+    assert len(material._cancellation()._print_cancel_resolution_tickets) == 1
+    assert material._cancellation()._print_cancel_resolution_tickets[first['id']]['expires'] == expiry
     assert not cleanup and not binding['handle'].closed
     states['extruder2']['target'] += 1
     with pytest.raises(ValueError, match='evidence changed'):
@@ -236,14 +236,14 @@ def test_cancel_resolution_prunes_expired_and_used_without_reviving_token(interr
     fixture, binding, cleanup, original_worker = interrupted_print_cancel
     material, objects, states, calls, review, request, timers, body, locked = fixture
     old = cancel_resolution_review(material)
-    original = material._print_cancel_resolution_tickets[old['id']]
+    original = material._cancellation()._print_cancel_resolution_tickets[old['id']]
     original['expires'] = 0.
     for i in range(1024):
-        material._print_cancel_resolution_tickets['previous-%d' % i] = dict(
+        material._cancellation()._print_cancel_resolution_tickets['previous-%d' % i] = dict(
             original, used=bool(i % 2), expires=1e30 if i % 2 else 0.)
     fresh = cancel_resolution_review(material)  # Same ID, new authority token.
     assert fresh['token'] != old['token']
-    assert len(material._print_cancel_resolution_tickets) == 1
+    assert len(material._cancellation()._print_cancel_resolution_tickets) == 1
     assert not cleanup and not binding['handle'].closed
     locked[0] = True
     with pytest.raises(ValueError, match='stale, changed or already used'):
@@ -262,18 +262,18 @@ def test_cancel_review_expiry_never_exhausts_or_revives_old_token(managed_cancel
     before = len(timers)
     first = print_cancel_review(material, binding)
     for number in range(1026):
-        material._print_cancel_tickets[first['id']]['expires'] = 0.
+        material._cancellation()._print_cancel_tickets[first['id']]['expires'] = 0.
         latest = print_cancel_review(material, binding)
         assert latest['token'] != first['token']
-        assert len(material._print_cancel_tickets) == 1
+        assert len(material._cancellation()._print_cancel_tickets) == 1
     if reopen:
         objects['virtual_sdcard'].current_file = io.StringIO('reopened same filename')
-        material._print_cancel_tickets[first['id']]['expires'] = 0.
+        material._cancellation()._print_cancel_tickets[first['id']]['expires'] = 0.
         latest = print_cancel_review(material, binding)
     with pytest.raises(ValueError, match='stale, changed or already used'):
         material._handle_print_cancel(CancelWebRequest(**first))
     assert not cleanup and len(timers) == before
-    assert not material._print_cancel_unresolved()
+    assert not material._cancellation()._print_cancel_unresolved()
     material._handle_print_cancel(CancelWebRequest(**latest))
     assert len(timers) == before + 1
 
@@ -283,18 +283,18 @@ def test_cancel_review_prunes_consumed_tokens_but_preserves_execution_fence(mana
     fixture, binding, cleanup, original_worker = managed_cancel_intent
     material, objects, states, calls, review, request, timers, body, locked = fixture
     old = print_cancel_review(material, binding)
-    material._print_cancel_tickets[old['id']]['used'] = True
-    material._print_cancel_requests = {old['id']}
+    material._cancellation()._print_cancel_tickets[old['id']]['used'] = True
+    material._cancellation()._print_cancel_requests = {old['id']}
     before = len(timers)
     with pytest.raises(ValueError, match='already attempted'):
         print_cancel_review(material, binding)
-    assert not material._print_cancel_tickets
+    assert not material._cancellation()._print_cancel_tickets
     fresh = print_cancel_review(material, binding, request_id='fresh')
-    assert len(material._print_cancel_tickets) == 1
+    assert len(material._cancellation()._print_cancel_tickets) == 1
     with pytest.raises(ValueError, match='stale, changed or already used'):
         material._handle_print_cancel(CancelWebRequest(**old))
     assert not cleanup and len(timers) == before
-    assert not material._print_cancel_unresolved()
+    assert not material._cancellation()._print_cancel_unresolved()
 
 
 def test_cancel_review_capacity_counts_only_live_reviews(managed_cancel_intent):
@@ -306,7 +306,7 @@ def test_cancel_review_capacity_counts_only_live_reviews(managed_cancel_intent):
         print_cancel_review(material, binding, request_id='live-' + str(number))
     with pytest.raises(ValueError, match='live cancellation reviews; wait for them to expire'):
         print_cancel_review(material, binding, request_id='overflow')
-    material._print_cancel_tickets['live-0']['expires'] = 0.
+    material._cancellation()._print_cancel_tickets['live-0']['expires'] = 0.
     print_cancel_review(material, binding, request_id='overflow')
-    assert len(material._print_cancel_tickets) == 1024
+    assert len(material._cancellation()._print_cancel_tickets) == 1024
     assert not cleanup and len(timers) == before

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
+#include "stock_api.hpp"
 #include "../typed_management.hpp"
 #include "home_mini.hpp"
 #include "bounded_worker.hpp"
@@ -365,7 +366,7 @@ public:
   std::random_device random;std::string token;constexpr char hex[]="0123456789abcdef";
   for(unsigned i=0;i<16;++i){const auto value=random()&255;token+=hex[value>>4];token+=hex[value&15];}
   if(calibration_flow_.request(name,token)){
-   auto*screen=dialog_function<void*(*)(void*)>(lv_disp_get_scr_act)(nullptr);
+   auto*screen=stock_function<void*(*)(void*)>(lv_disp_get_scr_act)(nullptr);
    guide_calibration_status_.created(screen,true);
   }
   guide_calibration_status_.update(stock_snapshot(),calibration_flow_.message());
@@ -469,7 +470,7 @@ public:
   probe_editor_worker_.reset(new ProbeEditorWorker(transport,&stop));
  }
  void open_probe_editor(){
-  auto*page=dialog_function<void*(*)(void*)>(lv_disp_get_scr_act)(nullptr);
+  auto*page=stock_function<void*(*)(void*)>(lv_disp_get_scr_act)(nullptr);
   probe_editor_created(page,[this]{probe_editor_panel_.dismiss();});
  }
  void probe_editor_created(void*page,std::function<void()> close){
@@ -778,16 +779,16 @@ public:
    std::string maintenance_reason;
    {std::lock_guard<std::mutex>lock(mutex_);maintenance_reason.swap(maintenance_refusal_);}
    if(!maintenance_reason.empty()){
-    auto*layer=dialog_function<void*(*)(void*)>(lv_disp_get_layer_sys)(nullptr);
+    auto*layer=stock_function<void*(*)(void*)>(lv_disp_get_layer_sys)(nullptr);
     maintenance_notice_.show(layer,maintenance_reason);
    }
    if(factory_reset_refused_.exchange(false)&&!factory_reset_notice_.active()){
-    auto*layer=dialog_function<void*(*)(void*)>(lv_disp_get_layer_sys)(nullptr);
+    auto*layer=stock_function<void*(*)(void*)>(lv_disp_get_layer_sys)(nullptr);
     factory_reset_notice_.show(layer,"To factory reset, first uninstall WM+ with the installer, then use Factory Reset. No settings or files were changed.");
    }
 
    if(factory_command_refused_.exchange(false)&&!factory_reset_notice_.active()){
-    auto*layer=dialog_function<void*(*)(void*)>(lv_disp_get_layer_sys)(nullptr);
+    auto*layer=stock_function<void*(*)(void*)>(lv_disp_get_layer_sys)(nullptr);
     std::string why;{std::lock_guard<std::mutex>lock(mutex_);why.swap(factory_command_reason_);}
     factory_reset_notice_.show(layer,why.empty()?"Factory action context changed; no trigger command was sent.":why);
    }
@@ -826,7 +827,7 @@ public:
     display["resolution_available"]=resolution.value("available",false)&&record.value("id","")==receipt.value("id","");
     if(show){
      if(!cancel_progress_.tracks(display.value("id","")))
-      if(!cancel_progress_.open(dialog_function<void*(*)(void*)>(lv_disp_get_layer_top)(nullptr),display)&&held)cancel_hold_shown_.clear();
+      if(!cancel_progress_.open(stock_function<void*(*)(void*)>(lv_disp_get_layer_top)(nullptr),display)&&held)cancel_hold_shown_.clear();
     }
     cancel_progress_.update(display);
     if(cancel_progress_.active()&&cancel_resolution_worker_)cancel_resolution_worker_->auto_review();
@@ -887,7 +888,7 @@ public:
      }
     }
     if(show&&!recovery_progress_.tracks(result.value("id",""))){
-     auto*top=dialog_function<void*(*)(void*)>(lv_disp_get_layer_top)(nullptr);
+     auto*top=stock_function<void*(*)(void*)>(lv_disp_get_layer_top)(nullptr);
      // Startup can publish the hold before LVGL has sized its overlay. A
      // failed presentation must not consume the one-time restored-hold notice.
      if(!recovery_progress_.open(top,result)&&held)recovery_hold_shown_.clear();
@@ -910,7 +911,7 @@ public:
    const std::string service_action=req>=30&&req<=33?"nozzle":req>=20&&req<=27?(req<24?"load":"unload"):"";
    if(service_action=="nozzle"){
     nozzle_editor_.update(stock_snapshot());
-    auto*screen=dialog_function<void*(*)(void*)>(lv_disp_get_scr_act)(dialog_function<void*(*)()>(lv_disp_get_default)());
+    auto*screen=stock_function<void*(*)(void*)>(lv_disp_get_scr_act)(stock_function<void*(*)()>(lv_disp_get_default)());
     nozzle_editor_.show(screen,unsigned(req-30));
     return;
    }

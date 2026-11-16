@@ -131,7 +131,7 @@ def test_deposition_adapter_failed_write_disables_recovery_but_queues_once(adapt
     material, queue, objects, events, record = adapter
     assert material._begin_deposition_envelope(record)
     def fail(path, value): raise OSError('disk failure')
-    material._write_recovery_json = fail
+    material._recovery_storage()._write_recovery_json = fail
     queue.add_move(move([0, 0, 2, 0], [1, 0, 2, 1]))
     assert events == [('queue', 2)]
     assert material._deposition_envelope is None
@@ -181,7 +181,7 @@ def test_vendor_advanced_position_still_reaches_queue_on_record_failure(adapter,
     head.kin = head.extruder = NS(check_move=lambda move: None)
     head.print_time, head.need_check_pause = 0., float('inf')
     def fail(path, value): raise OSError('disk failure')
-    material._write_recovery_json = fail
+    material._recovery_storage()._write_recovery_json = fail
     namespace['move'](head, [1., 0., 2., 1.], 10.)
     assert head.commanded_pos == [1., 0., 2., 1.]  # Vendor updates this before enqueue.
     assert events == [('queue', 2.)]

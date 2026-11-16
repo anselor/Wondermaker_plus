@@ -318,8 +318,8 @@ def print_material(material, tmp_path):
     material._print_requests = set()
     material.print_submission = {}
     material.cmd_SET_FILAMENT(profile_command(material))
-    material._sensor_filament_status = lambda now: {'h2': {'state': 'loaded'}}
-    material._loaded_filament_status = lambda now: {
+    material._filament_state()._sensor_filament_status = lambda now: {'h2': {'state': 'loaded'}}
+    material._filament_state()._loaded_filament_status = lambda now: {
         'h2': {'state': 'loaded', 'source': 'external:h2',
                'identity': material._profiles()[0]['h2']}}
     path = tmp_path / 'part.gcode'
@@ -340,7 +340,7 @@ def start_command(request):
 @pytest.mark.parametrize('observed', ['empty', 'unknown', 'missing'])
 def test_print_refuses_metadata_without_completed_loading(print_material, observed):
     material, objects, request, path = print_material
-    material._loaded_filament_status = lambda now: {} if observed == 'missing' else {'h2': {'state': observed, 'sensor_present': True}}
+    material._filament_state()._loaded_filament_status = lambda now: {} if observed == 'missing' else {'h2': {'state': observed, 'sensor_present': True}}
     with pytest.raises(ValueError, match='Confirm filament metadata/loading for Head 3'):
         material.cmd_START_PRINT(start_command(request))
     assert objects['gcode'].scripts == []
@@ -451,7 +451,7 @@ def test_prepared_print_rechecks_backend_before_sd_dispatch(print_material, drif
                 with open(material.profile_path, 'w') as stream:
                     json.dump(profiles, stream)
             elif drift == 'unloaded':
-                material._loaded_filament_status = lambda now: {'h2': {'state': 'empty'}}
+                material._filament_state()._loaded_filament_status = lambda now: {'h2': {'state': 'empty'}}
             else:
                 objects['pause_resume'].values['is_paused'] = True
     objects['gcode'].run_script_from_command = change
@@ -683,7 +683,7 @@ def test_sequence_restores_real_vendor_state_after_g92(failure, absolute, recipe
         material.printer = printer
         material._pause_origin = {'states': {'PAUSE': captured}, 'serviced': True}
         checks = []
-        material.cmd_CHECK_RESUME = lambda command: checks.append('admitted')
+        material._paused_service().cmd_CHECK_RESUME = lambda command: checks.append('admitted')
         material.cmd_PREPARE_RESUME_E(FakeCommand())
         run('RESTORE_GCODE_STATE NAME=PAUSE MOVE=1 MOVE_SPEED=60')
         assert move.get_status()['gcode_position'].e != pytest.approx(100.)
@@ -766,7 +766,7 @@ def sequence_material(material):
     }
     original = material.printer.lookup_object
     material.printer.lookup_object = lambda name, default=None: objects.get(name, original(name, default))
-    material._attachment = lambda now: {'state': 'attached', 'head': 'h2'}
+    material._material_status()._attachment = lambda now: {'state': 'attached', 'head': 'h2'}
     return material, objects
 
 
@@ -801,7 +801,7 @@ def test_sequence_refuses_without_motion(sequence_material, monkeypatch, change)
     elif change == 'printing': material.printer.state = 'printing'
     elif change == 'sd': objects['virtual_sdcard'] = SimpleNamespace(is_active=lambda: True)
     elif change == 'from_sd': objects['virtual_sdcard'] = SimpleNamespace(is_active=lambda: False, is_cmd_from_sd=lambda: True)
-    elif change == 'attachment': material._attachment = lambda now: {'state': 'unknown', 'head': ''}
+    elif change == 'attachment': material._material_status()._attachment = lambda now: {'state': 'unknown', 'head': ''}
     elif change in ('cold', 'target'): objects['extruder2'] = SimpleNamespace(get_status=lambda now: {'temperature': 28 if change == 'cold' else 250, 'target': 0 if change == 'target' else 250, 'can_extrude': True})
     else: cmd.args['TOKEN'] = 'stale'
     monkeypatch.setattr('wm_material.run_standalone_extrusion_sequence', lambda *args: pytest.fail('motion on refusal'))
@@ -817,7 +817,7 @@ def test_unload_uses_observed_identity_and_reports_failure(sequence_material, mo
     profiles, revision = material._profiles()
     material._set_filament_loaded("h2", True)
     material._filament_checks['h2'] = {'state': 'loaded', 'identity': profiles['h2']}
-    material._sensor_filament_status = lambda now: material._filament_checks
+    material._filament_state()._sensor_filament_status = lambda now: material._filament_checks
     objects['extruder2'] = SimpleNamespace(get_status=lambda now: {'temperature': 235, 'target': 235, 'can_extrude': True})
     # Configured spool may change; unload must still shape the observed PETG.
     material.cmd_SET_FILAMENT(profile_command(material, PROFILE=json.dumps({'brand': 'Generic', 'material': 'PLA', 'color': '#ffffff'}).encode().hex()))
@@ -840,17 +840,17 @@ def test_unload_uses_observed_identity_and_reports_failure(sequence_material, mo
 
 def test_status_publishes_supported_material_catalogue(material):
     from wm_material import MATERIALS
-    material._refresh = lambda: None
+    material._material_status()._refresh = lambda: None
     material._mtime = 1
     material._slots = {}
     material.ini_path = '/unused/test.ini'
     material.print_submission = {}
     material.filament_operation = {}
-    material._attachment = lambda now: {'state': 'unknown', 'head': ''}
-    material._filament_status = lambda now: {}
+    material._material_status()._attachment = lambda now: {'state': 'unknown', 'head': ''}
+    material._filament_state()._filament_status = lambda now: {}
     def unavailable(*args):
         raise ValueError('Take the selected head first')
-    material._filament_plan = unavailable
+    material._filament_planning()._filament_plan = unavailable
     status = material.get_status(1.)
     assert status['filament_materials'] == [name for name, temperature in MATERIALS]
     assert status['filament_materials'][18:] == ['PCTG', 'PA6', 'PA12', 'PP']
@@ -1145,7 +1145,7 @@ def ace_direct_load(print_material, request):
         'material': 'PLA', 'color': '#123456', 'nozzle_temp': 220}}}}
     state = {'present': getattr(request, 'param', False), 'time': 1.}
     callbacks = []
-    material._sensor_filament_status = lambda now: {'h2': {
+    material._filament_state()._sensor_filament_status = lambda now: {'h2': {
         'state': 'loaded' if state['present'] else 'empty'}}
     def pause(wake):
         state['time'] = wake
@@ -1202,7 +1202,7 @@ def test_openace_direct_review_binds_owner_load_before_preparation(ace_direct_lo
 
 def test_openace_direct_empty_record_does_not_replace_unreadable_sensor(ace_direct_load):
     material, objects, plan, state, reactor, execute = ace_direct_load
-    material._sensor_filament_status = lambda now: {'h2': {'state': 'unknown'}}
+    material._filament_state()._sensor_filament_status = lambda now: {'h2': {'state': 'unknown'}}
     with pytest.raises(ValueError, match='resolve openACE state'):
         material._openace_load_plans(2, 1.)
     assert objects['gcode'].scripts == []
@@ -1535,7 +1535,7 @@ def test_afc_owner_refuses_standalone_filament_plan_and_command(service_material
     with pytest.raises(ValueError, match='AFC owns'):
         material.cmd_FILAMENT_SEQUENCE(FakeCommand(HEAD=2, ACTION=action, ID='afc-refusal', TOKEN='unused'))
     assert material.filament_operation['state'] == 'refused'
-    assert not Path(material._filament_operation_path()).exists()
+    assert not Path(material._filament_service()._filament_operation_path()).exists()
 
 
 @pytest.mark.parametrize('mutation', ['calibration', 'active_setup'])
@@ -1637,7 +1637,7 @@ def test_service_returns_receipt_then_revalidates_under_gcode_lock(service_mater
         assert locked[0]
         executed.append(head)
         material.filament_operation['state'] = 'complete'
-    material._execute_filament = execute
+    material._filament_service()._execute_filament = execute
     command = sequence_command(material) if entry == 'reviewed' else FakeCommand(HEAD='2', ACTION='load', ID='public-async')
     submit = material.cmd_FILAMENT_SEQUENCE if entry == 'reviewed' else material.cmd_FILAMENT_SERVICE
     submit(command)
@@ -1819,7 +1819,7 @@ def test_filament_scheduler_failure_cannot_run_later(service_material, enqueue_f
             callbacks.append(callback)
         raise RuntimeError('scheduler failed')
     material.printer.register_callback = reject
-    material._execute_filament = lambda *args: executed.append(args)
+    material._filament_service()._execute_filament = lambda *args: executed.append(args)
     with pytest.raises(RuntimeError, match='scheduler failed'):
         material.cmd_FILAMENT_SEQUENCE(sequence_command(material))
     assert material.filament_operation['state'] == 'refused'
@@ -1839,11 +1839,11 @@ def test_filament_intent_write_failure_does_not_block_or_duplicate_dispatch(serv
     callbacks, executed = [], []
     material.printer.register_callback = callbacks.append
     def fail(): raise OSError('journal unavailable')
-    monkeypatch.setattr(material, '_persist_filament_operation', fail)
+    monkeypatch.setattr(material._filament_service(), '_persist_filament_operation', fail)
     def execute(*args):
         executed.append(args)
         material.filament_operation['state'] = 'complete'
-    monkeypatch.setattr(material, '_execute_filament', execute)
+    monkeypatch.setattr(material._filament_service(), '_execute_filament', execute)
     command = sequence_command(material)
     material.cmd_FILAMENT_SEQUENCE(command)
     assert material.filament_operation['state'] == 'running'
@@ -1861,14 +1861,14 @@ def test_filament_scheduler_refusal_write_failure_retains_refusal(service_materi
     def reject(callback):
         callbacks.append(callback)
         raise RuntimeError('scheduler failed')
-    persist = material._persist_filament_operation
+    persist = material._filament_service()._persist_filament_operation
     def fail_refusal():
         if material.filament_operation['state'] == 'refused':
             raise OSError('refusal journal unavailable')
         persist()
     material.printer.register_callback = reject
-    material._execute_filament = lambda *args: executed.append(args)
-    monkeypatch.setattr(material, '_persist_filament_operation', fail_refusal)
+    material._filament_service()._execute_filament = lambda *args: executed.append(args)
+    monkeypatch.setattr(material._filament_service(), '_persist_filament_operation', fail_refusal)
     with pytest.raises(RuntimeError, match='scheduler failed'):
         material.cmd_FILAMENT_SEQUENCE(sequence_command(material))
     callbacks.pop()(1.)
@@ -1918,7 +1918,7 @@ def test_profile_completion_survives_failed_reactor_wakeup(material, monkeypatch
 def test_afc_thread_start_failure_releases_only_publisher_busy(material, monkeypatch):
     material._afc_stopped = material._afc_busy = False
     material._afc_last = None
-    material._lane_data = lambda now: {'head': {}}
+    material._material_owners()._lane_data = lambda now: {'head': {}}
     def reject(**kwargs):
         raise RuntimeError('thread unavailable')
     monkeypatch.setattr('wm_material.threading.Thread', reject)
@@ -2001,7 +2001,7 @@ def test_filament_cancel_at_checkpoints_stops_then_confirms_heater_off(service_m
             if target == 0 and cleanup_fails: raise ValueError('heater cleanup failed')
             heater['target'] = target
     objects['gcode'] = SimpleNamespace(run_script_from_command=run)
-    material._prepare_service = lambda *args: None
+    material._filament_planning()._prepare_service = lambda *args: None
     def feed(printer, sequence):
         feeds.append(sequence)
         cancel()
@@ -2010,7 +2010,7 @@ def test_filament_cancel_at_checkpoints_stops_then_confirms_heater_off(service_m
     if phase == 'feeding': state['filament_switch_sensor filament2']['filament_detected'] = True
     plan = {'service': {}, 'target': 250, 'head': 'h2', 'class': 'pla',
             'identity': material._profiles()[0]['h2']}
-    with pytest.raises(FilamentCancelled): material._execute_filament(FakeCommand(), 2, 'load', plan)
+    with pytest.raises(FilamentCancelled): material._filament_service()._execute_filament(FakeCommand(), 2, 'load', plan)
     assert len(feeds) == (1 if phase == 'feeding' else 0)
     assert 'M400' in calls
     assert material.filament_operation['cancelled'] is True
@@ -2047,7 +2047,7 @@ def test_service_completion_requires_heater_off_and_sensor_readback(service_mate
                 raise ValueError('heater off failed')
         heater['target'] = target
     objects['gcode'] = SimpleNamespace(run_script_from_command=run)
-    material._prepare_service = lambda *args: None
+    material._filament_planning()._prepare_service = lambda *args: None
     def feed(printer, sequence):
         feeds.append(sequence)
         if fault == "purge" and len(feeds) == 2: raise ValueError("purge failed")
@@ -2055,24 +2055,24 @@ def test_service_completion_requires_heater_off_and_sensor_readback(service_mate
     monkeypatch.setattr('wm_material.run_standalone_extrusion_sequence', feed)
     plan = dict(service={}, target=250, head='h2', identity=material._profiles()[0]['h2'], **{'class': 'pla'})
     if fault == 'none' or (fault == 'sensor' and action == 'unload'):
-        material._execute_filament(FakeCommand(), 2, action, plan)
+        material._filament_service()._execute_filament(FakeCommand(), 2, action, plan)
         assert material.filament_operation['state'] == 'complete'
         assert len(off_attempts) == 1
     else:
-        with pytest.raises(ValueError): material._execute_filament(FakeCommand(), 2, action, plan)
+        with pytest.raises(ValueError): material._filament_service()._execute_filament(FakeCommand(), 2, action, plan)
         assert material.filament_operation['state'] == ('unknown' if fault in ('ignored_off', 'off_exception') else 'failed')
         assert 'M400' in calls
         assert len(off_attempts) == (1 if fault in ("purge", "wipe") or (fault == "sensor" and action == "load") else 2)
     if action == 'load' and fault == 'none':
         assert feeds == ['G1 E55 F400', 'G1 E50 F400']
         assert 'WIPE_NOZZLE XY_ONLY=1\nM400' in calls
-        assert material._load_filament_flags()['h2'] is True
+        assert material._filament_state()._load_filament_flags()['h2'] is True
     if fault == 'purge':
         assert 'WIPE_NOZZLE XY_ONLY=1\nM400' not in calls
         assert material._hotend_material_history()['h2']['state'] == 'mixed'
     if fault == 'wipe':
         assert material._hotend_material_history()['h2']['state'] == 'purged'
-    if fault in ('purge', 'wipe'): assert material._load_filament_flags().get('h2', False) is False
+    if fault in ('purge', 'wipe'): assert material._filament_state()._load_filament_flags().get('h2', False) is False
     assert len(feeds) == (2 if action == 'load' and fault != 'sensor' else 1)  # No replay during cleanup.
     assert (heater['target'] == 0) == (fault not in ('ignored_off', 'off_exception'))
 
@@ -2173,7 +2173,7 @@ def test_filament_recovery_confirms_stop_without_replaying_moves(service_materia
     material.filament_operation['command_generation'] = 7  # Prior process/generation; cleanup must remain possible.
     state['filament_switch_sensor filament2']['filament_detected'] = None if fault == 'sensor' else presence
     objects['extruder2'] = SimpleNamespace(get_status=lambda now: dict(heater))
-    if fault == 'attachment': material._attachment = lambda now: {'state': 'unknown', 'head': ''}
+    if fault == 'attachment': material._material_status()._attachment = lambda now: {'state': 'unknown', 'head': ''}
     def run(script):
         calls.append(script)
         if script == 'M400' and fault == 'drain': raise ValueError('drain failed')
@@ -2184,7 +2184,7 @@ def test_filament_recovery_confirms_stop_without_replaying_moves(service_materia
     # Exercise the same recovery after losing the Python process, rather than
     # relying only on an in-memory unknown record.
     material.filament_operation['state'] = 'running'
-    material._persist_filament_operation()
+    material._filament_service()._persist_filament_operation()
     material.filament_operation = {}
     material.session_id = 'restarted-session'
     material._restore_filament_operation()
@@ -2192,7 +2192,7 @@ def test_filament_recovery_confirms_stop_without_replaying_moves(service_materia
     assert material.filament_operation['previous_session'] == 'test-session'
     command = FakeCommand(HEAD='2', SESSION=material.session_id, ID='interrupted')
     if fault.startswith('journal'):
-        persist = material._persist_filament_operation
+        persist = material._filament_service()._persist_filament_operation
         def fail_terminal_write():
             if fault == 'journal_always':
                 raise OSError('storage remains unavailable')
@@ -2201,7 +2201,7 @@ def test_filament_recovery_confirms_stop_without_replaying_moves(service_materia
                     persist()
                 raise OSError('result storage unavailable')
             persist()
-        monkeypatch.setattr(material, '_persist_filament_operation', fail_terminal_write)
+        monkeypatch.setattr(material._filament_service(), '_persist_filament_operation', fail_terminal_write)
     if fault and not fault.startswith('journal'):
         with pytest.raises(ValueError, match='Recovery not confirmed'): material.cmd_RECOVER_FILAMENT(command)
         assert material.filament_operation['state'] == 'unknown'
@@ -2235,7 +2235,7 @@ def test_filament_recovery_rejects_changed_context_before_commands(service_mater
     elif change == 'head': args['HEAD'] = '1'
     elif change in ('running', 'complete'): material.filament_operation['state'] = change
     elif change == 'owner': objects['openace'] = object()
-    elif change == 'busy': material._idle_for_filament_settings = lambda now: False
+    elif change == 'busy': material._material_settings()._idle_for_filament_settings = lambda now: False
     elif change == 'tool': material.toolhead_operation = {'state': 'running'}
     before = dict(material.filament_operation)
     with pytest.raises(ValueError): material.cmd_RECOVER_FILAMENT(FakeCommand(**args))
@@ -2263,7 +2263,7 @@ def interrupted_toolhead(toolhead_material):
 def test_toolhead_recovery_records_sensors_without_replaying_action(interrupted_toolhead, attached):
     material, objects, state, scripts, command = interrupted_toolhead
     observed = {'state': 'attached' if attached else 'empty', 'head': attached}
-    material._attachment = lambda now: dict(observed)
+    material._material_status()._attachment = lambda now: dict(observed)
     before = dict(state['save_variables']['variables'])
     material.cmd_RECOVER_TOOLHEAD(command)
     assert scripts == ['M400']
@@ -2288,9 +2288,9 @@ def test_toolhead_recovery_refuses_changed_or_unresolved_context(interrupted_too
     elif change in ('running', 'complete'): material.toolhead_operation['state'] = change
     elif change == 'owner': objects['openace'] = object()
     elif change == 'afc': objects['AFC'] = object()
-    elif change == 'busy': material._idle_for_filament_settings = lambda now: False
+    elif change == 'busy': material._material_settings()._idle_for_filament_settings = lambda now: False
     elif change == 'filament': material.filament_operation = {'state': 'running'}
-    elif change == 'sensor': material._attachment = lambda now: {'state': 'unknown', 'head': ''}
+    elif change == 'sensor': material._material_status()._attachment = lambda now: {'state': 'unknown', 'head': ''}
     elif change == 'fault': state['save_variables']['variables']['fail_flag'] = -2
     elif change == 'setup': state['save_variables']['variables']['is_nozzle_setting'] = 1
     before = dict(material.toolhead_operation)
@@ -2319,8 +2319,8 @@ def test_toolhead_recovery_rechecks_after_draining(interrupted_toolhead, change)
     def run(script):
         scripts.append(script)
         if change == 'drain': raise ValueError('drain failed')
-        if change == 'busy': material._idle_for_filament_settings = lambda now: False
-        if change == 'sensor': material._attachment = lambda now: {'state': 'unknown', 'head': ''}
+        if change == 'busy': material._material_settings()._idle_for_filament_settings = lambda now: False
+        if change == 'sensor': material._material_status()._attachment = lambda now: {'state': 'unknown', 'head': ''}
         if change == 'fault': state['save_variables']['variables']['fail_flag'] = -2
         if change == 'owner': objects['openace'] = object()
     objects['gcode'].run_script_from_command = run
@@ -2423,7 +2423,7 @@ def test_service_homing_precedes_travel_and_stops_on_failure(service_material, r
 def test_service_failed_release_stops_after_stock_retreat(service_material, seated, hall, locked):
     from types import SimpleNamespace
     material, objects, state = service_material
-    material._attachment = lambda now: {'state': 'attached', 'head': 'h1'}
+    material._material_status()._attachment = lambda now: {'state': 'attached', 'head': 'h1'}
     for name, values in {
         'filament_switch_sensor docked1': {'filament_detected': seated},
         'custom_hall': {'Raw': hall},
@@ -2490,18 +2490,18 @@ def test_restart_sensor_defaults_do_not_erase_persisted_loaded_flag(filament_che
     sensor.detected = False
     del material._loaded_flags
     assert material._loaded_filament_status(1)['h2']['state'] == 'unknown'
-    assert material._load_filament_flags()['h2'] is True
+    assert material._filament_state()._load_filament_flags()['h2'] is True
     material._filament_sensors_ready()
     ready_at = material._filament_sensors_ready_at
     assert material._loaded_filament_status(ready_at - .1)['h2']['state'] == 'unknown'
-    assert material._load_filament_flags()['h2'] is True
+    assert material._filament_state()._load_filament_flags()['h2'] is True
     sensor.detected = True
     assert material._loaded_filament_status(ready_at)['h2']['state'] == 'loaded'
     sensor.detected = False
     assert material._loaded_filament_status(ready_at + 1)['h2']['state'] == 'empty'
     material._loaded_filament_status(ready_at + 1.3)
     del material._loaded_flags
-    assert material._load_filament_flags()['h2'] is False
+    assert material._filament_state()._load_filament_flags()['h2'] is False
 
 
 def test_shutdown_sensor_defaults_do_not_erase_loaded_flag(filament_check):
@@ -2509,7 +2509,7 @@ def test_shutdown_sensor_defaults_do_not_erase_loaded_flag(filament_check):
     material._filament_sensors_unavailable()
     sensor.detected = False
     assert material._loaded_filament_status(10000)['h2']['state'] == 'unknown'
-    assert material._load_filament_flags()['h2'] is True
+    assert material._filament_state()._load_filament_flags()['h2'] is True
 
 @pytest.fixture
 def paused_origin_material(service_material):
@@ -2564,7 +2564,7 @@ def test_prepare_resume_e_refuses_invalid_context_without_g92(paused_origin_mate
     if invalid == 'busy':
         state['active'] = True
     else:
-        material.cmd_CHECK_RESUME = lambda command: None
+        material._paused_service().cmd_CHECK_RESUME = lambda command: None
     if invalid in ('openace', 'AFC'):
         objects[invalid] = object()
     elif invalid == 'position':
@@ -2629,7 +2629,7 @@ def test_paused_plan_refuses_head_change_or_missing_service(paused_origin_materi
     material, objects, state = paused_origin_material
     head = 2
     if condition == 'other_head': head = 1
-    elif condition == 'detached': material._attachment = lambda now: {'state': 'empty', 'head': ''}
+    elif condition == 'detached': material._material_status()._attachment = lambda now: {'state': 'empty', 'head': ''}
     else: objects['wmp_recovery'] = None
     with pytest.raises(ValueError): material._filament_plan(head, 'load', 1)
 
@@ -2638,12 +2638,12 @@ def test_paused_plan_refuses_head_change_or_missing_service(paused_origin_materi
 def test_resume_requires_completed_service_and_original_loaded_head(paused_origin_material, condition):
     material, objects, state = paused_origin_material
     material._pause_origin.update(serviced=True, ready=True)
-    material._loaded_filament_status = lambda now: {'h2': {'state': 'loaded'}}
+    material._filament_state()._loaded_filament_status = lambda now: {'h2': {'state': 'loaded'}}
     if condition in ('running', 'unknown'): material.filament_operation = {'state': condition}
     elif condition == 'unloaded': material._pause_origin['ready'] = False
-    elif condition == 'wrong_head': material._attachment = lambda now: {'state': 'attached', 'head': 'h1'}
+    elif condition == 'wrong_head': material._material_status()._attachment = lambda now: {'state': 'attached', 'head': 'h1'}
     elif condition == 'wrong_motor': objects['toolhead'].get_status(1)['extruder'] = 'extruder'
-    elif condition == 'sensor_clear': material._loaded_filament_status = lambda now: {'h2': {'state': 'empty'}}
+    elif condition == 'sensor_clear': material._filament_state()._loaded_filament_status = lambda now: {'h2': {'state': 'empty'}}
     elif condition == 'job_changed': state['job'] = 'printing'
     if condition in ('ready', 'unknown'): material.cmd_CHECK_RESUME(FakeCommand())
     else:
@@ -2685,13 +2685,13 @@ def test_paused_load_preserves_origin_and_only_allows_resume_after_full_completi
         if len(feeds) == 1 and failure == 'job_drift': objects['virtual_sdcard'].file_position += 1
     monkeypatch.setattr('wm_material.run_standalone_extrusion_sequence', feed)
     if failure == 'none':
-        material._execute_filament(FakeCommand(), 2, 'load', plan)
+        material._filament_service()._execute_filament(FakeCommand(), 2, 'load', plan)
         material.cmd_CHECK_RESUME(FakeCommand())
         assert material._pause_origin['ready'] is True
         assert feeds == ['G1 E55 F400', 'G1 E50 F400']
         assert calls.count('WIPE_NOZZLE XY_ONLY=1\nM400') == 1
     else:
-        with pytest.raises(ValueError): material._execute_filament(FakeCommand(), 2, 'load', plan)
+        with pytest.raises(ValueError): material._filament_service()._execute_filament(FakeCommand(), 2, 'load', plan)
         with pytest.raises(ValueError): material.cmd_CHECK_RESUME(FakeCommand())
         assert not material._pause_origin['ready']
         assert 'WIPE_NOZZLE XY_ONLY=1\nM400' not in calls
@@ -2706,15 +2706,15 @@ def test_paused_load_preserves_origin_and_only_allows_resume_after_full_completi
     'loaded', 'unknown', 'detached', 'job_changed', 'cancelled', 'running'])
 def test_paused_identity_edit_is_scoped_and_never_moves(paused_origin_material, condition):
     material, objects, state = paused_origin_material
-    material._loaded_filament_status = lambda now: {'h2': {'state': 'empty'}}
+    material._filament_state()._loaded_filament_status = lambda now: {'h2': {'state': 'empty'}}
     updated = dict(material._profiles()[0]['h2'], nozzle_temp=240)
     command = profile_command(material, PAUSE=material._pause_origin['id'], PROFILE=json.dumps(updated).encode().hex())
     if condition == 'missing_token': command.args.pop('PAUSE')
     elif condition == 'wrong_token': command.args['PAUSE'] = '0' * 32
     elif condition == 'wrong_head': command.args['HEAD'] = '1'
     elif condition in ('loaded', 'unknown'):
-        material._loaded_filament_status = lambda now: {'h2': {'state': condition}}
-    elif condition == 'detached': material._attachment = lambda now: {'state': 'none'}
+        material._filament_state()._loaded_filament_status = lambda now: {'h2': {'state': condition}}
+    elif condition == 'detached': material._material_status()._attachment = lambda now: {'state': 'none'}
     elif condition == 'job_changed': state['job'] = 'printing'
     elif condition == 'cancelled': state.update(job='cancelled', paused=False)
     elif condition == 'running': material.filament_operation = {'state': 'running'}
@@ -2744,7 +2744,7 @@ def test_resume_refuses_unpaused_or_busy_context_even_without_service(paused_ori
 @pytest.mark.parametrize('condition', ['loaded', 'empty', 'unknown', 'missing_origin'])
 def test_resume_checks_runout_before_any_replacement_operation(paused_origin_material, condition):
     material, objects, state = paused_origin_material
-    material._loaded_filament_status = lambda now: {'h2': {'state': condition}}
+    material._filament_state()._loaded_filament_status = lambda now: {'h2': {'state': condition}}
     if condition == 'missing_origin': material._pause_origin = None
     material.cmd_CHECK_RESUME(FakeCommand())  # No loss or WM+ service in this job.
     assert state['paused'] is True
@@ -2793,7 +2793,7 @@ def test_paused_editor_cannot_bypass_identification_lock(material):
     material.printer.paused = True
     def unexpected_origin(*args):
         raise AssertionError('Paused editor must not be consulted during identification lock')
-    material._paused_filament_origin = unexpected_origin
+    material._paused_service()._paused_filament_origin = unexpected_origin
     with pytest.raises(ValueError, match='Resolve head identification'):
         material.cmd_SET_FILAMENT(FakeCommand(HEAD=2, PAUSE='previous-paused-job'))
 
@@ -3006,7 +3006,7 @@ def test_process_loss_during_withdrawal_retains_uncertainty(sequence_material, m
     from types import SimpleNamespace
     objects['extruder2'] = SimpleNamespace(get_status=lambda now: {'temperature': 235., 'target': 235., 'can_extrude': True})
     obj._set_filament_loaded('h2', True)
-    obj._sensor_filament_status = lambda now: {'h2': {'state': 'loaded', 'identity': obj._profiles()[0]['h2']}}
+    obj._filament_state()._sensor_filament_status = lambda now: {'h2': {'state': 'loaded', 'identity': obj._profiles()[0]['h2']}}
     def process_loss(printer, script):
         assert script.startswith('_TIP_SHAPE_MOVES')
         raise SystemExit('simulated process loss after withdrawal dispatch')
@@ -3017,6 +3017,14 @@ def test_process_loss_during_withdrawal_retains_uncertainty(sequence_material, m
     # on-disk files and the still-present inlet signal from the fixture.
     restarted = WMMaterial.__new__(WMMaterial)
     restarted.__dict__.update(obj.__dict__)
+    # The fixture copies machine dependencies, not live feature ownership from
+    # the old process. Rebind copied feature instances to this backend.
+    for name, feature in list(vars(restarted).items()):
+        if getattr(feature, 'material', None) is obj:
+            import copy
+            replacement = copy.copy(feature)
+            replacement.material = restarted
+            setattr(restarted, name, replacement)
     restarted.session_id = 'new-process'
     restarted.filament_operation = {}
     restarted._filament_requests = set()
@@ -3052,8 +3060,8 @@ def test_filament_journal_write_failure_is_not_a_dispatch_prerequisite(sequence_
     obj, _ = sequence_material
     calls = []
     def failed(): raise OSError('disk unavailable')
-    monkeypatch.setattr(obj, '_persist_filament_operation', failed)
-    monkeypatch.setattr(obj, '_execute_filament', lambda *args: calls.append(args))
+    monkeypatch.setattr(obj._filament_service(), '_persist_filament_operation', failed)
+    monkeypatch.setattr(obj._filament_service(), '_execute_filament', lambda *args: calls.append(args))
     command = sequence_command(obj)
     obj.cmd_FILAMENT_SEQUENCE(command)
     assert len(calls) == 1
@@ -3065,10 +3073,10 @@ def test_filament_journal_write_failure_is_not_a_dispatch_prerequisite(sequence_
 @pytest.mark.parametrize('payload', ['broken', '{}', '[]', '{"version":1,"operation":{}}'])
 def test_corrupt_filament_journal_is_not_silently_discarded(material, payload):
     from pathlib import Path
-    Path(material._filament_operation_path()).write_text(payload)
+    Path(material._filament_service()._filament_operation_path()).write_text(payload)
     material._restore_filament_operation()
     assert material.filament_operation['state'] == 'unknown'
-    assert Path(material._filament_operation_path()).read_text() == payload
+    assert Path(material._filament_service()._filament_operation_path()).read_text() == payload
     material.cmd_SET_FILAMENT(profile_command(material))
 
 
@@ -3084,14 +3092,14 @@ def test_filament_journal_checkpoint_does_not_rewrite_unchanged_state(sequence_m
     monkeypatch.setattr('wm_material.os.replace', replace)
     for _ in range(20):
         obj._filament_checkpoint('inserting')
-    assert calls == [obj._filament_operation_path()]
+    assert calls == [obj._filament_service()._filament_operation_path()]
 
 
 def test_restart_cannot_reuse_old_pause_context(sequence_material):
     obj, _ = sequence_material
     obj.filament_operation = dict(id='paused-load', session=obj.session_id, head='h2',
         action='load', state='running', pause_origin={'file': 'old.gcode'})
-    obj._persist_filament_operation()
+    obj._filament_service()._persist_filament_operation()
     obj.session_id = 'restarted'
     obj.filament_operation = {}
     obj._restore_filament_operation()
@@ -3106,14 +3114,14 @@ def test_partial_load_never_persists_ready_before_purge_completes(sequence_mater
     calls = []
     def interrupted(printer, script):
         calls.append(script)
-        assert material._load_filament_flags().get('h2', False) is False
+        assert material._filament_state()._load_filament_flags().get('h2', False) is False
         if len(calls) == interrupt_at:
             raise SystemExit('process lost')
     monkeypatch.setattr('wm_material.run_standalone_extrusion_sequence', interrupted)
     with pytest.raises(SystemExit):
         material.cmd_FILAMENT_SEQUENCE(sequence_command(material))
     del material._loaded_flags
-    assert material._load_filament_flags().get('h2', False) is False
+    assert material._filament_state()._load_filament_flags().get('h2', False) is False
     material.filament_operation = {}
     material.session_id = 'restart'
     material._restore_filament_operation()
@@ -3152,7 +3160,7 @@ def test_state_directory_flush_failure_preserves_load_write_boundary(sequence_ma
     material, objects = sequence_material
     if action == 'unload':
         material._set_filament_loaded('h2', True)
-        material._sensor_filament_status = lambda now: {'h2': {'state': 'loaded', 'identity': material._profiles()[0]['h2']}}
+        material._filament_state()._sensor_filament_status = lambda now: {'h2': {'state': 'loaded', 'identity': material._profiles()[0]['h2']}}
         objects['extruder2'] = SimpleNamespace(get_status=lambda now: {'temperature':235., 'target':235., 'can_extrude':True})
     command = sequence_command(material, action)
     real_fsync = os.fsync
@@ -3162,7 +3170,7 @@ def test_state_directory_flush_failure_preserves_load_write_boundary(sequence_ma
         real_fsync(fd)
     # Isolate the state-file durability boundary; the journal has its own
     # write-failure tests and must not mask reaching this failure point.
-    monkeypatch.setattr(material, '_persist_filament_operation', lambda: None)
+    monkeypatch.setattr(material._filament_service(), '_persist_filament_operation', lambda: None)
     monkeypatch.setattr('wm_material.os.fsync', failed_directory)
     feeds = []
     monkeypatch.setattr('wm_material.run_standalone_extrusion_sequence', lambda *args: feeds.append(args))
@@ -3175,7 +3183,7 @@ def test_state_directory_flush_failure_preserves_load_write_boundary(sequence_ma
     else:
         material.cmd_FILAMENT_SEQUENCE(command)
         assert len(feeds) == 1
-        assert material._load_filament_flags()['h2'] is False
+        assert material._filament_state()._load_filament_flags()['h2'] is False
         assert 'state directory flush failed' in material._filament_presence_error
 
 
@@ -3257,21 +3265,21 @@ def test_save_cooperation_during_owned_procedures_and_calibration():
     for state in ('idle', 'complete', 'failed', 'unknown'):
         material.toolhead_operation = {'state': state}
         material.filament_operation = {'state': state}
-        material._yield_saved_variables()
+        material._material_status()._yield_saved_variables()
     assert not pauses
     material.toolhead_operation = {'state': 'running'}
-    material._yield_saved_variables();assert pauses == [12.5]
+    material._material_status()._yield_saved_variables();assert pauses == [12.5]
     material.toolhead_operation = {'state': 'complete'}
     material.filament_operation = {'state': 'running'}
-    material._yield_saved_variables();assert pauses == [12.5, 12.5]
+    material._material_status()._yield_saved_variables();assert pauses == [12.5, 12.5]
     material.filament_operation = {'state': 'complete'}
     calibration = SimpleNamespace(active=False)
     objects['wmp_recovery'] = SimpleNamespace(calibration=calibration)
-    material._yield_saved_variables();assert len(pauses) == 2
+    material._material_status()._yield_saved_variables();assert len(pauses) == 2
     calibration.active = True
-    material._yield_saved_variables();assert len(pauses) == 3
+    material._material_status()._yield_saved_variables();assert len(pauses) == 3
     calibration.active = False
-    material._yield_saved_variables();assert len(pauses) == 3
+    material._material_status()._yield_saved_variables();assert len(pauses) == 3
 
 
 def test_sunlu_simulated_pla_petg_round_trip_plans(service_material):
@@ -3353,7 +3361,7 @@ def test_other_head_runout_blocks_resume_after_reinsertion(paused_origin_materia
     from copy import deepcopy
     material, objects, state = paused_origin_material
     records = {'h2': {'state': 'loaded'}, 'h3': {'state': 'loaded'}}
-    material._sensor_filament_status = lambda now: deepcopy(records)
+    material._filament_state()._sensor_filament_status = lambda now: deepcopy(records)
     material._set_filament_loaded('h2', True)
     material._set_filament_loaded('h3', True)
     if timing == 'before_pause':
@@ -3381,7 +3389,7 @@ def test_filament_loss_does_not_attach_unrelated_evidence_to_pause(paused_origin
     from copy import deepcopy
     material, objects, state = paused_origin_material
     records = {'h2': {'state': 'loaded'}, 'h3': {'state': 'empty'}}
-    material._sensor_filament_status = lambda now: deepcopy(records)
+    material._filament_state()._sensor_filament_status = lambda now: deepcopy(records)
     material._set_filament_loaded('h3', condition != 'already_empty')
     if condition == 'unknown_sensor': records['h3']['state'] = 'unknown'
     elif condition == 'idle': state['job'] = 'standby'
@@ -3403,12 +3411,12 @@ def test_cross_head_paused_load_returns_origin_without_touching_z(paused_origin_
     material, objects, state = paused_origin_material
     profiles, revision = material._profiles()
     profiles['h3'] = dict(profiles['h2'])
-    material._profiles = lambda: (deepcopy(profiles), revision)
+    material._material_settings()._profiles = lambda: (deepcopy(profiles), revision)
     material._pause_origin['filament_required'] = ['h3']
     state['variables']['t3_offset'] = [0.3, 0.4, 0.2]
     mounted = {'head': 'h2'}
-    material._attachment = lambda now: {'state': 'attached', 'head': mounted['head']} if mounted['head'] else {'state': 'empty', 'head': ''}
-    material._sensor_filament_status = lambda now: {h: {'state': 'loaded', 'identity': profiles[h]} for h in ('h2', 'h3')}
+    material._material_status()._attachment = lambda now: {'state': 'attached', 'head': mounted['head']} if mounted['head'] else {'state': 'empty', 'head': ''}
+    material._filament_state()._sensor_filament_status = lambda now: {h: {'state': 'loaded', 'identity': profiles[h]} for h in ('h2', 'h3')}
     material._set_filament_loaded('h2', True)
     material._set_filament_loaded('h3', action == 'unload')
     heaters = {h: {'target': 0, 'temperature': 25, 'can_extrude': True} for h in ('extruder2', 'extruder3')}
@@ -3454,10 +3462,10 @@ def test_cross_head_paused_load_returns_origin_without_touching_z(paused_origin_
     material._pause_origin.update(serviced=True, ready=False)
     material.filament_operation = {'state': 'running', 'head': 'h3', 'pause_origin': plan['pause_origin']}
     if failure in ('none', 'unrelated'):
-        material._execute_filament(FakeCommand(), 3, action, plan)
+        material._filament_service()._execute_filament(FakeCommand(), 3, action, plan)
         assert mounted['head'] == 'h2'
         assert objects['toolhead'].get_status(1)['extruder'] == 'extruder2'
-        assert material._load_filament_flags().get('h3', False) is (action == 'load')
+        assert material._filament_state()._load_filament_flags().get('h3', False) is (action == 'load')
         if action == 'load':
             assert calls.index('WIPE_NOZZLE XY_ONLY=1\nM400') < next(i for i, v in enumerate(calls) if 'ACTIVATE_EXTRUDER EXTRUDER=extruder2' in v)
         assert 'SET_GCODE_OFFSET X=0.20000 Y=-0.10000 Z=0.05000 MOVE=0' in calls
@@ -3465,9 +3473,9 @@ def test_cross_head_paused_load_returns_origin_without_touching_z(paused_origin_
         else:
             with pytest.raises(ValueError): material.cmd_CHECK_RESUME(FakeCommand())
     else:
-        with pytest.raises(ValueError): material._execute_filament(FakeCommand(), 3, action, plan)
+        with pytest.raises(ValueError): material._filament_service()._execute_filament(FakeCommand(), 3, action, plan)
         with pytest.raises(ValueError): material.cmd_CHECK_RESUME(FakeCommand())
-        assert not material._load_filament_flags().get('h3', False)
+        assert not material._filament_state()._load_filament_flags().get('h3', False)
     assert objects['gcode_move'].saved_states == before
     assert objects['toolhead'].get_status(1)['position'][2] == z_before
     assert not any(line.startswith(('G28', 'G1 Z', 'G0 Z', 'RESTORE_GCODE_STATE', 'RESUME')) for script in calls for line in script.splitlines())
@@ -3480,7 +3488,7 @@ def test_paused_cross_head_identity_edit_uses_selected_head_not_origin(paused_or
     from types import SimpleNamespace
     material, objects, state = paused_origin_material
     material._pause_origin['filament_required'] = ['h3']
-    material._loaded_filament_status = lambda now: {'h2': {'state': 'loaded'}, 'h3': {'state': 'empty'}}
+    material._filament_state()._loaded_filament_status = lambda now: {'h2': {'state': 'loaded'}, 'h3': {'state': 'empty'}}
     objects['extruder3'] = SimpleNamespace(get_status=lambda now: {'temperature': 25, 'target': 0})
     before = material._profiles()[0]['h2'].copy()
     command = profile_command(material, HEAD='3', PAUSE=material._pause_origin['id'])
@@ -3560,7 +3568,7 @@ def test_public_service_preserves_admission(sequence_material, monkeypatch, cond
     elif condition == 'from_sd': objects['virtual_sdcard'].is_cmd_from_sd = lambda: True
     elif condition in ('unknown', 'busy'):
         material.filament_operation = {'id': 'previous', 'state': 'unknown' if condition == 'unknown' else 'running'}
-    else: material._attachment = lambda now: {'state': 'unknown'}
+    else: material._material_status()._attachment = lambda now: {'state': 'unknown'}
     monkeypatch.setattr('wm_material.run_standalone_extrusion_sequence', lambda *args: pytest.fail('motion on refused request'))
     with pytest.raises(ValueError):
         material.cmd_FILAMENT_SERVICE(FakeCommand(ACTION='load', HEAD='2'))
@@ -3588,7 +3596,7 @@ def test_public_service_does_not_choose_an_ace_slot(print_material):
     material, objects, _, _ = openace_start_fixture(print_material)
     material._filament_requests = set()
     material.filament_operation = {}
-    material._openace_load_plans = lambda head, now: [{'source': 'ace0:1', 'token': 'some-token'}]
+    material._material_owners()._openace_load_plans = lambda head, now: [{'source': 'ace0:1', 'token': 'some-token'}]
     with pytest.raises(ValueError, match='Select an ACE slot'):
         material.cmd_FILAMENT_SERVICE(FakeCommand(ACTION='load', HEAD='2'))
     assert not objects['gcode'].scripts
@@ -3647,7 +3655,7 @@ def test_staging_unproven_identity_disables_recovery_not_print(print_material, m
     material, objects, request, path = print_material
     loaded = material._loaded_filament_status(0)
     loaded['h2'].pop(missing)
-    material._loaded_filament_status = lambda now: loaded
+    material._filament_state()._loaded_filament_status = lambda now: loaded
     material.cmd_START_PRINT(start_command(request))
     assert recovery_job_record(material)['state'] == 'invalidated'
     assert objects['gcode'].scripts[-1].startswith('SDCARD_PRINT_FILE')
@@ -3679,7 +3687,7 @@ def test_hashing_yields_and_revalidates_before_dispatch(print_material, drift):
     def pause(waketime):
         calls.append(waketime)
         if drift == 'sensor':
-            material._loaded_filament_status = lambda now: {'h2': {'state': 'empty'}}
+            material._filament_state()._loaded_filament_status = lambda now: {'h2': {'state': 'empty'}}
         elif drift == 'mapping':
             objects['save_variables'].values['variables']['box_modify_t0'] = 1
         elif drift == 'owner':
@@ -3763,7 +3771,7 @@ def test_recovery_commit_disables_optional_evidence_on_changed_startup(recovery_
     elif drift == 'file':
         path.write_text('different file contents')
     elif drift == 'sensor':
-        material._loaded_filament_status = lambda now: {'h2': {'state': 'empty'}}
+        material._filament_state()._loaded_filament_status = lambda now: {'h2': {'state': 'empty'}}
     elif drift == 'mapping':
         variables['box_modify_t0'] = 0
     elif drift == 'offset':
@@ -3814,7 +3822,7 @@ def test_clear_storage_error_does_not_interrupt_cancellation(recovery_startup, m
     objects['save_variables'].values['variables']['wmp_print_context'] = {}
     def fail(record):
         raise OSError('disk failed')
-    monkeypatch.setattr(material, '_write_recovery_job', fail)
+    monkeypatch.setattr(material._recovery_storage(), '_write_recovery_job', fail)
     command = FakeCommand()
     material.cmd_RECOVERY_JOB_CLEAR(command)
     assert 'clear failed' in command.message
@@ -3910,7 +3918,7 @@ def test_recovery_evidence_rejects_stale_or_malformed_state(committed_recovery, 
     if drift == 'selected_file':
         selected = 'another.gcode'
     elif drift == 'sensor':
-        material._loaded_filament_status = lambda now: {'h2': {'state': 'inserted'}}
+        material._filament_state()._loaded_filament_status = lambda now: {'h2': {'state': 'inserted'}}
     elif drift == 'owner':
         material.printer.owner = object()
     elif drift == 'operation':
@@ -3949,7 +3957,7 @@ def test_recovery_evidence_rechecks_after_hash_yields(committed_recovery, drift)
     def pause(waketime):
         calls.append(waketime)
         if drift == 'sensor':
-            material._loaded_filament_status = lambda now: {'h2': {'state': 'empty'}}
+            material._filament_state()._loaded_filament_status = lambda now: {'h2': {'state': 'empty'}}
         elif drift == 'owner':
             material.printer.owner = object()
         elif drift == 'record':
@@ -4078,7 +4086,7 @@ def recovery_checkpoint_payload(**overrides):
     ('last_leveling_type', '""'), ('last_leveling_type', 'unknown')])
 def test_recovery_checkpoint_numeric_rejections(material, key, value):
     with pytest.raises(ValueError):
-        material._recovery_checkpoint_values(recovery_checkpoint_payload(**{key: value}), 6)
+        material._recovery_storage()._recovery_checkpoint_values(recovery_checkpoint_payload(**{key: value}), 6)
 
 
 @pytest.mark.parametrize('alter', ['duplicate', 'missing', 'defaults', 'section', 'encoding'])
@@ -4091,11 +4099,11 @@ def test_recovery_checkpoint_rejects_malformed_format(material, alter):
     elif alter == 'section': payload += b'[other]\nkey=value\n'
     else: payload += b'bad=\xff\n'
     with pytest.raises(ValueError):
-        material._recovery_checkpoint_values(payload, 6)
+        material._recovery_storage()._recovery_checkpoint_values(payload, 6)
 
 
 def test_recovery_checkpoint_preserves_modes_and_offset_coordinates(material):
-    values = material._recovery_checkpoint_values(recovery_checkpoint_payload(
+    values = material._recovery_storage()._recovery_checkpoint_values(recovery_checkpoint_payload(
         absolute_e=1, last_is_during_T=1, last_x=-2.5, last_e=-12.,
         last_leveling_type='default_mesh'), 6)
     assert values['absolute_e'] == 1 and values['last_is_during_T'] == 1
@@ -4111,7 +4119,7 @@ def test_recovery_parser_accepts_retained_vendor_checkpoint_format(material, nam
         pytest.skip('retained vendor checkpoint not available')
     # Format compatibility only. Old coordinates/material evidence are not
     # admitted here, and this deliberately does not call recovery preparation.
-    result = material._recovery_checkpoint_values(source.read_bytes(), 2147483648)
+    result = material._recovery_storage()._recovery_checkpoint_values(source.read_bytes(), 2147483648)
     assert result['last_leveling_type'] == 'adaptive_mesh'
     assert result['last_file_pos'] > 0
 
@@ -4136,13 +4144,13 @@ def recovery_machine(bound_recovery):
     for name, state in states.items():
         objects[name] = SimpleNamespace(get_status=lambda now, state=state: state)
     objects['save_variables'].values['variables'].update(fail_flag=0, is_nozzle_setting=0)
-    material._attachment = lambda now: {'state': 'attached', 'head': 'h2'}
+    material._material_status()._attachment = lambda now: {'state': 'attached', 'head': 'h2'}
     return bound_recovery, states
 
 
 def test_recovery_review_ready_idle_machine_without_motion(recovery_machine):
     (material, objects, path, checkpoint, marker, chash, jhash), states = recovery_machine
-    result = material._recovery_review(material.session_id, path.name, checkpoint.name, chash, jhash)
+    result = material._recovery_review_service()._recovery_review(material.session_id, path.name, checkpoint.name, chash, jhash)
     assert result['machine']['attachment'] == {'state': 'attached', 'head': 'h2'}
     assert objects['gcode'].scripts == []
 
@@ -4175,7 +4183,7 @@ def test_recovery_review_machine_refusals(recovery_machine, drift):
     elif drift == 'calibration_failed': states['wmp_recovery']['calibration_failed'] = 'failed'
     elif drift == 'identification': states['wmp_recovery']['identification']['state'] = 'running'
     elif drift == 'recovery_active': states['gcode_macro _WMP_RECOVERY_BEGIN']['active'] = True
-    elif drift == 'attachment': material._attachment = lambda now: {'state': 'unknown', 'head': ''}
+    elif drift == 'attachment': material._material_status()._attachment = lambda now: {'state': 'unknown', 'head': ''}
     elif drift == 'heater_limit': states['configfile']['settings']['extruder2']['max_temp'] = 200.
     elif drift == 'missing_limit': del states['configfile']['settings']['extruder2']['max_temp']
     elif drift == 'temperature': states['extruder2']['temperature'] = float('nan')
@@ -4183,7 +4191,7 @@ def test_recovery_review_machine_refusals(recovery_machine, drift):
     elif drift == 'missing_bed': del objects['heater_bed']
     else: del objects['wmp_recovery']
     with pytest.raises(ValueError):
-        material._recovery_review(session, path.name, checkpoint.name, chash, jhash)
+        material._recovery_review_service()._recovery_review(session, path.name, checkpoint.name, chash, jhash)
     assert objects['gcode'].scripts == []
 
 
@@ -4194,14 +4202,14 @@ def test_recovery_review_rechecks_machine_after_hashing(recovery_machine, drift)
     def pause(waketime):
         calls.append(waketime)
         if drift == 'session': material.session_id = 'new-session'
-        elif drift == 'attachment': material._attachment = lambda now: {'state': 'empty', 'head': ''}
+        elif drift == 'attachment': material._material_status()._attachment = lambda now: {'state': 'empty', 'head': ''}
         elif drift == 'fault': objects['save_variables'].values['variables']['fail_flag'] = -3
         elif drift == 'shutdown': material.printer.is_shutdown = lambda: True
         else: objects['pause_resume'].values['is_paused'] = True
         return waketime
     material.printer.pause = pause
     with pytest.raises(ValueError):
-        material._recovery_review(material.session_id, path.name, checkpoint.name, chash, jhash)
+        material._recovery_review_service()._recovery_review(material.session_id, path.name, checkpoint.name, chash, jhash)
     assert calls and objects['gcode'].scripts == []
 
 
@@ -4211,7 +4219,7 @@ def test_interrupted_tool_change_requires_separate_recovery_plan(recovery_machin
     chash = material._recovery_fingerprint(checkpoint.read_bytes())
     marker.write_text('WMP-GCODE-XYZ-MATERIAL-2 %s %s\n' % (chash, jhash))
     with pytest.raises(ValueError, match='Interrupted tool-change'):
-        material._recovery_review(material.session_id, path.name, checkpoint.name, chash, jhash)
+        material._recovery_review_service()._recovery_review(material.session_id, path.name, checkpoint.name, chash, jhash)
     assert objects['gcode'].scripts == []
 
 
@@ -4259,7 +4267,7 @@ def execution_snapshot_machine(recovery_machine):
 
 def test_execution_snapshot_captures_completed_position_and_head_together(execution_snapshot_machine):
     material, objects, states = execution_snapshot_machine
-    result = material._recovery_execution_snapshot()
+    result = material._execution_evidence()._recovery_execution_snapshot()
     assert result['file_position'] == 6 and result['head'] == 'h2'
     assert result['mapping'] == [2, 1, 2, 3]
     assert result['source']['source'] == 'external:h2'
@@ -4286,9 +4294,9 @@ def use_native_tuple_offsets(objects):
 def test_execution_capture_and_publication_accept_native_tuple_offsets(execution_snapshot_machine):
     material, objects, states = execution_snapshot_machine
     use_native_tuple_offsets(objects)
-    material._queue_recovery_execution()
+    material._execution_evidence()._queue_recovery_execution()
     objects['toolhead'].check_busy = lambda now: (105., 101., True)
-    assert material._publish_recovery_execution()
+    assert material._execution_evidence()._publish_recovery_execution()
     completed = json.loads(Path(material._recovery_execution_path()).read_text())
     assert completed['state'] == 'completed'
     assert objects['gcode'].scripts == []
@@ -4359,10 +4367,10 @@ def test_execution_snapshot_refuses_incoherent_state(execution_snapshot_machine,
     elif drift == 'operation': material.filament_operation = {'state': 'running'}
     elif drift == 'fault': objects['save_variables'].values['variables']['fail_flag'] = -3
     elif drift == 'mapping': objects['save_variables'].values['variables']['box_modify_t0'] = 0
-    elif drift == 'attachment': material._attachment = lambda now: {'state': 'unknown', 'head': ''}
+    elif drift == 'attachment': material._material_status()._attachment = lambda now: {'state': 'unknown', 'head': ''}
     elif drift == 'extruder': states['toolhead']['extruder'] = 'extruder'
     elif drift == 'saved_head': objects['save_variables'].values['variables']['current_extruder'] = 0
-    elif drift == 'loaded': material._loaded_filament_status = lambda now: {'h2': {'state': 'inserted'}}
+    elif drift == 'loaded': material._filament_state()._loaded_filament_status = lambda now: {'h2': {'state': 'inserted'}}
     elif drift == 'position': objects['virtual_sdcard'].get_status = lambda now: {'file_position': 0}
     elif drift == 'coordinate': states['gcode_move']['gcode_position'][0] = float('nan')
     elif drift == 'mode': states['gcode_move']['absolute_extrude'] = 1
@@ -4372,7 +4380,7 @@ def test_execution_snapshot_refuses_incoherent_state(execution_snapshot_machine,
     elif drift == 'motion_clock': objects['toolhead'].check_busy = lambda now: (float('nan'), 98., True)
     else: objects['virtual_sdcard'].current_file = None
     with pytest.raises(ValueError):
-        material._recovery_execution_snapshot()
+        material._execution_evidence()._recovery_execution_snapshot()
     assert objects['gcode'].scripts == []
 
 
@@ -4380,23 +4388,23 @@ def test_execution_publication_waits_without_replacing_pending_snapshot(executio
     import json
     from pathlib import Path
     material, objects, states = execution_snapshot_machine
-    assert material._queue_recovery_execution() is True
-    assert material._queue_recovery_execution() is False
+    assert material._execution_evidence()._queue_recovery_execution() is True
+    assert material._execution_evidence()._queue_recovery_execution() is False
     target = Path(material._recovery_execution_path(for_write=True))
-    assert material._publish_recovery_execution() is False
+    assert material._execution_evidence()._publish_recovery_execution() is False
     assert not target.exists()
     # New parser state must not leak into the older boundary's receipt.
     states['gcode_move']['gcode_position'][0] = 50.
     states['toolhead']['extruder'] = 'extruder1'
     objects['toolhead'].check_busy = lambda now: (105., 100., False)
-    assert material._publish_recovery_execution() is True
+    assert material._execution_evidence()._publish_recovery_execution() is True
     completed = json.loads(target.read_text())
     assert completed['state'] == 'completed'
     assert completed['head'] == 'h2' and completed['gcode_position'][0] == 1.
     assert completed['scheduled_print_time'] == 100.
     assert completed['completed_print_time'] == 100.
     assert target.stat().st_mode & 0o777 == 0o600
-    assert material._publish_recovery_execution() is False
+    assert material._execution_evidence()._publish_recovery_execution() is False
     assert objects['gcode'].scripts == []
 
 
@@ -4407,7 +4415,7 @@ def test_execution_publication_waits_without_replacing_pending_snapshot(executio
 def test_execution_publication_discards_changed_pending_evidence(execution_snapshot_machine, drift):
     from pathlib import Path
     material, objects, states = execution_snapshot_machine
-    material._queue_recovery_execution()
+    material._execution_evidence()._queue_recovery_execution()
     objects['toolhead'].check_busy = lambda now: (105., 101., True)
     if drift == 'session': material.session_id = 'another-session'
     elif drift == 'shutdown': material.printer.is_shutdown = lambda: True
@@ -4421,14 +4429,14 @@ def test_execution_publication_discards_changed_pending_evidence(execution_snaps
         path = Path(material._recovery_job_path())
         path.write_bytes(path.read_bytes() + b'\n')
     elif drift == 'context': objects['save_variables'].values['variables']['wmp_print_context'] = {}
-    elif drift == 'loaded': material._loaded_filament_status = lambda now: {'h2': {'state': 'empty'}}
+    elif drift == 'loaded': material._filament_state()._loaded_filament_status = lambda now: {'h2': {'state': 'empty'}}
     elif drift == 'file': objects['virtual_sdcard'].current_file = None
     elif drift == 'clock': objects['toolhead'].check_busy = lambda now: (105., 97., True)
     elif drift == 'scheduled': objects['toolhead'].check_busy = lambda now: (99., 101., True)
     elif drift == 'rewind': objects['virtual_sdcard'].get_status = lambda now: {'file_position': 3}
     else: objects['toolhead'].check_busy = lambda now: (105., float('nan'), True)
     with pytest.raises(ValueError):
-        material._publish_recovery_execution()
+        material._execution_evidence()._publish_recovery_execution()
     assert material._pending_execution_snapshot is None
     assert not Path(material._recovery_execution_path()).exists()
     assert objects['gcode'].scripts == []
@@ -4439,13 +4447,13 @@ def test_execution_publication_storage_failure_preserves_previous_record(executi
     material, objects, states = execution_snapshot_machine
     target = Path(material._recovery_execution_path())
     target.write_bytes(b'previous completed record')
-    material._queue_recovery_execution()
+    material._execution_evidence()._queue_recovery_execution()
     objects['toolhead'].check_busy = lambda now: (105., 101., True)
     def fail(source, destination):
         raise OSError('storage unavailable')
     monkeypatch.setattr('wm_material.os.replace', fail)
     with pytest.raises(OSError):
-        material._publish_recovery_execution()
+        material._execution_evidence()._publish_recovery_execution()
     assert target.read_bytes() == b'previous completed record'
     assert material._pending_execution_snapshot is None
     assert not list(target.parent.glob('.wmp-recovery-job-*'))
@@ -4453,10 +4461,10 @@ def test_execution_publication_storage_failure_preserves_previous_record(executi
 
 def test_disconnect_discards_pending_execution_snapshot(execution_snapshot_machine):
     material, objects, states = execution_snapshot_machine
-    material._queue_recovery_execution()
+    material._execution_evidence()._queue_recovery_execution()
     material._filament_sensors_unavailable()
     assert material._pending_execution_snapshot is None
-    assert material._publish_recovery_execution() is False
+    assert material._execution_evidence()._publish_recovery_execution() is False
 
 
 @pytest.mark.parametrize('drift', ['target', 'target_limit', 'bed', 'fan', 'fan_value', 'duration'])
@@ -4469,7 +4477,7 @@ def test_execution_snapshot_requires_coherent_thermal_state(execution_snapshot_m
     elif drift == 'fan_value': states['fan']['speed'] = 255
     else: states['print_stats']['total_duration'] = -1.
     with pytest.raises(ValueError):
-        material._recovery_execution_snapshot()
+        material._execution_evidence()._recovery_execution_snapshot()
     assert objects['gcode'].scripts == []
 
 
@@ -4479,12 +4487,12 @@ def test_execution_publication_preserves_captured_heaters_and_fans(execution_sna
     from types import SimpleNamespace
     material, objects, states = execution_snapshot_machine
     objects['fan_generic air_fan'] = SimpleNamespace(get_status=lambda now: {'speed': .2})
-    material._queue_recovery_execution()
+    material._execution_evidence()._queue_recovery_execution()
     states['extruder2']['target'] = 0.
     states['fan']['speed'] = 0.
     states['print_stats']['total_duration'] = 600.
     objects['toolhead'].check_busy = lambda now: (105., 101., True)
-    assert material._publish_recovery_execution()
+    assert material._execution_evidence()._publish_recovery_execution()
     result = json.loads(Path(material._recovery_execution_path()).read_text())
     assert result['heater_targets']['extruder2'] == 220.5
     assert result['fans']['fan'] == .75
@@ -4495,9 +4503,9 @@ def test_execution_publication_preserves_captured_heaters_and_fans(execution_sna
 @pytest.fixture
 def completed_execution(execution_snapshot_machine):
     material, objects, states = execution_snapshot_machine
-    material._queue_recovery_execution()
+    material._execution_evidence()._queue_recovery_execution()
     objects['toolhead'].check_busy = lambda now: (105., 101., True)
-    material._publish_recovery_execution()
+    material._execution_evidence()._publish_recovery_execution()
     # Restore may yield for file hashing, unlike synchronous snapshot capture.
     material.printer.pause = lambda when: when
     return material, objects, states
@@ -4555,16 +4563,16 @@ def test_execution_capture_refuses_external_command(execution_snapshot_machine):
     material, objects, states = execution_snapshot_machine
     objects['gcode'].get_mutex = lambda: SimpleNamespace(test=lambda: True)
     with pytest.raises(ValueError, match='G-code command'):
-        material._queue_recovery_execution()
+        material._execution_evidence()._queue_recovery_execution()
     assert getattr(material, '_pending_execution_snapshot', None) is None
 
 
 def test_execution_sampling_does_not_enumerate_files(execution_snapshot_machine):
     material, objects, states = execution_snapshot_machine
     objects['virtual_sdcard'].get_file_list = lambda *args: pytest.fail('sampling enumerated files')
-    assert material._queue_recovery_execution()
+    assert material._execution_evidence()._queue_recovery_execution()
     objects['toolhead'].check_busy = lambda now: (105., 101., True)
-    assert material._publish_recovery_execution()
+    assert material._execution_evidence()._publish_recovery_execution()
 
 
 def test_execution_sampler_publishes_once_per_boundary(execution_snapshot_machine, monkeypatch):
@@ -4575,14 +4583,14 @@ def test_execution_sampler_publishes_once_per_boundary(execution_snapshot_machin
     def write(path, record):
         writes.append(record)
         original(path, record)
-    monkeypatch.setattr(material, '_write_recovery_json', write)
-    assert material._execution_tick(1.) == 2.
+    monkeypatch.setattr(material._recovery_storage(), '_write_recovery_json', write)
+    assert material._execution_evidence()._execution_tick(1.) == 2.
     assert material._pending_execution_snapshot is not None
-    assert material._execution_tick(2.) == 3.
+    assert material._execution_evidence()._execution_tick(2.) == 3.
     assert not writes
     objects['toolhead'].check_busy = lambda now: (105., 101., True)
-    material._execution_tick(3.)
-    material._execution_tick(4.)
+    material._execution_evidence()._execution_tick(3.)
+    material._execution_evidence()._execution_tick(4.)
     assert len(writes) == 1
     assert material._pending_execution_snapshot is None
 
@@ -4591,26 +4599,26 @@ def test_execution_sampler_idle_does_not_read_evidence(execution_snapshot_machin
     material, objects, states = execution_snapshot_machine
     material._execution_stopped = False
     objects['virtual_sdcard'].active = False
-    monkeypatch.setattr(material, '_recovery_read_bytes', lambda *args: pytest.fail('idle evidence read'))
-    assert material._execution_tick(1.) == 2.
+    monkeypatch.setattr(material._recovery_storage(), '_recovery_read_bytes', lambda *args: pytest.fail('idle evidence read'))
+    assert material._execution_evidence()._execution_tick(1.) == 2.
 
 
 def test_execution_sampler_storage_failure_recovers(execution_snapshot_machine, monkeypatch):
     material, objects, states = execution_snapshot_machine
     material._execution_stopped = False
-    material._execution_tick(1.)
+    material._execution_evidence()._execution_tick(1.)
     objects['toolhead'].check_busy = lambda now: (105., 101., True)
     original = material._write_recovery_json
     def fail(*args):
         raise OSError('storage unavailable')
-    monkeypatch.setattr(material, '_write_recovery_json', fail)
-    assert material._execution_tick(2.) == 3.
+    monkeypatch.setattr(material._recovery_storage(), '_write_recovery_json', fail)
+    assert material._execution_evidence()._execution_tick(2.) == 3.
     assert material._execution_error == 'storage unavailable'
     assert material._pending_execution_snapshot is None
-    monkeypatch.setattr(material, '_write_recovery_json', original)
-    material._execution_tick(3.)
+    monkeypatch.setattr(material._recovery_storage(), '_write_recovery_json', original)
+    material._execution_evidence()._execution_tick(3.)
     objects['toolhead'].check_busy = lambda now: (106., 106., True)
-    material._execution_tick(4.)
+    material._execution_evidence()._execution_tick(4.)
     assert material._execution_error == ''
     assert material._execution_last_boundary
 
@@ -4629,11 +4637,11 @@ def test_execution_timer_reuses_handle_and_stops(execution_snapshot_machine):
     material._execution_ready()
     assert len(registered) == 1
     assert updated[0][0] == 'timer-handle'
-    material._queue_recovery_execution()
+    material._execution_evidence()._queue_recovery_execution()
     material._execution_stop()
     assert material._pending_execution_snapshot is None
     assert updated[-1] == ('timer-handle', reactor.NEVER)
-    assert material._execution_tick(1.) == reactor.NEVER
+    assert material._execution_evidence()._execution_tick(1.) == reactor.NEVER
 
 
 @pytest.fixture
@@ -4655,7 +4663,7 @@ def execution_review_machine(completed_execution):
 
 def test_execution_review_binds_selection_and_current_readiness(execution_review_machine):
     material, objects, states, fingerprint = execution_review_machine
-    result = material._recovery_execution_review(material.session_id, 'part.gcode', fingerprint)
+    result = material._recovery_review_service()._recovery_execution_review(material.session_id, 'part.gcode', fingerprint)
     assert result['execution']['head'] == 'h2'
     assert result['execution']['heater_targets']['extruder2'] == 220.5
     assert result['execution_hash'] == fingerprint
@@ -4679,18 +4687,18 @@ def test_execution_review_refuses_drift(execution_review_machine, drift):
             if drift == 'busy':
                 objects['virtual_sdcard'].active = True
             else:
-                material._attachment = lambda now: {'state': 'empty'}
+                material._material_status()._attachment = lambda now: {'state': 'empty'}
             return when
         material.printer.pause = change
     with pytest.raises(ValueError):
-        material._recovery_execution_review(session, 'part.gcode', fingerprint)
+        material._recovery_review_service()._recovery_execution_review(session, 'part.gcode', fingerprint)
     assert objects['gcode'].scripts == []
 
 
 def test_execution_snapshot_preserves_g92_and_mesh_coordinates(execution_snapshot_machine):
     material, objects, states = execution_snapshot_machine
     states['gcode_move']['extrude_factor'] = 1.5
-    snapshot = material._recovery_execution_snapshot()
+    snapshot = material._execution_evidence()._recovery_execution_snapshot()
     assert snapshot['version'] == 4
     # G92 base differs from homing origin; mesh further transforms machine Z.
     assert snapshot['parser_position'] == [11., 22., .3, 24.]
@@ -4707,7 +4715,7 @@ def test_execution_capture_requires_full_coordinate_evidence(execution_snapshot_
     state = states['gcode_move' if field == 'parser_position' else 'toolhead']
     state['position'] = [0., 0., float('nan'), 0.]
     with pytest.raises(ValueError, match='G-code state'):
-        material._recovery_execution_snapshot()
+        material._execution_evidence()._recovery_execution_snapshot()
 
 
 @pytest.mark.parametrize('field,value', [('version', 1), ('parser_position', [0., 1.]),
@@ -4730,7 +4738,7 @@ def test_execution_review_checks_transformed_endpoint(execution_review_machine, 
     material, objects, states, fingerprint = execution_review_machine
     states['toolhead']['axis_maximum'] = limits
     with pytest.raises(ValueError, match='travel limits'):
-        material._recovery_execution_review(material.session_id, 'part.gcode', fingerprint)
+        material._recovery_review_service()._recovery_execution_review(material.session_id, 'part.gcode', fingerprint)
     assert objects['gcode'].scripts == []
 
 
@@ -4753,7 +4761,7 @@ def test_recovery_attempt_preserves_history_without_blocking_new_actions(materia
     assert not material._recovery_attempt_active()
     visible = material._recovery_attempt_status()
     visible['state'] = 'complete'
-    assert material._recovery_attempt_unresolved()
+    assert material._recovery_lifecycle()._recovery_attempt_unresolved()
 
 
 def test_recovery_attempt_restore_publishes_unknown_before_admission(material):
@@ -4762,7 +4770,7 @@ def test_recovery_attempt_restore_publishes_unknown_before_admission(material):
                   state='running', stages=[dict(name='prepare', state='running')], error='')
     Path(material._recovery_attempt_path()).write_text(json.dumps(record))
     material._restore_recovery_attempt()
-    assert material._recovery_attempt_unresolved()
+    assert material._recovery_lifecycle()._recovery_attempt_unresolved()
     assert json.loads(Path(material._recovery_attempt_path()).read_text())['state'] == 'unknown'
 
 
@@ -4771,7 +4779,7 @@ def test_corrupt_recovery_attempt_is_diagnostic_without_live_work(material):
     Path(material._recovery_attempt_path()).write_text('{"version":1,"state":"complete","stages":[]}')
     material._restore_recovery_attempt()
     assert 'journal' in material._recovery_restore_error
-    assert material._recovery_attempt_unresolved()
+    assert material._recovery_lifecycle()._recovery_attempt_unresolved()
     assert material._idle_for_filament_settings(1.)
     material._require_no_recovery_attempt()
     material.cmd_SET_FILAMENT(profile_command(material))
@@ -4781,7 +4789,7 @@ def test_corrupt_recovery_attempt_is_diagnostic_without_live_work(material):
 def recovery_reference_machine(execution_review_machine):
     from types import SimpleNamespace
     material, objects, states, fingerprint = execution_review_machine
-    review = material._recovery_execution_review(material.session_id, 'part.gcode', fingerprint)
+    review = material._recovery_review_service()._recovery_execution_review(material.session_id, 'part.gcode', fingerprint)
     material._restore_recovery_attempt()
     calls = []
     objects['toolhead'].check_busy = lambda now: (105., 106., True)
@@ -4990,7 +4998,7 @@ def test_recovery_reference_failure_stops_later_motion(recovery_reference_machin
         original(script)
         if script == '_WMP_RECOVERY_BEGIN':
             if failure == 'attachment':
-                material._attachment = lambda now: {'state': 'empty'}
+                material._material_status()._attachment = lambda now: {'state': 'empty'}
             elif failure == 'fault':
                 objects['save_variables'].values['variables']['fail_flag'] = -3
             elif failure == 'owner':
@@ -4998,7 +5006,7 @@ def test_recovery_reference_failure_stops_later_motion(recovery_reference_machin
             elif failure == 'session':
                 material.session_id = 'restarted'
             elif failure == 'loaded':
-                material._loaded_filament_status = lambda now: {}
+                material._filament_state()._loaded_filament_status = lambda now: {}
             elif failure == 'service':
                 material.filament_operation = {'state': 'running'}
     objects['gcode'].run_script_from_command = dispatch
@@ -5095,7 +5103,7 @@ def test_recovery_wait_timeout_does_not_submit_commands(recovery_reference_machi
     material.printer.monotonic = lambda: clock[0]
     material.printer.pause = lambda when: clock.__setitem__(0, when)
     with pytest.raises(ValueError, match='timeout'):
-        material._wait_recovery_temperatures(review['execution'], lambda: None, lambda: False, timeout=1.)
+        material._recovery_motion()._wait_recovery_temperatures(review['execution'], lambda: None, lambda: False, timeout=1.)
     assert clock[0] == 2.
     assert calls == []
 
@@ -5109,7 +5117,7 @@ def test_recovery_wait_restarts_stability_after_temperature_excursion(recovery_r
             states['extruder2']['temperature'] = 210.
         return when
     material.printer.pause = pause
-    material._wait_recovery_temperatures(review['execution'], lambda: None, lambda: False)
+    material._recovery_motion()._wait_recovery_temperatures(review['execution'], lambda: None, lambda: False)
     assert material.printer.monotonic() == 5.
     assert calls == []
 
@@ -5144,7 +5152,7 @@ def test_recovery_failure_cleans_heaters_without_resolving_outcome(recovery_refe
     with pytest.raises(ValueError, match='stopped|fault state'):
         material._run_recovery_stages(request, review, stages, cancelled)
     assert states['heater_bed']['target'] == 0.
-    assert material._recovery_attempt_unresolved()
+    assert material._recovery_lifecycle()._recovery_attempt_unresolved()
     receipt = material._recovery_attempt_status()
     assert receipt['state'] == 'unknown'
     assert receipt['cleanup']['state'] == ('unknown' if failure == 'heater_off' else 'complete')
@@ -5153,7 +5161,7 @@ def test_recovery_failure_cleans_heaters_without_resolving_outcome(recovery_refe
     assert all(call.startswith('SET_HEATER_TEMPERATURE') for call in calls[-2:])
     if failure != 'journal':
         material._restore_recovery_attempt()
-        assert material._recovery_attempt_unresolved()
+        assert material._recovery_lifecycle()._recovery_attempt_unresolved()
 
 
 def test_recovery_cancel_before_heating_does_not_change_manual_targets(recovery_reference_machine):
@@ -5163,13 +5171,13 @@ def test_recovery_cancel_before_heating_does_not_change_manual_targets(recovery_
     assert result['cleanup'] == {'state': 'complete', 'heaters': {}, 'error': ''}
     assert states['extruder2']['target'] == 220.5
     assert calls == []
-    assert material._recovery_attempt_unresolved()
+    assert material._recovery_lifecycle()._recovery_attempt_unresolved()
 
 
 def test_recovery_cleanup_does_not_command_a_new_owner(recovery_reference_machine):
     material, objects, states, calls, review, request = recovery_reference_machine
     objects['AFC'] = object()
-    result = material._stop_recovery_heaters(review)
+    result = material._recovery_lifecycle()._stop_recovery_heaters(review)
     assert result['state'] == 'unknown'
     assert not any(result['heaters'].values())
     assert calls == []
@@ -5213,7 +5221,7 @@ def test_recovery_abandon_invalidates_job_without_motion(recovery_abandon_machin
     assert not any(call.startswith(('G0', 'G1', 'G28', 'M104', 'M109')) for call in calls)
     assert material._loaded_filament_status(1.) == loaded
     material._restore_recovery_attempt()
-    assert not material._recovery_attempt_unresolved()
+    assert not material._recovery_lifecycle()._recovery_attempt_unresolved()
     assert material._recovery_attempt.record['state'] == 'abandoned'
     # Abandoning an owned attempt does not retire raw checkpoints.
     # Do not invent a receipt for that separate confirmation flow.
@@ -5252,14 +5260,14 @@ def test_recovery_abandon_offer_write_failure_retains_retry(recovery_abandon_mac
     clear = material._clear_recovery_offer
     def fail(*args):
         raise OSError('offer write unavailable')
-    material._clear_recovery_offer = fail
+    material._recovery_storage()._clear_recovery_offer = fail
     with pytest.raises(OSError):
         material._abandon_recovery_attempt(material.session_id, request['id'])
     assert material._recovery_attempt.record['state'] == 'unknown'
     assert offer.read_bytes() == original
     archived = material._read_recovery_job()['archive']
     assert material._read_archived_recovery_evidence(archived)['offer'] == original
-    material._clear_recovery_offer = clear
+    material._recovery_storage()._clear_recovery_offer = clear
     assert material._abandon_recovery_attempt(material.session_id, request['id'])['state'] == 'abandoned'
     assert offer.read_bytes() == original.replace(b'=True', b'=False')
     assert material._read_recovery_job()['archive'] == archived
@@ -5293,7 +5301,7 @@ def test_recovery_abandon_refuses_unresolved_state(recovery_abandon_machine, dri
     elif drift == 'heater':
         states['extruder2']['target'] = 220.
     elif drift == 'attachment':
-        material._attachment = lambda now: {'state': 'unknown'}
+        material._material_status()._attachment = lambda now: {'state': 'unknown'}
     elif drift == 'motion':
         objects['toolhead'].check_busy = lambda now: (105., 100., True)
     elif drift == 'session':
@@ -5311,7 +5319,7 @@ def test_recovery_abandon_refuses_unresolved_state(recovery_abandon_machine, dri
         with pytest.raises(ValueError):
             material._abandon_recovery_attempt(session, request_id)
         assert calls == []
-        assert material._recovery_attempt_unresolved()
+        assert material._recovery_lifecycle()._recovery_attempt_unresolved()
 
 
 def test_recovery_abandon_partial_failure_retains_hold(recovery_abandon_machine):
@@ -5320,7 +5328,7 @@ def test_recovery_abandon_partial_failure_retains_hold(recovery_abandon_machine)
     objects['gcode'].run_script_from_command = lambda script: None if 'MACRO=_WMP_RECOVERY_BEGIN' in script else dispatch(script)
     with pytest.raises(ValueError, match='not confirmed'):
         material._abandon_recovery_attempt(material.session_id, request['id'])
-    assert material._recovery_attempt_unresolved()
+    assert material._recovery_lifecycle()._recovery_attempt_unresolved()
     assert material._read_recovery_job()['state'] == 'invalidated'
     # A fresh explicit retry reconciles only this same abandonment, not PLR motion.
     objects['gcode'].run_script_from_command = dispatch
@@ -5339,7 +5347,7 @@ def test_recovery_abandon_preserves_another_selected_file(recovery_abandon_machi
             material._abandon_recovery_attempt(material.session_id, request['id'])
         assert not stream.closed
     assert calls == []
-    assert material._recovery_attempt_unresolved()
+    assert material._recovery_lifecycle()._recovery_attempt_unresolved()
 
 
 @pytest.mark.parametrize('lock,hall,detected,accepted', [
@@ -5361,15 +5369,15 @@ def test_recovery_coupling_is_one_attempt(material, lock, hall, detected, accept
             get_status=lambda now: {'filament_detected': detected}),
     }
     material.printer.lookup_object = lambda name, default=None: objects.get(name, default)
-    material._recovery_actuator_stroke = lambda lock, guard: calls.append(
+    material._recovery_motion()._recovery_actuator_stroke = lambda lock, guard: calls.append(
         'ECHELON_STEPPER_HOMING STEPPER=trans_stepper MOVE=150 SPEED=100 PDI=%d\nM400\n'
         'ECHELON_STEPPER_DISABLE STEPPER=trans_stepper\nM400' % (-125 if lock else 0))
     guard = lambda: checks.append(True)
     if accepted or not lock:
-        assert material._recovery_couple_head(lock, guard) is True
+        assert material._recovery_motion()._recovery_couple_head(lock, guard) is True
     else:
         with pytest.raises(ValueError, match='Recovery coupling did not'):
-            material._recovery_couple_head(lock, guard)
+            material._recovery_motion()._recovery_couple_head(lock, guard)
     assert len(calls) == 1 and len(checks) == 2
     assert calls[0] == (
         'ECHELON_STEPPER_HOMING STEPPER=trans_stepper MOVE=150 SPEED=100 PDI=%d\nM400\n'
@@ -5382,12 +5390,12 @@ def test_recovery_coupling_guard_failure_does_not_retry(material):
     gcode = SimpleNamespace(run_script_from_command=calls.append,
                            get_mutex=lambda: SimpleNamespace(test=lambda: True))
     material.printer.lookup_object = lambda name, default=None: gcode if name == 'gcode' else None
-    material._recovery_actuator_stroke = lambda lock, guard: calls.append('stroke')
+    material._recovery_motion()._recovery_actuator_stroke = lambda lock, guard: calls.append('stroke')
     def guard():
         if calls:
             raise ValueError('ownership changed')
     with pytest.raises(ValueError, match='ownership changed'):
-        material._recovery_couple_head(True, guard)
+        material._recovery_motion()._recovery_couple_head(True, guard)
     assert len(calls) == 1
 
 
@@ -5410,7 +5418,7 @@ def recovery_head_machine(service_material):
     }.items():
         states[name] = state
         objects[name] = SimpleNamespace(get_status=lambda now, state=state: state)
-    material._attachment = lambda now: type(material)._attachment(material, now)
+    material._material_status()._attachment = lambda now: type(material)._attachment(material, now)
     calls = []
     def dispatch(script):
         calls.append(script)
@@ -5429,7 +5437,7 @@ def recovery_head_machine(service_material):
             saved['current_extruder'] = 2
     objects['gcode'] = SimpleNamespace(run_script_from_command=dispatch,
                                       get_mutex=lambda: SimpleNamespace(test=lambda: True))
-    material._recovery_actuator_stroke = lambda lock, guard: objects['gcode'].run_script_from_command(
+    material._recovery_motion()._recovery_actuator_stroke = lambda lock, guard: objects['gcode'].run_script_from_command(
         'ECHELON_STEPPER_HOMING STEPPER=trans_stepper PDI=%d\n' % (-125 if lock else 0))
     context = {'positions': [saved['t%d_position' % i] for i in range(4)],
                'attachment': material._attachment(1)}
@@ -5438,7 +5446,7 @@ def recovery_head_machine(service_material):
 
 def test_recovery_selects_verified_physical_head_without_stock_retry(recovery_head_machine):
     material, objects, states, calls, context = recovery_head_machine
-    assert material._recovery_select_head(2, context, lambda: None)
+    assert material._recovery_motion()._recovery_select_head(2, context, lambda: None)
     assert material._attachment(1) == {'state': 'attached', 'head': 'h2'}
     assert len([cmd for cmd in calls if 'ECHELON_STEPPER_HOMING' in cmd]) == 2
     assert not any(line.startswith(('LOCK', 'UNLOCK', '_CHANGE_TOOL', 'G28', 'G1 Z'))
@@ -5456,7 +5464,7 @@ def test_recovery_head_preconditions_prevent_commands(recovery_head_machine, fai
     elif failure == 'fault': states['save_variables']['variables']['fail_flag'] = -3
     else: states['custom_hall']['Raw'] = 4900
     with pytest.raises(ValueError):
-        material._recovery_select_head(2, context, lambda: None)
+        material._recovery_motion()._recovery_select_head(2, context, lambda: None)
     assert calls == []
 
 
@@ -5478,7 +5486,7 @@ def test_recovery_head_failure_does_not_continue_or_retry(recovery_head_machine,
             states['toolhead']['extruder'] = 'extruder1'
     objects['gcode'].run_script_from_command = dispatch
     with pytest.raises(ValueError):
-        material._recovery_select_head(2, context, lambda: None)
+        material._recovery_motion()._recovery_select_head(2, context, lambda: None)
     expected = {'seating': 'G1 Y270', 'release': 'G1 Y310', 'locking': 'ECHELON',
                 'departure': 'G1 Y310', 'activation': 'ACTIVATE_EXTRUDER'}[failure]
     assert calls[-1].startswith(expected)
@@ -5496,7 +5504,7 @@ def test_recovery_head_selection_same_or_empty_carriage(recovery_head_machine, i
         states['custom_hall']['Raw'] = 4900
         states['filament_switch_sensor sensor_b']['filament_detected'] = False
     context['attachment'] = material._attachment(1)
-    assert material._recovery_select_head(2, context, lambda: None)
+    assert material._recovery_motion()._recovery_select_head(2, context, lambda: None)
     assert not any('PDI=0\n' in cmd for cmd in calls)
     assert len([cmd for cmd in calls if 'PDI=-125\n' in cmd]) == (initial == 'empty')
     if initial == 'same':
@@ -5512,7 +5520,7 @@ def test_recovery_fault_while_docking_prevents_unlock(recovery_head_machine):
             states['save_variables']['variables']['fail_flag'] = -3
     objects['gcode'].run_script_from_command = dispatch
     with pytest.raises(ValueError, match='fault state changed'):
-        material._recovery_select_head(2, context, lambda: None)
+        material._recovery_motion()._recovery_select_head(2, context, lambda: None)
     assert not any('ECHELON' in cmd for cmd in calls)
     assert states['save_variables']['variables']['fail_flag'] == -3
 
@@ -5520,7 +5528,7 @@ def test_recovery_fault_while_docking_prevents_unlock(recovery_head_machine):
 def test_recovery_runner_reconciles_intended_head_change_before_heating(recovery_reference_machine):
     material, objects, states, calls, review, request = recovery_reference_machine
     attachment = {'state': 'attached', 'head': 'h1'}
-    material._attachment = lambda now: dict(attachment)
+    material._material_status()._attachment = lambda now: dict(attachment)
     review['machine']['attachment'] = dict(attachment)
     def select(head, context, guard):
         receipt = material._recovery_attempt.record
@@ -5536,7 +5544,7 @@ def test_recovery_runner_reconciles_intended_head_change_before_heating(recovery
         objects['save_variables'].values['variables']['current_extruder'] = 2
         guard()
         return True
-    material._recovery_select_head = select
+    material._recovery_motion()._recovery_select_head = select
     material._run_recovery_stages(request, review, material._recovery_initial_stages(review))
     assert material._recovery_attempt.record['state'] == 'complete'
     assert any(cmd.startswith('SET_HEATER') for cmd in calls)
@@ -5550,12 +5558,12 @@ def test_recovery_selection_failure_blocks_heating_and_retains_attempt(recovery_
         if failure == 'cancel': cancelled[0] = True
         elif failure == 'fault': objects['save_variables'].values['variables']['fail_flag'] = -3
         elif failure == 'unconfirmed':
-            material._attachment = lambda now: {'state': 'unknown', 'head': ''}
+            material._material_status()._attachment = lambda now: {'state': 'unknown', 'head': ''}
             return True
         else:
             raise ValueError('coupling failed')
         guard()
-    material._recovery_select_head = select
+    material._recovery_motion()._recovery_select_head = select
     stages = material._recovery_initial_stages(review, lambda: cancelled[0])
     with pytest.raises(ValueError):
         material._run_recovery_stages(request, review, stages, lambda: cancelled[0])
@@ -5596,7 +5604,7 @@ def test_recovery_snapshot_rejects_invalid_mesh(execution_snapshot_machine, bad)
     status = dict(objects['bed_mesh'].get_status(1), mesh_matrix=bad)
     objects['bed_mesh'].get_status = lambda now: status
     with pytest.raises(ValueError, match='mesh'):
-        material._recovery_execution_snapshot()
+        material._execution_evidence()._recovery_execution_snapshot()
 
 
 @pytest.mark.parametrize('fault', ['ignored', 'z', 'e', 'busy', 'cancel'])
@@ -5628,7 +5636,7 @@ def test_recovery_xy_validates_entire_route_before_setup(recovery_reference_mach
     states['toolhead']['position'][2] = 300.
     states['wmp_recovery'].update(z_reference_valid=True, homing=False)
     with pytest.raises(ValueError, match='path exceeds'):
-        material._recovery_bottom_xy(points, lambda: None)
+        material._recovery_motion()._recovery_bottom_xy(points, lambda: None)
     assert calls == []
 
 
@@ -5998,7 +6006,7 @@ def test_recovered_worker_error_never_runs_stock_cancel_motion(recovery_continua
     assert sd.file_position == review['execution']['file_position']
     assert material._recovery_attempt.record['state'] == 'unknown'
     assert material._recovery_attempt.record['continuation']['state'] == 'unknown'
-    assert material._recovery_attempt_unresolved()
+    assert material._recovery_lifecycle()._recovery_attempt_unresolved()
 
 
 def test_recovered_worker_intentional_pause_is_not_dispatch_failure(recovery_continuation_machine):
@@ -6051,12 +6059,12 @@ def test_recovery_restart_reconciliation_requires_new_bound_checkpoint(interrupt
     if change == 'valid':
         result = material._reconcile_recovery_continuation(material.session_id, 'recover', fingerprint)
         assert result['state'] == 'complete' and result['continuation']['state'] == 'checkpointed'
-        assert not material._recovery_attempt_unresolved()
+        assert not material._recovery_lifecycle()._recovery_attempt_unresolved()
         assert material._read_recovery_job()['state'] == 'committed'
     else:
         with pytest.raises(ValueError):
             material._reconcile_recovery_continuation(material.session_id, 'recover', fingerprint)
-        assert material._recovery_attempt_unresolved()
+        assert material._recovery_lifecycle()._recovery_attempt_unresolved()
     assert objects['gcode'].scripts == []
 
 
@@ -6081,11 +6089,11 @@ def test_recovery_xy_uses_endstop_not_axis_maximum(recovery_reference_machine, p
     states['toolhead']['homed_axes'] = 'xyz'
     states['wmp_recovery'].update(z_reference_valid=True, homing=False)
     if allowed:
-        result = material._recovery_bottom_xy([[-13., 80.]], lambda: None)
+        result = material._recovery_motion()._recovery_bottom_xy([[-13., 80.]], lambda: None)
         assert result[2] == 300.
     else:
         with pytest.raises(ValueError, match='bottom reference'):
-            material._recovery_bottom_xy([[-13., 80.]], lambda: None)
+            material._recovery_motion()._recovery_bottom_xy([[-13., 80.]], lambda: None)
         assert calls == []
 
 
@@ -6167,7 +6175,7 @@ def test_recovery_clearance_refuses_unbound_or_tall_envelope(execution_review_ma
             record['max_z'] = 295.
         path.write_text(json.dumps(record))
     with pytest.raises(ValueError):
-        material._recovery_execution_review(material.session_id, 'part.gcode', fingerprint)
+        material._recovery_review_service()._recovery_execution_review(material.session_id, 'part.gcode', fingerprint)
     assert objects['gcode'].scripts == []
 
 
@@ -6175,7 +6183,7 @@ def test_recovery_clearance_uses_endstop_and_all_head_offsets(execution_review_m
     from pathlib import Path
     material, objects, states, fingerprint = execution_review_machine
     states['toolhead']['axis_maximum'][2] = 305.
-    result = material._recovery_execution_review(material.session_id, 'part.gcode', fingerprint)
+    result = material._recovery_review_service()._recovery_execution_review(material.session_id, 'part.gcode', fingerprint)
     clearance = result['deposition']['clearance']
     job = json.loads(Path(material._recovery_job_path()).read_text())
     z_offsets = [row[2] for row in job['context']['offsets']]
@@ -6184,7 +6192,7 @@ def test_recovery_clearance_uses_endstop_and_all_head_offsets(execution_review_m
     assert clearance['available_gap'] == 299. - clearance['head_offset_span']
     material.recovery_clearance_mm = clearance['available_gap'] + .1
     with pytest.raises(ValueError, match='insufficient'):
-        material._recovery_execution_review(material.session_id, 'part.gcode', fingerprint)
+        material._recovery_review_service()._recovery_execution_review(material.session_id, 'part.gcode', fingerprint)
 
 
 @pytest.mark.parametrize('change', ['envelope', 'gap'])
@@ -6294,7 +6302,7 @@ def test_native_recovery_request_runs_owned_chain(native_recovery_request, nativ
     if native_coordinates:
         use_native_toolhead_coordinates(objects)
     original_job = Path(material._recovery_job_path()).read_bytes()
-    result = material._consume_recovery_request(json.dumps(request).encode().hex())
+    result = material._recovery_review_service()._consume_recovery_request(json.dumps(request).encode().hex())
     assert result['state'] == 'complete'
     assert body == []
     assert Path(material._recovery_job_path()).read_bytes() == original_job
@@ -6313,7 +6321,7 @@ def test_native_recovery_request_refuses_stale_or_invalid_selection(native_recov
     material, objects, states, calls, review, _, timers, body, mutex = fixture
     request[field] = value
     with pytest.raises((ValueError, OSError)):
-        material._consume_recovery_request(json.dumps(request).encode().hex())
+        material._recovery_review_service()._consume_recovery_request(json.dumps(request).encode().hex())
     assert calls == [] and timers == [] and body == []
 
 
@@ -6322,14 +6330,14 @@ def test_native_recovery_request_requires_mutex(native_recovery_request):
     material, objects, states, calls, review, _, timers, body, mutex = fixture
     mutex[0] = False
     with pytest.raises(ValueError, match='command ownership'):
-        material._consume_recovery_request(json.dumps(request).encode().hex())
+        material._recovery_review_service()._consume_recovery_request(json.dumps(request).encode().hex())
     assert calls == [] and timers == []
 
 
 def test_native_recovery_selection_rechecked_before_first_command(native_recovery_request):
     fixture, request, checkpoint = native_recovery_request
     material, objects, states, calls, _, _, timers, body, mutex = fixture
-    attempt, review = material._recovery_request_review(json.dumps(request).encode().hex())
+    attempt, review = material._recovery_review_service()._recovery_request_review(json.dumps(request).encode().hex())
     stages = material._recovery_initial_stages(review, continue_print=True)
     checkpoint.write_bytes(recovery_checkpoint_payload(last_file_pos=4))
     with pytest.raises(ValueError, match='selection changed'):
@@ -6342,7 +6350,7 @@ def test_native_recovery_request_rejects_duplicate_fields(native_recovery_reques
     material = fixture[0]
     raw = json.dumps(request)[:-1] + ', "owner": "standalone"}'
     with pytest.raises(ValueError, match='Duplicate'):
-        material._consume_recovery_request(raw.encode().hex())
+        material._recovery_review_service()._consume_recovery_request(raw.encode().hex())
     assert fixture[3] == [] and fixture[6] == []
 
 
@@ -6350,10 +6358,10 @@ def test_native_recovery_request_duplicate_does_not_repeat_preparation(native_re
     fixture, request, checkpoint = native_recovery_request
     material, objects, states, calls, review, _, timers, body, mutex = fixture
     encoded = json.dumps(request).encode().hex()
-    material._consume_recovery_request(encoded)
+    material._recovery_review_service()._consume_recovery_request(encoded)
     before = list(calls)
     with pytest.raises(ValueError):
-        material._consume_recovery_request(encoded)
+        material._recovery_review_service()._consume_recovery_request(encoded)
     assert calls == before and len(timers) == 1 and body == []
 
 
@@ -6461,12 +6469,12 @@ def test_recovery_review_endpoint_returns_bound_selection_without_commands(nativ
     material, objects, states, calls, review, _, timers, body, mutex = fixture
     mutex[0] = False
     if missing_optional_fan:
-        original_review = material._recovery_execution_review
+        original_review = material._recovery_review_service()._recovery_execution_review
         def with_fan_warning(*args):
             value = original_review(*args)
             value["fan_warnings"] = ["Optional cooling fan is not installed: auxiliary_fan"]
             return value
-        material._recovery_execution_review = with_fan_warning
+        material._recovery_review_service()._recovery_execution_review = with_fan_warning
     web = recovery_review_web_request(request)
     material._handle_recovery_review(web)
     result = web.response
@@ -6510,12 +6518,12 @@ def test_recovery_review_endpoint_rechecks_command_ownership_after_read(native_r
     fixture, request, checkpoint = native_recovery_request
     material, objects, states, calls, review, _, timers, body, mutex = fixture
     mutex[0] = False
-    original = material._recovery_request_review
+    original = material._recovery_review_service()._recovery_request_review
     def changed(encoded):
         result = original(encoded)
         mutex[0] = True
         return result
-    material._recovery_request_review = changed
+    material._recovery_review_service()._recovery_request_review = changed
     web = recovery_review_web_request(request)
     with pytest.raises(ValueError, match='started during recovery review'):
         material._handle_recovery_review(web)
@@ -6572,7 +6580,7 @@ def test_recovery_command_failure_after_dispatch_is_not_a_refusal(native_recover
 
 
 def resolution_request(material, action='abandon', ticket='resolve-1'):
-    return material._recovery_resolution_selection(dict(id=ticket,
+    return material._recovery_review_service()._recovery_resolution_selection(dict(id=ticket,
         attempt_id=material._recovery_attempt.record['request']['id'],
         session=material.session_id, action=action))
 
@@ -6616,7 +6624,7 @@ def test_public_recovery_resolution_refuses_changed_review(recovery_abandon_mach
     elif change == 'version': request['version'] = True
     with pytest.raises(ValueError): material.cmd_RECOVERY_RESOLVE(resolution_command(request))
     assert calls == []
-    assert material._recovery_attempt_unresolved()
+    assert material._recovery_lifecycle()._recovery_attempt_unresolved()
     assert getattr(material, '_recovery_resolution', {}).get('state', 'refused') == 'refused'
 
 
@@ -6628,7 +6636,7 @@ def test_public_recovery_resolution_partial_failure_stays_unknown(recovery_aband
     with pytest.raises(ValueError, match='not confirmed'):
         material.cmd_RECOVERY_RESOLVE(resolution_command(request))
     assert material._recovery_resolution['state'] == 'unknown'
-    assert material._recovery_attempt_unresolved()
+    assert material._recovery_lifecycle()._recovery_attempt_unresolved()
     before = list(calls)
     with pytest.raises(ValueError, match='already attempted'):
         material.cmd_RECOVERY_RESOLVE(resolution_command(request))
@@ -6648,7 +6656,7 @@ def test_public_recovery_reconcile_preserves_job_without_commands(interrupted_re
     material.cmd_RECOVERY_RESOLVE(resolution_command(request))
     assert material._recovery_resolution['state'] == 'complete'
     assert material._recovery_attempt.record['continuation']['state'] == 'checkpointed'
-    assert not material._recovery_attempt_unresolved()
+    assert not material._recovery_lifecycle()._recovery_attempt_unresolved()
     assert material._read_recovery_job()['state'] == 'committed'
     assert objects['gcode'].scripts == []
 
@@ -6659,7 +6667,7 @@ def test_resolution_review_is_explicit_read_only_during_unrelated_command(recove
     args = dict(id='resolve-1', attempt_id=attempt['id'], session=material.session_id, action='abandon')
     request = CancelWebRequest(**args)
     material._handle_recovery_resolution_review(request)
-    assert request.response['request'] == material._recovery_resolution_selection(args)
+    assert request.response['request'] == material._recovery_review_service()._recovery_resolution_selection(args)
     assert calls == [] and not getattr(material, '_recovery_resolution', {})
 
 
@@ -6678,11 +6686,11 @@ def test_resolution_review_checks_abandon_prerequisites(recovery_abandon_machine
     objects['gcode'].get_mutex = lambda: SimpleNamespace(test=lambda: False)
     if change == 'heater': states['extruder2']['target'] = 220.
     elif change == 'fault': objects['save_variables'].values['variables']['fail_flag'] = -3
-    else: material._attachment = lambda now: {'state': 'unknown'}
+    else: material._material_status()._attachment = lambda now: {'state': 'unknown'}
     request = CancelWebRequest(id='resolve-1', attempt_id=attempt['id'], session=material.session_id, action='abandon')
     material._handle_recovery_resolution_review(request)
     assert request.response is not None and calls == []
-    assert material._recovery_attempt_unresolved()
+    assert material._recovery_lifecycle()._recovery_attempt_unresolved()
 
 
 def test_resolution_reconcile_review_does_not_release_hold(interrupted_recovery_machine):
@@ -6696,7 +6704,7 @@ def test_resolution_reconcile_review_does_not_release_hold(interrupted_recovery_
     material._handle_recovery_resolution_review(request)
     assert request.response['request']['action'] == 'reconcile'
     assert material._recovery_read_bytes(material._recovery_attempt_path(), 65536) == before
-    assert material._recovery_attempt_unresolved() and objects['gcode'].scripts == []
+    assert material._recovery_lifecycle()._recovery_attempt_unresolved() and objects['gcode'].scripts == []
 
 
 @pytest.mark.parametrize('version,reason', [
@@ -6893,9 +6901,9 @@ def test_managed_cancel_cleanup_preserves_evidence_without_motion(managed_cancel
     material.filament_operation = {'state': 'unknown', 'id': 'partial-feed'}
     material.toolhead_operation = {'state': 'unknown', 'id': 'partial-dock'}
     before = (dict(material.filament_operation), dict(material.toolhead_operation))
-    material._attachment = lambda now: pytest.fail('Cancellation must not select a physical motion from attachment')
+    material._material_status()._attachment = lambda now: pytest.fail('Cancellation must not select a physical motion from attachment')
     phases = []
-    result = material._cancel_print_cleanup(binding, lambda name, state="running": phases.append((name, state)))
+    result = material._cancellation()._cancel_print_cleanup(binding, lambda name, state="running": phases.append((name, state)))
     assert result['state'] == 'complete'
     assert phases == [('stopping', 'complete')] + [(name, state) for name in material._CANCEL_STAGES[1:] for state in ('running', 'complete')]
     assert cleanup[:5] == ['M400', 'TURN_OFF_HEATERS', '_WMP_PRINT_CONTEXT_CLEAR',
@@ -6927,7 +6935,7 @@ def test_managed_cancel_partial_cleanup_cannot_report_complete(managed_cancel_cl
         def fail_cancel(): raise ValueError('injected file')
         objects['virtual_sdcard'].do_cancel = fail_cancel
     with pytest.raises(ValueError, match='injected'):
-        material._cancel_print_cleanup(binding)
+        material._cancellation()._cancel_print_cleanup(binding)
     assert objects['pause_resume'].get_status(1)['is_paused'] is (failure == 'pause')
     assert (material._recovery_paused_worker is not None) is (failure == 'pause')
     if failure == 'drain':
@@ -6946,7 +6954,7 @@ def test_managed_cancel_cleanup_requires_stopped_bound_job(managed_cancel_cleanu
     elif change == 'mutex': mutex[0] = False
     else: objects['virtual_sdcard'].work_timer = object()
     with pytest.raises(ValueError, match='ownership'):
-        material._cancel_print_cleanup(binding)
+        material._cancellation()._cancel_print_cleanup(binding)
     assert cleanup == [] and not binding['handle'].closed
 
 
@@ -6999,11 +7007,11 @@ def test_print_cancel_terminal_paths_unregister_timer(tracked_cancel_timers, mon
     elif exit_path == 'owner': objects['openace'] = object()
     elif exit_path == 'job': objects['print_stats'].filename = 'another.gcode'
     elif exit_path == 'cleanup':
-        monkeypatch.setattr(material, '_cancel_print_cleanup', lambda *args: (_ for _ in ()).throw(ValueError('cleanup fault')))
+        monkeypatch.setattr(material._cancellation(), '_cancel_print_cleanup', lambda *args: (_ for _ in ()).throw(ValueError('cleanup fault')))
     elif exit_path == 'status':
         monkeypatch.setattr(objects['virtual_sdcard'], 'is_active', lambda: (_ for _ in ()).throw(ValueError('status fault')))
     elif exit_path == 'persist':
-        monkeypatch.setattr(material, '_write_recovery_json', lambda *args: (_ for _ in ()).throw(OSError('journal fault')))
+        monkeypatch.setattr(material._recovery_storage(), '_write_recovery_json', lambda *args: (_ for _ in ()).throw(OSError('journal fault')))
     assert worker.callback(2.) == reactor.NEVER
     assert len(registered) == 1 and worker not in registered
     if exit_path == 'complete': assert material._print_cancel['state'] == 'complete'
@@ -7048,14 +7056,14 @@ def test_print_cancel_timer_setup_failure_preserves_unknown_fence(tracked_cancel
         def activate(timer, when):
             timer.when = when  # Include scheduling before the exception.
             if failure == 'activation_journal':
-                monkeypatch.setattr(material, '_write_recovery_json', lambda *args: (_ for _ in ()).throw(OSError('journal fault')))
+                monkeypatch.setattr(material._recovery_storage(), '_write_recovery_json', lambda *args: (_ for _ in ()).throw(OSError('journal fault')))
             raise ValueError('activation fault')
         monkeypatch.setattr(reactor, 'update_timer', activate)
     with pytest.raises(ValueError):
         material._begin_print_cancel('timer-setup', binding)
     assert len(registered) == 1 and cleanup == []
     assert material._print_cancel['state'] == 'unknown'
-    assert material._print_cancel_unresolved()
+    assert material._cancellation()._print_cancel_unresolved()
     if failure.startswith('activation'):
         assert timers[-1].callback(2.) == reactor.NEVER
         assert len(registered) == 1 and cleanup == []
@@ -7067,7 +7075,7 @@ def test_repeated_resolved_cancellations_do_not_accumulate_timers(tracked_cancel
     material, objects, states, calls, review, request, timers, body, locked = machine
     # Isolate timer lifetime from SD close/reopen; retain actual admission,
     # cancellation receipt persistence, dispatch and terminal handling.
-    monkeypatch.setattr(material, '_cancel_print_cleanup', lambda *args: None)
+    monkeypatch.setattr(material._cancellation(), '_cancel_print_cleanup', lambda *args: None)
     locked[0] = False
     for number in range(20):
         material._begin_print_cancel('timer-repeat-%d' % number, binding)
@@ -7094,7 +7102,7 @@ def test_print_cancel_intent_fences_queued_work_and_waits_for_owner(managed_canc
     locked[0] = False
     assert worker.callback(2) == material.printer.get_reactor().NEVER
     assert material._print_cancel['state'] == 'complete'
-    assert not material._print_cancel_unresolved()
+    assert not material._cancellation()._print_cancel_unresolved()
     assert material.filament_operation['state'] == 'running'  # Not fabricated as completed.
     before = list(cleanup)
     worker.callback(3)
@@ -7114,7 +7122,7 @@ def test_print_cancel_intent_does_not_cleanup_replaced_job(managed_cancel_intent
     locked[0] = False
     timers[-1].callback(2)
     assert material._print_cancel['state'] == 'unknown' and cleanup == []
-    assert material._print_cancel_unresolved()
+    assert material._cancellation()._print_cancel_unresolved()
 
 
 @pytest.mark.parametrize('state', ['pending', 'unknown', 'complete'])
@@ -7124,8 +7132,8 @@ def test_print_cancel_restore_preserves_record_and_never_schedules(managed_cance
     material, objects, states, calls, review, request, timers, body, locked = fixture
     material._begin_print_cancel('cancel-print', binding)
     record = dict(material._print_cancel, state=state)
-    material._write_recovery_json(material._print_cancel_path(), record)
-    path = Path(material._print_cancel_path())
+    material._write_recovery_json(material._cancellation()._print_cancel_path(), record)
+    path = Path(material._cancellation()._print_cancel_path())
     original = path.read_bytes()
     count = len(timers)
     material.session_id = 'new-session'
@@ -7141,7 +7149,7 @@ def test_print_cancel_persistence_failure_still_stops_and_schedules(managed_canc
     def fail(path, value):
         assert objects['virtual_sdcard'].must_pause_work
         raise OSError('disk failed')
-    monkeypatch.setattr(material, '_write_recovery_json', fail)
+    monkeypatch.setattr(material._recovery_storage(), '_write_recovery_json', fail)
     material._begin_print_cancel('cancel-print', binding)
     assert len(timers) == count + 1 and cleanup == []
     assert material._print_cancel['state'] == 'pending'
@@ -7152,7 +7160,7 @@ def test_cancel_cleanup_journal_failure_does_not_prevent_file_and_pause_cleanup(
     fixture, binding, cleanup, original_worker = managed_cancel_cleanup
     material, objects, states, calls, review, request, timers, body, mutex = fixture
     def fail_progress(name, state='running'): raise OSError('progress storage failed')
-    result = material._cancel_print_cleanup(binding, fail_progress)
+    result = material._cancellation()._cancel_print_cleanup(binding, fail_progress)
     assert result['state'] == 'complete'
     assert any('progress storage failed' in warning for warning in result['warnings'])
     assert cleanup[:2] == ['M400', 'TURN_OFF_HEATERS']
@@ -7179,14 +7187,14 @@ def test_print_cancel_final_receipt_failure_retains_actual_completion(managed_ca
     material._begin_print_cancel('cancel-print', binding)
     original = material._write_recovery_json
     def fail_complete(path, value):
-        if path == material._print_cancel_path() and value.get('state') == 'complete':
+        if path == material._cancellation()._print_cancel_path() and value.get('state') == 'complete':
             raise OSError('completion storage failed')
         original(path, value)
-    monkeypatch.setattr(material, '_write_recovery_json', fail_complete)
+    monkeypatch.setattr(material._recovery_storage(), '_write_recovery_json', fail_complete)
     locked[0] = False
     timers[-1].callback(2)
     assert binding['handle'].closed and objects['print_stats'].state == 'cancelled'
-    assert material._print_cancel['state'] == 'complete' and not material._print_cancel_unresolved()
+    assert material._print_cancel['state'] == 'complete' and not material._cancellation()._print_cancel_unresolved()
     assert material._print_cancel['persistence_error'] == 'completion storage failed'
     before = list(cleanup)
     timers[-1].callback(3)
@@ -7209,8 +7217,8 @@ def test_public_print_cancel_requires_separate_review_and_confirmation(managed_c
     reviewed = print_cancel_review(material, binding)
     assert print_cancel_review(material, binding) == reviewed
     assert len(timers) == count and cleanup == []
-    assert not Path(material._print_cancel_path()).exists()
-    assert not material._print_cancel_unresolved()
+    assert not Path(material._cancellation()._print_cancel_path()).exists()
+    assert not material._cancellation()._print_cancel_unresolved()
     confirmation = CancelWebRequest(**reviewed)
     material._handle_print_cancel(confirmation)
     assert confirmation.response['state'] == 'pending'
@@ -7233,8 +7241,8 @@ def test_public_print_cancel_rejects_changed_review_fields(managed_cancel_intent
     changed = dict(reviewed, **{field: 'changed'})
     with pytest.raises(ValueError, match='stale, changed'):
         material._handle_print_cancel(CancelWebRequest(**changed))
-    assert cleanup == [] and len(timers) == count and not material._print_cancel_unresolved()
-    assert material._print_cancel_tickets[reviewed['id']]['used'] is False
+    assert cleanup == [] and len(timers) == count and not material._cancellation()._print_cancel_unresolved()
+    assert material._cancellation()._print_cancel_tickets[reviewed['id']]['used'] is False
 
 
 @pytest.mark.parametrize('change', ['session', 'owner', 'readiness', 'same_name_new_handle', 'expired'])
@@ -7247,11 +7255,11 @@ def test_public_print_cancel_cannot_transfer_review_to_changed_job(managed_cance
     if change == 'session': material.session_id = 'new-session'
     elif change == 'owner': objects['openace'] = object()
     elif change == 'readiness': states['webhooks']['state'] = 'shutdown'
-    elif change == 'expired': material._print_cancel_tickets[reviewed['id']]['expires'] = 0.
+    elif change == 'expired': material._cancellation()._print_cancel_tickets[reviewed['id']]['expires'] = 0.
     else: objects['virtual_sdcard'].current_file = io.StringIO('a different print')
     with pytest.raises(ValueError):
         material._handle_print_cancel(CancelWebRequest(**reviewed))
-    assert cleanup == [] and len(timers) == count and not material._print_cancel_unresolved()
+    assert cleanup == [] and len(timers) == count and not material._cancellation()._print_cancel_unresolved()
 
 
 def test_public_print_cancel_lost_reply_preserves_receipt_without_resubmission(managed_cancel_intent):
@@ -7275,7 +7283,7 @@ def interrupted_print_cancel(managed_cancel_intent):
     material, objects, states, calls, review, request, timers, body, locked = fixture
     material._begin_print_cancel('cancel-print', binding)
     material._print_cancel.update(state='unknown', message='interrupted')
-    material._write_recovery_json(material._print_cancel_path(), material._print_cancel)
+    material._write_recovery_json(material._cancellation()._print_cancel_path(), material._print_cancel)
     locked[0] = False
     return managed_cancel_intent
 
@@ -7294,10 +7302,10 @@ def test_cancel_resolution_finishes_original_open_file_only_after_confirmation(i
     from pathlib import Path
     fixture, binding, cleanup, original_worker = interrupted_print_cancel
     material, objects, states, calls, review, request, timers, body, locked = fixture
-    original = Path(material._print_cancel_path()).read_bytes()
+    original = Path(material._cancellation()._print_cancel_path()).read_bytes()
     reviewed = cancel_resolution_review(material)
     assert reviewed['action'] == 'finish_cleanup'
-    assert cleanup == [] and Path(material._print_cancel_path()).read_bytes() == original
+    assert cleanup == [] and Path(material._cancellation()._print_cancel_path()).read_bytes() == original
     locked[0] = True
     confirm_cancel_resolution(material, reviewed)
     assert binding['handle'].closed and objects['print_stats'].state == 'cancelled'
@@ -7316,7 +7324,7 @@ def test_cancel_resolution_acknowledges_finished_cleanup_without_commands(manage
     locked[0] = False
     timers[-1].callback(2)
     material._print_cancel.update(state='unknown')
-    material._write_recovery_json(material._print_cancel_path(), material._print_cancel)
+    material._write_recovery_json(material._cancellation()._print_cancel_path(), material._print_cancel)
     material.session_id = 'after-restart'
     material._restore_print_cancel()
     cleanup.clear()
@@ -7373,7 +7381,7 @@ def test_cancel_resolution_rechecks_evidence_before_cleanup(interrupted_print_ca
         material._write_recovery_job(job)
     elif change == 'receipt':
         material._print_cancel['message'] = 'changed result'
-        material._write_recovery_json(material._print_cancel_path(), material._print_cancel)
+        material._write_recovery_json(material._cancellation()._print_cancel_path(), material._print_cancel)
     elif change == 'owner': objects['openace'] = object()
     else: material.session_id = 'new-session'
     locked[0] = True
@@ -7393,7 +7401,7 @@ def test_cancel_resolution_failure_keeps_result_but_finishes_independent_cleanup
     locked[0] = True
     with pytest.raises(ValueError, match='drain failed'): confirm_cancel_resolution(material, reviewed)
     assert material._print_cancel_resolution['state'] == 'unknown'
-    assert material._print_cancel_unresolved() and binding['handle'].closed
+    assert material._cancellation()._print_cancel_unresolved() and binding['handle'].closed
     objects['gcode'].run_script_from_command = original
     locked[0] = False
     fresh = cancel_resolution_review(material, 'resolve-again')
@@ -7409,7 +7417,7 @@ def test_cancel_resolution_finishes_idle_heater_and_pause_cleanup(managed_cancel
     locked[0] = False
     timers[-1].callback(2)
     material._print_cancel.update(state='unknown')
-    material._write_recovery_json(material._print_cancel_path(), material._print_cancel)
+    material._write_recovery_json(material._cancellation()._print_cancel_path(), material._print_cancel)
     objects['pause_resume'].get_status(1)['is_paused'] = True
     states['extruder2']['target'] = 100.
     cleanup.clear()
@@ -7437,10 +7445,10 @@ def test_cancel_resolution_expired_review_does_not_clear_hold(interrupted_print_
     fixture, binding, cleanup, original_worker = interrupted_print_cancel
     material = fixture[0]
     reviewed = cancel_resolution_review(material)
-    material._print_cancel_resolution_tickets[reviewed['id']]['expires'] = 0.
+    material._cancellation()._print_cancel_resolution_tickets[reviewed['id']]['expires'] = 0.
     fixture[-1][0] = True
     with pytest.raises(ValueError, match='stale'): confirm_cancel_resolution(material, reviewed)
-    assert cleanup == [] and material._print_cancel_unresolved()
+    assert cleanup == [] and material._cancellation()._print_cancel_unresolved()
 
 
 def test_cancel_resolution_lost_response_does_not_replace_completed_receipt(interrupted_print_cancel):
@@ -7494,7 +7502,7 @@ def test_cancel_generation_survives_cleanup_and_invalidates_old_context(managed_
     assert material._command_generation == old + 2
     assert not material._filament_context_valid({'command_generation': old + 1}, 2)
     # A new request is not permanently poisoned by the retired generations.
-    material._idle_for_filament_settings = lambda now: True
+    material._material_settings()._idle_for_filament_settings = lambda now: True
     assert material._filament_context_valid({'command_generation': old + 2}, 2)
 
 
@@ -7560,8 +7568,8 @@ def test_cancel_stage_restore_preserves_bytes_and_does_not_invent_completion(man
     if version == 1:
         record['version'] = 1
         del record['stages']
-        material._write_recovery_json(material._print_cancel_path(), record)
-    path = Path(material._print_cancel_path())
+        material._write_recovery_json(material._cancellation()._print_cancel_path(), record)
+    path = Path(material._cancellation()._print_cancel_path())
     before = path.read_bytes()
     material._restore_print_cancel()
     assert path.read_bytes() == before and cleanup == []
@@ -7582,9 +7590,9 @@ def test_cancel_stage_restore_refuses_corrupt_progress(managed_cancel_intent, ch
     elif change == 'reordered': record['stages'].reverse()
     elif change == 'state': record['stages'][0]['state'] = 'guessed'
     else: record['stages'][1] = record['stages'][0]
-    material._write_recovery_json(material._print_cancel_path(), record)
+    material._write_recovery_json(material._cancellation()._print_cancel_path(), record)
     material._restore_print_cancel()
-    assert material._print_cancel_unresolved()
+    assert material._cancellation()._print_cancel_unresolved()
     assert 'unreadable' in material._print_cancel['message']
     assert cleanup == []
 
@@ -7616,7 +7624,7 @@ def test_legacy_cancel_records_intent_before_mutex_without_batch_side_effects(le
     objects['gcode'].run_script(script)
     assert forwarded == [] and cleanup == []
     assert material._print_cancel['state'] == 'pending'
-    assert material._print_cancel_live_binding['handle'] is binding['handle']
+    assert material._cancellation()._print_cancel_live_binding['handle'] is binding['handle']
     assert material.filament_operation['cancel_requested'] is True
     assert objects['virtual_sdcard'].must_pause_work
     objects['gcode'].run_script(script)  # Same live job coalesces without another worker.
@@ -7834,7 +7842,7 @@ def test_recovery_abandon_archives_original_bytes_before_invalidating(recovery_a
         assert saved == {'version': 1, 'records': {'job': job.hex(), 'execution': execution.hex()}}
         assert Path(material._recovery_job_path()).read_bytes() == job
         write_job(record)
-    material._write_recovery_job = invalidate
+    material._recovery_storage()._write_recovery_job = invalidate
     material._abandon_recovery_attempt(material.session_id, request['id'])
     assert Path(material._recovery_execution_path()).read_bytes() == execution
 
@@ -7877,12 +7885,12 @@ def test_recovery_abandon_rechecks_execution_after_archive(recovery_abandon_mach
         digest = archive(evidence)
         Path(material._recovery_execution_path()).write_bytes(b'another checkpoint')
         return digest
-    material._archive_recovery_evidence = changed
+    material._recovery_storage()._archive_recovery_evidence = changed
     with pytest.raises(ValueError, match='changed during archival'):
         material._abandon_recovery_attempt(material.session_id, request['id'])
     assert Path(material._recovery_job_path()).read_bytes() == job
     assert calls == []
-    assert material._recovery_attempt_unresolved()
+    assert material._recovery_lifecycle()._recovery_attempt_unresolved()
 
 
 def test_recovery_archive_rejects_symlink_without_touching_target(recovery_abandon_machine, tmp_path):
@@ -7914,7 +7922,7 @@ def test_recovery_archive_directory_sync_failure_precedes_invalidation(recovery_
         material._abandon_recovery_attempt(material.session_id, request['id'])
     assert json.loads(Path(material._recovery_job_path()).read_bytes())['state'] == 'invalidated'
     assert calls == []
-    assert material._recovery_attempt_unresolved()
+    assert material._recovery_lifecycle()._recovery_attempt_unresolved()
 
 
 def test_recovery_abandon_retry_rejects_archive_from_another_job(recovery_abandon_machine):
@@ -7932,7 +7940,7 @@ def test_recovery_abandon_retry_rejects_archive_from_another_job(recovery_abando
     with pytest.raises(ValueError, match='Another job owns'):
         material._abandon_recovery_attempt(material.session_id, request['id'])
     assert calls == []
-    assert material._recovery_attempt_unresolved()
+    assert material._recovery_lifecycle()._recovery_attempt_unresolved()
 
 
 @pytest.fixture
@@ -7961,7 +7969,7 @@ def test_archive_problem_does_not_veto_read_only_resolution_review(archived_part
     material._handle_recovery_resolution_review(request)
     assert request.response is not None and calls == []
     assert Path(material._recovery_job_path()).read_bytes() == before
-    assert material._recovery_attempt_unresolved()
+    assert material._recovery_lifecycle()._recovery_attempt_unresolved()
 
 
 def test_archive_removed_during_cleanup_reports_warning_without_stranding_exit(archived_partial_recovery):
@@ -8000,13 +8008,13 @@ def test_legacy_abandon_preserves_remaining_evidence_and_requires_confirmation(a
     objects['gcode'].get_mutex = lambda: SimpleNamespace(test=lambda: False)
     request = CancelWebRequest(id='legacy-abandon', attempt_id=attempt['id'], session=material.session_id, action='abandon')
     material._handle_recovery_resolution_review(request)
-    assert calls == [] and material._recovery_attempt_unresolved()
+    assert calls == [] and material._recovery_lifecycle()._recovery_attempt_unresolved()
     assert not list(Path(material.profile_path).parent.glob('wmp_recovery_archive_*.json'))
     assert Path(material._recovery_job_path()).read_bytes() == original_marker
     objects['gcode'].get_mutex = lambda: SimpleNamespace(test=lambda: True)
     material.cmd_RECOVERY_RESOLVE(resolution_command(request.response['request']))
     assert material._recovery_resolution['state'] == 'complete'
-    assert not material._recovery_attempt_unresolved()
+    assert not material._recovery_lifecycle()._recovery_attempt_unresolved()
     marker = material._read_recovery_job()
     evidence = material._read_archived_recovery_evidence(marker['archive'])
     assert evidence == {'job': original_marker, 'execution': execution}
@@ -8034,7 +8042,7 @@ def test_legacy_abandon_requires_existing_attempt_binding(archived_partial_recov
     before = Path(material._recovery_job_path()).read_bytes()
     with pytest.raises(ValueError, match='Another job owns'):
         material._abandon_recovery_attempt(material.session_id, attempt['id'])
-    assert calls == [] and material._recovery_attempt_unresolved()
+    assert calls == [] and material._recovery_lifecycle()._recovery_attempt_unresolved()
     assert Path(material._recovery_job_path()).read_bytes() == before
     assert not list(Path(material.profile_path).parent.glob('wmp_recovery_archive_*.json'))
 
@@ -8056,13 +8064,13 @@ def test_startup_archives_exact_attempt_before_interruption_rewrite(material, ph
         assert archive.read_bytes() == original
         assert path.read_bytes() == original
         write(destination, value)
-    material._write_recovery_json = checked_write
+    material._recovery_storage()._write_recovery_json = checked_write
     material._restore_recovery_attempt()
-    assert material._recovery_attempt_unresolved()
+    assert material._recovery_lifecycle()._recovery_attempt_unresolved()
     assert json.loads(path.read_bytes())['state'] == 'unknown'
     assert archive.read_bytes() == original
     inode = archive.stat().st_ino
-    material._write_recovery_json = write
+    material._recovery_storage()._write_recovery_json = write
     material._restore_recovery_attempt()  # already unknown: no further rewrite/archive
     assert archive.stat().st_ino == inode
     assert len(list(path.parent.glob('wmp_recovery_attempt_original_*'))) == 1
@@ -8083,15 +8091,15 @@ def test_startup_archive_failure_does_not_overwrite_attempt(material, monkeypatc
         archive.write_bytes(b'conflicting archive')
     elif failure == 'publication':
         def fail(*args): raise OSError('attempt publication unavailable')
-        material._write_recovery_json = fail
+        material._recovery_storage()._write_recovery_json = fail
     else:
-        preserve = material._preserve_recovery_attempt_original
+        preserve = material._recovery_lifecycle()._preserve_recovery_attempt_original
         def replace(payload):
             preserve(payload)
             path.write_bytes(changed)
-        material._preserve_recovery_attempt_original = replace
+        material._recovery_lifecycle()._preserve_recovery_attempt_original = replace
     material._restore_recovery_attempt()
-    assert material._recovery_attempt_unresolved()
+    assert material._recovery_lifecycle()._recovery_attempt_unresolved()
     assert material._recovery_attempt_status() == {}
     material._require_no_recovery_attempt()
     assert material._idle_for_filament_settings(0)
@@ -8130,7 +8138,7 @@ def test_retirement_public_review_confirm_preserves_and_blocks(retirement_machin
     with pytest.raises(ValueError, match='explicitly discarded'):
         material._read_completed_recovery_execution('part.gcode')
     with pytest.raises(ValueError, match='explicitly discarded'):
-        material._recovery_review(material.session_id, 'part.gcode', '', '', '')
+        material._recovery_review_service()._recovery_review(material.session_id, 'part.gcode', '', '', '')
     material.cmd_RETIRE_RECOVERY(resolution_command(request))
     assert material._recovery_retirement_result['state'] == 'complete'
 
@@ -8221,22 +8229,22 @@ def test_invalid_attempt_is_diagnostic_and_can_be_explicitly_discarded(retiremen
     path = Path(material._recovery_attempt_path())
     path.write_bytes(raw)
     material._restore_recovery_attempt()
-    assert material._recovery_restore_error and material._recovery_attempt_unresolved()
+    assert material._recovery_restore_error and material._recovery_lifecycle()._recovery_attempt_unresolved()
     assert material._idle_for_filament_settings(0)
-    material._recovery_machine_state(material.session_id)
+    material._recovery_review_service()._recovery_machine_state(material.session_id)
     assert path.read_bytes() == raw
     review = CancelWebRequest(session=material.session_id, id='discard-invalid')
     material._handle_recovery_retirement_review(review)
     locked[0] = True
     material.cmd_RETIRE_RECOVERY(resolution_command(review.response['request']))
-    assert not material._recovery_restore_error and not material._recovery_attempt_unresolved()
+    assert not material._recovery_restore_error and not material._recovery_lifecycle()._recovery_attempt_unresolved()
     assert path.read_bytes() == raw and objects['gcode'].scripts == []
     # Restart and subsequent job publication must not resurrect this attempt.
     material._restore_recovery_attempt()
-    assert not material._recovery_attempt_unresolved()
+    assert not material._recovery_lifecycle()._recovery_attempt_unresolved()
     Path(material._recovery_job_path()).write_bytes(b'new job')
     material._restore_recovery_attempt()
-    assert not material._recovery_attempt_unresolved()
+    assert not material._recovery_lifecycle()._recovery_attempt_unresolved()
     assert material._recovery_retirement_result['state'] == 'superseded'
     assert material._recovery_retirement_store().retirement()['matches'] is False
     # A replacement bad attempt remains visible, even if its bytes happen to match.
@@ -8244,14 +8252,14 @@ def test_invalid_attempt_is_diagnostic_and_can_be_explicitly_discarded(retiremen
     replacement.write_bytes(raw)
     replacement.replace(path)
     material._restore_recovery_attempt()
-    assert material._recovery_restore_error and material._recovery_attempt_unresolved()
+    assert material._recovery_restore_error and material._recovery_lifecycle()._recovery_attempt_unresolved()
 
 
 def test_damaged_retirement_receipt_does_not_block_startup_commands(retirement_machine):
     material, objects, _, _ = retirement_machine
     Path(material._recovery_retirement_store().receipt_path).write_bytes(b'{broken')
     material._restore_recovery_attempt()
-    assert material._recovery_restore_error and material._recovery_attempt_unresolved()
+    assert material._recovery_restore_error and material._recovery_lifecycle()._recovery_attempt_unresolved()
     assert material._idle_for_filament_settings(0)
     assert objects['gcode'].scripts == []
 
@@ -8268,20 +8276,20 @@ def test_execution_sampler_distinguishes_busy_commands_from_unscheduled_motion(e
     busy = [True]
     objects['gcode'].get_mutex = lambda: SimpleNamespace(test=lambda: busy[0])
     for now in (1., 2., 3.):
-        assert material._execution_tick(now) == now + 1.
+        assert material._execution_evidence()._execution_tick(now) == now + 1.
         assert material._execution_state == 'command_busy'
         assert getattr(material, '_pending_execution_snapshot', None) is None
     busy[0] = False
     objects['toolhead'].check_busy = lambda now: (105., 101., False)
-    material._execution_tick(4.)
+    material._execution_evidence()._execution_tick(4.)
     assert material._execution_state == 'refused'
     assert material._execution_error == 'Checkpoint motion has not reached a scheduled boundary'
     assert material._pending_execution_snapshot is None
     objects['toolhead'].check_busy = lambda now: (105., 101., True)
-    material._execution_tick(5.)
+    material._execution_evidence()._execution_tick(5.)
     assert material._execution_state == 'waiting_motion' and material._execution_error == ''
     objects['toolhead'].check_busy = lambda now: (106., 106., True)
-    material._execution_tick(6.)
+    material._execution_evidence()._execution_tick(6.)
     assert material._execution_last_boundary is not None
 
 
@@ -8313,7 +8321,7 @@ def test_execution_completed_sd_boundary_waits_for_retained_move_timing(executio
     candidate = material._pending_execution_snapshot
     assert candidate['file_position'] == 6  # Successful command, before SD increments its cursor.
     assert candidate['scheduled_print_time'] is None
-    assert not material._publish_recovery_execution()
+    assert not material._execution_evidence()._publish_recovery_execution()
     assert len(tail.timing_callbacks) == 1
     states['gcode_move']['gcode_position'][0] = 99.
     # Run the retained scheduling method; it invokes callbacks at move end.
@@ -8331,9 +8339,9 @@ def test_execution_completed_sd_boundary_waits_for_retained_move_timing(executio
     assert candidate['gcode_position'][0] == 1.  # Later parser state never overwrites captured state.
     sd = objects['virtual_sdcard']; sd.file_position = 6; sd.from_sd = False
     objects['toolhead'].check_busy = lambda now: (106., 103., False)
-    assert not material._publish_recovery_execution()
+    assert not material._execution_evidence()._publish_recovery_execution()
     objects['toolhead'].check_busy = lambda now: (106., 104., False)
-    assert material._publish_recovery_execution()
+    assert material._execution_evidence()._publish_recovery_execution()
     assert material._pending_execution_snapshot is None
     tail.timing_callbacks[0](107.)  # A late duplicate cannot alter published evidence.
     assert candidate['scheduled_print_time'] == 104.
@@ -8396,11 +8404,11 @@ def test_sd_observer_runs_only_after_retained_script_success(legacy_cancel_route
     del material._cancel_script_wrapper
     material._cancel_routes_ready()
     token = object()
-    material._execution_sd_boundary = lambda: token
+    material._execution_evidence()._execution_sd_boundary = lambda: token
     def observe(boundary):
         assert boundary is token and not locked[0]
         events.append('completed')
-    material._execution_command_completed = observe
+    material._execution_evidence()._execution_command_completed = observe
     if fails:
         with pytest.raises(ValueError, match='command failed'): gcode.run_script('G1 X10')
     else: gcode.run_script('G1 X10')
@@ -8413,19 +8421,19 @@ def test_filament_terminal_write_failure_preserves_actual_outcome(service_materi
     material, objects, state = service_material
     material.filament_operation = dict(id='terminal-write', session=material.session_id,
         head='h2', action='load', state='running', phase='feeding')
-    material._persist_filament_operation()
-    persist = material._persist_filament_operation
+    material._filament_service()._persist_filament_operation()
+    persist = material._filament_service()._persist_filament_operation
     effects = []
     def finish(*args):
         effects.append('effect')
         material.filament_operation.update(state='complete' if terminal == 'complete' else 'failed',
             phase='stopped', recovered=terminal == 'stopped')
-    monkeypatch.setattr(material, '_execute_filament_impl', finish)
+    monkeypatch.setattr(material._filament_service(), '_execute_filament_impl', finish)
     def fail_write():
         if fault == 'after_write': persist()
         raise OSError('terminal storage failure')
-    monkeypatch.setattr(material, '_persist_filament_operation', fail_write)
-    material._execute_filament(FakeCommand(), 2, 'load', {})
+    monkeypatch.setattr(material._filament_service(), '_persist_filament_operation', fail_write)
+    material._filament_service()._execute_filament(FakeCommand(), 2, 'load', {})
     assert material.filament_operation['state'] == ('complete' if terminal == 'complete' else 'failed')
     assert material.filament_operation['persistence_error'] == 'terminal storage failure'
     assert effects == ['effect']
@@ -8454,8 +8462,8 @@ def test_toolhead_journal_survives_process_loss(toolhead_material, action, point
             def run(script):
                 scripts.append(script)
                 if script == 'PARK_CURRENT_TOOL':
-                    material._attachment = lambda now: {'state': 'empty', 'head': ''}
-            material._attachment = lambda now: {'state': 'attached', 'head': 'h2'}
+                    material._material_status()._attachment = lambda now: {'state': 'empty', 'head': ''}
+            material._material_status()._attachment = lambda now: {'state': 'attached', 'head': 'h2'}
             objects['gcode'].run_script_from_command = run
         callbacks.pop()(1)
     before = list(scripts)
@@ -8478,7 +8486,7 @@ def test_toolhead_journal_survives_process_loss(toolhead_material, action, point
 @pytest.mark.parametrize('fault', ['before', 'after', 'persistent'])
 def test_toolhead_journal_failure_preserves_actual_outcome(toolhead_material, monkeypatch, stage, fault):
     material, objects, state, scripts, callbacks = toolhead_material
-    persist = material._persist_toolhead_operation
+    persist = material._toolheads()._persist_toolhead_operation
     if stage != 'intent':
         material.cmd_TOOLHEAD_ACTION(toolhead_command(material))
     if stage == 'recovery':
@@ -8489,7 +8497,7 @@ def test_toolhead_journal_failure_preserves_actual_outcome(toolhead_material, mo
     def broken():
         if fault == 'after': persist()
         raise OSError('storage failed')
-    monkeypatch.setattr(material, '_persist_toolhead_operation', broken)
+    monkeypatch.setattr(material._toolheads(), '_persist_toolhead_operation', broken)
     if stage == 'intent':
         material.cmd_TOOLHEAD_ACTION(toolhead_command(material))
         assert not scripts and len(callbacks) == 1
@@ -8511,10 +8519,10 @@ def test_toolhead_journal_failure_preserves_actual_outcome(toolhead_material, mo
                                    '{"version":1,"operation":null}', ' ' * 131073])
 def test_toolhead_journal_corruption_is_not_an_empty_result(toolhead_material, payload):
     material, objects, state, scripts, callbacks = toolhead_material
-    Path(material._toolhead_operation_path()).write_text(payload)
+    Path(material._toolheads()._toolhead_operation_path()).write_text(payload)
     material._restore_toolhead_operation()
     assert material.toolhead_operation['state'] == 'unknown'
-    assert Path(material._toolhead_operation_path()).read_text() == payload
+    assert Path(material._toolheads()._toolhead_operation_path()).read_text() == payload
     assert not scripts and not callbacks
     material.cmd_TOOLHEAD_ACTION(toolhead_command(material))
     callbacks.pop()(1)
@@ -8523,7 +8531,7 @@ def test_toolhead_journal_corruption_is_not_an_empty_result(toolhead_material, p
 
 def test_reconciled_toolhead_result_survives_restart(interrupted_toolhead):
     material, objects, state, scripts, command = interrupted_toolhead
-    material._persist_toolhead_operation()
+    material._toolheads()._persist_toolhead_operation()
     material.cmd_RECOVER_TOOLHEAD(command)
     assert scripts == ['M400']
     material.toolhead_operation = {}
@@ -8605,11 +8613,11 @@ def test_public_reconcile_persistence_failure_keeps_attempt_unresolved(interrupt
         material.cmd_RECOVERY_RESOLVE(resolution_command(request))
     assert material._recovery_resolution['state'] == 'unknown'
     assert runner.record == original
-    assert material._recovery_attempt_unresolved()
+    assert material._recovery_lifecycle()._recovery_attempt_unresolved()
     assert objects['gcode'].scripts == []
     runner.persist = persist
     material._restore_recovery_attempt()
-    assert material._recovery_attempt_unresolved()
+    assert material._recovery_lifecycle()._recovery_attempt_unresolved()
 
 
 @pytest.mark.parametrize('outcome', ['complete', 'paused', 'cancelled'])
@@ -8641,11 +8649,11 @@ def test_recovered_worker_terminal_write_failure_retains_hold(recovery_continuat
     with pytest.raises(OSError, match='worker terminal storage failure'):
         timers[0].callback(material.printer.monotonic())
     assert body == ['G1 X2']
-    assert material._recovery_attempt_unresolved()
+    assert material._recovery_lifecycle()._recovery_attempt_unresolved()
     assert runner.record['state'] == 'unknown'
     runner.persist = persist
     material._restore_recovery_attempt()
-    assert material._recovery_attempt_unresolved()
+    assert material._recovery_lifecycle()._recovery_attempt_unresolved()
 
 
 @pytest.mark.parametrize('failure', ['before_write', 'after_write', 'persistent'])
@@ -8668,7 +8676,7 @@ def test_public_discard_terminal_storage_failure_preserves_archive_and_hold(reco
     with pytest.raises(ValueError, match='discard terminal storage failure'):
         material.cmd_RECOVERY_RESOLVE(resolution_command(request))
     assert material._recovery_resolution['state'] == 'unknown'
-    assert material._recovery_attempt_unresolved()
+    assert material._recovery_lifecycle()._recovery_attempt_unresolved()
     marker = json.loads(Path(material._recovery_job_path()).read_text())
     assert marker['state'] == 'invalidated'
     archives = list(Path(material.profile_path).parent.glob('wmp_recovery_archive_*.json'))
@@ -8680,10 +8688,10 @@ def test_public_discard_terminal_storage_failure_preserves_archive_and_hold(reco
     assert not any(call.startswith(('G0', 'G1', 'G28', 'M104', 'M109')) for call in calls)
     runner.persist = persist
     material._restore_recovery_attempt()
-    assert material._recovery_attempt_unresolved()
+    assert material._recovery_lifecycle()._recovery_attempt_unresolved()
     # Storage recovery permits a fresh explicit discard, not automatic cleanup.
     material.cmd_RECOVERY_RESOLVE(resolution_command(resolution_request(material, ticket='retry-discard')))
-    assert not material._recovery_attempt_unresolved()
+    assert not material._recovery_lifecycle()._recovery_attempt_unresolved()
     assert archives[0].read_bytes() == archive_bytes
 
 
@@ -8759,11 +8767,11 @@ def test_vendor_runout_notification_only_for_active_required_head(sensor_name, j
     objects['filament_switch_sensor ' + sensor_name] = SimpleNamespace(runout_helper=helper)
     material = WMMaterial.__new__(WMMaterial)
     material.printer = printer
-    material._attachment = lambda now: ({'state': 'unknown', 'head': ''} if head == 'unknown'
+    material._material_status()._attachment = lambda now: ({'state': 'unknown', 'head': ''} if head == 'unknown'
                                        else {'state': 'attached', 'head': head})
-    material._guard_filament_notifications()
+    material._filament_state()._guard_filament_notifications()
     wrapper = helper._respond_runout_error
-    material._guard_filament_notifications()
+    material._filament_state()._guard_filament_notifications()
     assert helper._respond_runout_error is wrapper
     helper.note_filament_present(False)
     assert helper.filament_present is False
@@ -8778,7 +8786,7 @@ def test_vendor_runout_notification_only_for_active_required_head(sensor_name, j
     assert len(info) == int(job == 'printing' and head == 'unknown')
 
     if queued_change == 'head':
-        material._attachment = lambda now: {'state': 'attached', 'head': 'h3'}
+        material._material_status()._attachment = lambda now: {'state': 'attached', 'head': 'h3'}
     elif queued_change == 'cleared': helper.filament_present = True
     elif queued_change == 'disabled': helper.sensor_enabled = False
     elif queued_change == 'paused':
@@ -8798,7 +8806,7 @@ def test_vendor_runout_notification_only_for_active_required_head(sensor_name, j
 def test_resume_requires_active_head_path_clear(paused_origin_material, enabled, present, blocked):
     from types import SimpleNamespace
     material, objects, state = paused_origin_material
-    material._loaded_filament_status = lambda now: {'h2': {'state': 'loaded'}}
+    material._filament_state()._loaded_filament_status = lambda now: {'h2': {'state': 'loaded'}}
     objects['filament_switch_sensor path_2'] = SimpleNamespace(
         get_status=lambda now: {'enabled': enabled, 'filament_detected': present})
     objects['filament_switch_sensor path_1'] = SimpleNamespace(
@@ -8926,7 +8934,7 @@ def test_status_publication_reuses_loaded_profiles_and_commands_reload(service_m
             reads.append(path)
         return original_open(path, *args, **kwargs)
     monkeypatch.setattr(builtins, 'open', tracked)
-    expected = material._status_snapshot(1.)
+    expected = material._material_status()._status_snapshot(1.)
     assert len(reads) > 1
     reads.clear()
     observed = material.get_status(1.)
@@ -8965,7 +8973,7 @@ def test_status_observation_cache_is_isolated_and_cleared_on_exception(material,
         first[0]['h2']['brand'] = 'local draft'
         assert material._profiles()[0]['h2']['brand'] != 'local draft'
         raise RuntimeError('publication failed')
-    monkeypatch.setattr(material, '_status_snapshot', fail)
+    monkeypatch.setattr(material._material_status(), '_status_snapshot', fail)
     with pytest.raises(RuntimeError, match='publication failed'):
         material.get_status(1.)
     assert material._status_observation_cache is None
@@ -8982,7 +8990,7 @@ def test_status_observation_cache_restores_outer_publication(material, monkeypat
         else:
             assert material._status_observation_cache is not outer[0]
         return {'nested': True}
-    monkeypatch.setattr(material, '_status_snapshot', nested)
+    monkeypatch.setattr(material._material_status(), '_status_snapshot', nested)
     assert material.get_status(1.) == {'nested': True}
     assert material._status_observation_cache is None
 
@@ -8999,7 +9007,7 @@ def test_legacy_status_without_profile_does_not_accumulate_parsers(service_mater
                    for i in range(4))
     Path(material.ini_path).write_text('[slot]\n' + rows)
     material._mtime, material._slots, material.print_submission = None, {}, {}
-    material._status_profiles_snapshot = None
+    material._material_settings()._status_profiles_snapshot = None
     parser_type = wm_material.configparser.ConfigParser
     created = []
     def counted(*args, **kwargs):
@@ -9063,7 +9071,7 @@ def test_pause_owner_handover_never_erases_or_reuses_standalone_context(paused_o
 @pytest.mark.parametrize('change', ['session', 'openace', 'AFC'])
 def test_resume_recheck_after_heating_rejects_changed_owner_or_session(paused_origin_material, change):
     material, objects, state = paused_origin_material
-    material._loaded_filament_status = lambda now: {'h2': {'state': 'loaded'}}
+    material._filament_state()._loaded_filament_status = lambda now: {'h2': {'state': 'loaded'}}
     material.cmd_CHECK_RESUME(FakeCommand())
     origin = material._pause_origin
     if change == 'session':
@@ -9088,7 +9096,7 @@ def test_alternate_owner_resume_does_not_bypass_unresolved_recovery(paused_origi
     objects[owner] = object()
     def unresolved():
         raise ValueError('Resolve the recovery attempt first')
-    material._require_no_recovery_attempt = unresolved
+    material._recovery_lifecycle()._require_no_recovery_attempt = unresolved
     with pytest.raises(ValueError, match='Resolve the recovery attempt'):
         material.cmd_CHECK_RESUME(FakeCommand())
     assert state['paused'] is True
@@ -9144,13 +9152,14 @@ def test_paused_operator_check_rejects_current_conflicts(paused_origin_material,
     with pytest.raises(ValueError):
         material.cmd_CONFIRM_FILAMENT(command)
     assert material._filament_checks == {}
-    assert material._load_filament_flags().get('h2', False) is False
+    assert material._filament_state()._load_filament_flags().get('h2', False) is False
 
 
 @pytest.mark.parametrize('operation', ['toolhead', 'filament'])
 @pytest.mark.parametrize('payload', [b'{invalid', b'[]', b'\xff'])
 def test_invalid_operation_journal_is_diagnostic_not_startup_or_edit_lock(material, operation, payload):
-    path = getattr(material, '_' + operation + '_operation_path')()
+    feature = material._toolheads() if operation == 'toolhead' else material._filament_service()
+    path = getattr(feature, '_' + operation + '_operation_path')()
     Path(path).write_bytes(payload)
     getattr(material, '_restore_' + operation + '_operation')()
     assert getattr(material, operation + '_operation')['state'] == 'unknown'
@@ -9211,7 +9220,7 @@ def test_filament_result_storage_warning_is_not_repeated_at_every_checkpoint(seq
     material, objects = sequence_material
     material.filament_operation = {'id': 'test', 'state': 'running'}
     def fail(): raise OSError('storage unavailable')
-    monkeypatch.setattr(material, '_persist_filament_operation', fail)
+    monkeypatch.setattr(material._filament_service(), '_persist_filament_operation', fail)
     for _ in range(5): material._filament_checkpoint('inserting')
     assert material.filament_operation['state'] == 'running'
     assert material.filament_operation['persistence_error'] == 'storage unavailable'
@@ -9260,7 +9269,7 @@ def test_idle_admission_diagnostic_names_predicate_without_poll_logging(material
     assert material._idle_settings_refusal == detail
     assert not caplog.records
     with pytest.raises(ValueError) as error:
-        material._toolhead_context(2, "take", 1)
+        material._toolheads()._toolhead_context(2, "take", 1)
     assert detail in str(error.value)
     setattr(material.printer, attribute, 'standby' if attribute == 'state' else False)
     assert material._idle_for_filament_settings(1) is True
@@ -9308,7 +9317,7 @@ def test_profile_reads_do_not_require_machine_idle(material, monkeypatch, action
 def test_public_abandon_archive_failure_is_warning_and_allows_fresh_action(recovery_abandon_machine, monkeypatch):
     material, objects, states, calls, review, attempt = recovery_abandon_machine
     def fail(*args): raise OSError('archive unavailable')
-    monkeypatch.setattr(material, '_archive_recovery_evidence', fail)
+    monkeypatch.setattr(material._recovery_storage(), '_archive_recovery_evidence', fail)
     states['extruder2']['target'] = 160.
     objects['save_variables'].values['variables']['fail_flag'] = -3
     request = resolution_request(material)
@@ -9324,7 +9333,7 @@ def test_public_abandon_archive_failure_is_warning_and_allows_fresh_action(recov
 def test_abandon_without_archive_can_retry_partial_metadata_cleanup(recovery_abandon_machine, monkeypatch):
     material, objects, states, calls, review, attempt = recovery_abandon_machine
     def fail(*args): raise OSError('archive unavailable')
-    monkeypatch.setattr(material, '_archive_recovery_evidence', fail)
+    monkeypatch.setattr(material._recovery_storage(), '_archive_recovery_evidence', fail)
     dispatch = objects['gcode'].run_script_from_command
     objects['gcode'].run_script_from_command = lambda script: None if 'MACRO=_WMP_RECOVERY_BEGIN' in script else dispatch(script)
     with pytest.raises(ValueError, match='not confirmed'):
@@ -9374,14 +9383,14 @@ def test_retirement_review_during_unrelated_command_does_not_authorize_print_cle
 
 def test_execution_sampler_retires_previous_checkpoint_after_resume_mapping_edit(execution_snapshot_machine):
     material, objects, states = execution_snapshot_machine
-    assert material._queue_recovery_execution()
+    assert material._execution_evidence()._queue_recovery_execution()
     objects['toolhead'].check_busy = lambda now: (105., 101., True)
-    assert material._publish_recovery_execution()
+    assert material._execution_evidence()._publish_recovery_execution()
     execution = Path(material._recovery_execution_path())
     assert execution.exists()
     objects['save_variables'].values['variables']['box_modify_t0_backup'] = 1
     material._execution_stopped = False
-    material._execution_tick(3.)
+    material._execution_evidence()._execution_tick(3.)
     assert material._read_recovery_job()['state'] == 'invalidated'
     assert not execution.exists()
     assert states['print_stats']['state'] == 'printing'
@@ -9433,14 +9442,14 @@ def test_partial_profiles_status_reports_errors_without_disabling_valid_edits(ma
     from pathlib import Path
     path = Path(material.profile_path)
     path.write_text(json.dumps({'h0': {'bad': True}}))
-    material._refresh = lambda: None
+    material._material_status()._refresh = lambda: None
     material._mtime = 1
     material._slots = {}
     material.ini_path = '/unused/test.ini'
     material.print_submission = {}
     material.filament_operation = {}
-    material._attachment = lambda now: {'state': 'unknown', 'head': ''}
-    material._filament_status = lambda now: {}
+    material._material_status()._attachment = lambda now: {'state': 'unknown', 'head': ''}
+    material._filament_state()._filament_status = lambda now: {}
     status = material.get_status(1)
     assert status['identity_writable'] is True
     assert 'h0' in status['identity_entry_errors']
@@ -9584,20 +9593,20 @@ def test_recovery_ticket_review_repeat_and_real_continue(native_recovery_request
 def test_recovery_ticket_continue_1100_and_refusal_consumption(native_recovery_request):
     material = native_recovery_request[0][0]; base = native_recovery_request[1]
     invoked = []
-    material._consume_recovery_request = lambda encoded, cancelled: invoked.append(encoded) or {}
+    material._recovery_review_service()._consume_recovery_request = lambda encoded, cancelled: invoked.append(encoded) or {}
     first = None
     for index in range(1100):
         selected = dict(base, id='selection-' + str(index))
-        request, ticket = material._issue_recovery_ticket('continue', selected)
+        request, ticket = material._recovery_review_service()._issue_recovery_ticket('continue', selected)
         if first is None: first = request, ticket
         material.cmd_RECOVERY_CONTINUE(ticket_command(request, ticket))
         assert len(material._recovery_tickets['continue']['slots']) == 0
     assert len(invoked) == 1100 and not getattr(material, '_recovery_command_ids', set())
     with pytest.raises(ValueError, match='consumed|superseded'):
         material.cmd_RECOVERY_CONTINUE(ticket_command(*first))
-    request, ticket = material._issue_recovery_ticket('continue', dict(base, id='semantic-refusal'))
+    request, ticket = material._recovery_review_service()._issue_recovery_ticket('continue', dict(base, id='semantic-refusal'))
     def refuse(*args): raise ValueError('current sensor admission refused')
-    material._consume_recovery_request = refuse
+    material._recovery_review_service()._consume_recovery_request = refuse
     with pytest.raises(ValueError, match='sensor admission'):
         material.cmd_RECOVERY_CONTINUE(ticket_command(request, ticket))
     with pytest.raises(ValueError, match='consumed|superseded'):
@@ -9607,41 +9616,41 @@ def test_recovery_ticket_continue_1100_and_refusal_consumption(native_recovery_r
 
 def test_recovery_ticket_unconfirmed_reads_and_tamper(native_recovery_request):
     material = native_recovery_request[0][0]; base = native_recovery_request[1]
-    old = material._issue_recovery_ticket('continue', dict(base, id='old'))
+    old = material._recovery_review_service()._issue_recovery_ticket('continue', dict(base, id='old'))
     for index in range(1100):
-        current = material._issue_recovery_ticket('continue', dict(base, id='read-' + str(index)))
+        current = material._recovery_review_service()._issue_recovery_ticket('continue', dict(base, id='read-' + str(index)))
         assert len(material._recovery_tickets['continue']['slots']) == 1
     request, ticket = current
     assert not getattr(material, '_recovery_command_active', False)
     with pytest.raises(ValueError, match='consumed|superseded'):
-        material._consume_recovery_ticket('continue', old[0], ticket_command(*old))
+        material._recovery_review_service()._consume_recovery_ticket('continue', old[0], ticket_command(*old))
     for changed in [dict(request, file='other.gcode'), dict(request, id='wmp2rc_99999'),
                     dict(request, session='old-session'), dict(request, id='legacy')]:
         with pytest.raises(ValueError):
-            material._consume_recovery_ticket('continue', changed, ticket_command(changed, ticket))
+            material._recovery_review_service()._consume_recovery_ticket('continue', changed, ticket_command(changed, ticket))
     with pytest.raises(ValueError):
-        material._consume_recovery_ticket('continue', request, ticket_command(request, dict(ticket, token='0'*64)))
-    assert material._consume_recovery_ticket('continue', request, ticket_command(request, ticket))
+        material._recovery_review_service()._consume_recovery_ticket('continue', request, ticket_command(request, dict(ticket, token='0'*64)))
+    assert material._recovery_review_service()._consume_recovery_ticket('continue', request, ticket_command(request, ticket))
     material.session_id = 'new-session'
     with pytest.raises(ValueError, match='session'):
-        material._consume_recovery_ticket('continue', request, ticket_command(request, ticket))
-    assert material._recovery_ticket_state()['continue']['slots'] == {}
+        material._recovery_review_service()._consume_recovery_ticket('continue', request, ticket_command(request, ticket))
+    assert material._recovery_review_service()._recovery_ticket_state()['continue']['slots'] == {}
 
 
 def test_recovery_resolution_ticket_1100_and_choice_pairs(recovery_abandon_machine):
     material, objects, states, calls, review, attempt = recovery_abandon_machine
     template = resolution_request(material)
     invoked = []
-    material._recovery_resolution_selection = lambda identity: dict(template, **identity)
-    material._abandon_recovery_attempt = lambda *args, **kwargs: invoked.append(args) or {}
+    material._recovery_review_service()._recovery_resolution_selection = lambda identity: dict(template, **identity)
+    material._recovery_lifecycle()._abandon_recovery_attempt = lambda *args, **kwargs: invoked.append(args) or {}
     for index in range(1100):
-        request, ticket = material._issue_recovery_ticket('resolve', dict(template, id='resolve-' + str(index)))
+        request, ticket = material._recovery_review_service()._issue_recovery_ticket('resolve', dict(template, id='resolve-' + str(index)))
         material.cmd_RECOVERY_RESOLVE(ticket_command(request, ticket))
         assert len(material._recovery_tickets['resolve']['slots']) == 0
     assert len(invoked) == 1100 and not getattr(material, '_recovery_resolution_ids', set())
     # Reading both alternatives does not choose one or reserve the machine.
-    reconcile = material._issue_recovery_ticket('resolve', dict(template, id='use-new', action='reconcile'))
-    abandon = material._issue_recovery_ticket('resolve', dict(template, id='discard'))
+    reconcile = material._recovery_review_service()._issue_recovery_ticket('resolve', dict(template, id='use-new', action='reconcile'))
+    abandon = material._recovery_review_service()._issue_recovery_ticket('resolve', dict(template, id='discard'))
     assert len(material._recovery_tickets['resolve']['slots']) == 2 and len(invoked) == 1100
     material.cmd_RECOVERY_RESOLVE(ticket_command(*abandon))
     with pytest.raises(ValueError, match='consumed|superseded'):
@@ -9649,9 +9658,9 @@ def test_recovery_resolution_ticket_1100_and_choice_pairs(recovery_abandon_machi
     with pytest.raises(ValueError, match='TICKET'):
         material.cmd_RECOVERY_RESOLVE(resolution_command(abandon[0]))
     assert len(invoked) == 1101 and calls == []
-    request, ticket = material._issue_recovery_ticket('resolve', dict(template, id='failed-resolution'))
+    request, ticket = material._recovery_review_service()._issue_recovery_ticket('resolve', dict(template, id='failed-resolution'))
     def fail(*args, **kwargs): raise ValueError('resolution dispatch failed')
-    material._abandon_recovery_attempt = fail
+    material._recovery_lifecycle()._abandon_recovery_attempt = fail
     with pytest.raises(ValueError, match='dispatch failed'):
         material.cmd_RECOVERY_RESOLVE(ticket_command(request, ticket))
     assert material._recovery_resolution['state'] == 'unknown'
@@ -9672,10 +9681,10 @@ def test_recovery_resolution_review_ticket_is_read_only(recovery_abandon_machine
 
 def test_checkpoint_additive_fields_preserve_required_semantics(material):
     payload = recovery_checkpoint_payload()
-    expected = material._recovery_checkpoint_values(payload, 6)
-    assert material._recovery_checkpoint_values(payload + b'vendor_future_field=anything\n', 6) == expected
+    expected = material._recovery_storage()._recovery_checkpoint_values(payload, 6)
+    assert material._recovery_storage()._recovery_checkpoint_values(payload + b'vendor_future_field=anything\n', 6) == expected
     with pytest.raises(ValueError, match='Malformed'):
-        material._recovery_checkpoint_values(payload + b'vendor_future_field=a\nvendor_future_field=b\n', 6)
+        material._recovery_storage()._recovery_checkpoint_values(payload + b'vendor_future_field=a\nvendor_future_field=b\n', 6)
 
 
 def test_additive_checkpoint_bytes_still_require_new_bound_marker(bound_recovery):
@@ -9688,7 +9697,7 @@ def test_additive_checkpoint_bytes_still_require_new_bound_marker(bound_recovery
 def test_checkpoint_capture_allows_absent_optional_auxiliary(execution_snapshot_machine):
     material, objects, states = execution_snapshot_machine
     objects.pop('fan_generic auxiliary_fan')
-    snapshot = material._recovery_execution_snapshot()
+    snapshot = material._execution_evidence()._recovery_execution_snapshot()
     assert snapshot['fans'] == {'fan': .75}
     assert snapshot['heater_targets'] == {'extruder2': 220.5, 'heater_bed': 55.}
 
@@ -9697,7 +9706,7 @@ def test_recovery_optional_fan_absent_review_and_restore_notice(recovery_referen
     material, objects, states, calls, review, request = recovery_reference_machine
     objects.pop('fan_generic auxiliary_fan')
     original = material._recovery_read_bytes(material._recovery_execution_path(), 65536)
-    refreshed = material._recovery_execution_review(material.session_id, 'part.gcode', review['execution_hash'])
+    refreshed = material._recovery_review_service()._recovery_execution_review(material.session_id, 'part.gcode', review['execution_hash'])
     assert refreshed['fan_warnings'] and 'auxiliary_fan' in refreshed['fan_warnings'][0]
     result = material._recovery_attempt.run(request, material._recovery_initial_stages(refreshed))
     assert result['state'] == 'complete'
@@ -9721,16 +9730,16 @@ def test_recovery_missing_main_fan_still_refuses(recovery_reference_machine):
     material, objects, states, calls, review, request = recovery_reference_machine
     objects.pop('fan')
     with pytest.raises(ValueError, match='Required part-cooling'):
-        material._recovery_execution_review(material.session_id, 'part.gcode', review['execution_hash'])
+        material._recovery_review_service()._recovery_execution_review(material.session_id, 'part.gcode', review['execution_hash'])
     assert calls == []
 
 
 def test_new_checkpoint_without_optional_fan_remains_readable(execution_snapshot_machine):
     material, objects, states = execution_snapshot_machine
     objects.pop('fan_generic auxiliary_fan')
-    assert material._queue_recovery_execution()
+    assert material._execution_evidence()._queue_recovery_execution()
     objects['toolhead'].check_busy = lambda now: (100., 100., False)
-    assert material._publish_recovery_execution()
+    assert material._execution_evidence()._publish_recovery_execution()
     material.printer.pause = lambda when: when
     assert material._read_completed_recovery_execution('part.gcode')['fans'] == {'fan': .75}
 
@@ -9745,7 +9754,7 @@ def test_sampler_batch_reuses_loaded_missing_profile_without_parser_churn(execut
     material.ini_path = str(Path(material.profile_path).with_name('tmt1.ini'))
     Path(material.ini_path).write_text('[slot]\n' + ''.join(
         'material%d=0\ncolor%d=0\n' % (i,i) for i in range(4)))
-    material._status_profiles_snapshot = None
+    material._material_settings()._status_profiles_snapshot = None
     # Warm the missing-profile legacy projection exactly once, as startup does.
     profiles, revision = material._profiles()
     job = recovery_job_record(material)
@@ -9779,9 +9788,9 @@ def test_sampler_batch_reuses_loaded_missing_profile_without_parser_churn(execut
     def write(path,record):
         if path==material._recovery_execution_path(for_write=True): published.append(json.loads(json.dumps(record)))
         return original_write(path,record)
-    monkeypatch.setattr(material,'_write_recovery_json',write)
+    monkeypatch.setattr(material._recovery_storage(),'_write_recovery_json',write)
     def sample():
-        if entry=='timer': material._execution_tick(clock[0])
+        if entry=='timer': material._execution_evidence()._execution_tick(clock[0])
         else: material._execution_command_completed(material._execution_sd_boundary())
     gc.collect()
     before=sum(type(obj) is parser_type for obj in gc.get_objects())
@@ -9825,11 +9834,11 @@ def test_sampler_batch_reuses_loaded_missing_profile_without_parser_churn(execut
         result=previous_loaded(now)
         observed.append(result['h2']['identity']['color'])
         return result
-    monkeypatch.setattr(material,'_loaded_filament_status',loaded)
+    monkeypatch.setattr(material._filament_state(),'_loaded_filament_status',loaded)
     opens.clear();parsers.clear()
     material._pending_execution_snapshot=None
     clock[0]+=2.
-    if entry=='timer': material._execution_tick(clock[0])
+    if entry=='timer': material._execution_evidence()._execution_tick(clock[0])
     else: material._execution_command_completed(material._execution_sd_boundary())
     assert not material._execution_error
     assert observed and set(observed)=={'#123456'}
@@ -9844,8 +9853,8 @@ def test_sampler_observation_scope_restores_even_when_publication_fails(executio
     def fail():
         assert material._status_observation_cache is not previous
         raise ValueError('publication failed')
-    monkeypatch.setattr(material,'_publish_recovery_execution',fail)
-    if entry=='timer': material._execution_tick(1.)
+    monkeypatch.setattr(material._execution_evidence(),'_publish_recovery_execution',fail)
+    if entry=='timer': material._execution_evidence()._execution_tick(1.)
     else: material._execution_command_completed(material._execution_sd_boundary())
     assert material._status_observation_cache is previous
     assert material._execution_error=='publication failed'
@@ -9886,7 +9895,7 @@ def test_runtime_invalidation_deletes_both_generations_and_syncs_directories(mat
            ('wmp_recovery_execution.json','wmp_recovery_envelope.json')]
     for path in paths:path.write_bytes(b'old authority')
     if fail_job_write:
-        monkeypatch.setattr(material,'_write_recovery_job',lambda value:(_ for _ in ()).throw(OSError(errno.ENOSPC,'full disk')))
+        monkeypatch.setattr(material._recovery_storage(),'_write_recovery_job',lambda value:(_ for _ in ()).throw(OSError(errno.ENOSPC,'full disk')))
     synced=[];real_sync=os.fsync
     def sync(fd):
         synced.append(os.readlink('/proc/self/fd/%d'%fd));return real_sync(fd)
@@ -9948,7 +9957,7 @@ def test_runtime_invalidation_durable_fallback_barrier(material,tmp_path,monkeyp
     for name in names:
         (config/name).write_bytes(b'legacy')
         (runtime/name).write_bytes(b'runtime')
-    monkeypatch.setattr(material,'_write_recovery_job',lambda value:(_ for _ in ()).throw(OSError('full disk')))
+    monkeypatch.setattr(material._recovery_storage(),'_write_recovery_job',lambda value:(_ for _ in ()).throw(OSError('full disk')))
     trace=[];actual_unlink=os.unlink;actual_sync=os.fsync
     def unlink(path):
         path=str(path);trace.append(('unlink',path))
@@ -9984,8 +9993,8 @@ def test_recovery_ticket_ids_do_not_repeat_after_session_restart(material, kind,
                      execution_hash='a' * 16, file='part.gcode')
     if kind == 'resolve':
         selection['action'] = 'abandon'
-    first, first_ticket = material._issue_recovery_ticket(kind, selection)
-    assert material._consume_recovery_ticket(kind, first, ticket_command(first, first_ticket))
+    first, first_ticket = material._recovery_review_service()._issue_recovery_ticket(kind, selection)
+    assert material._recovery_review_service()._consume_recovery_ticket(kind, first, ticket_command(first, first_ticket))
     # Exercise the durable attempt's actual ID-only replay check, not just
     # uniqueness of two strings. A restarted worker retains this journal.
     attempt_request = {key: first[key] for key in ('id', 'session', 'execution_hash', 'file')}
@@ -9995,7 +10004,7 @@ def test_recovery_ticket_ids_do_not_repeat_after_session_restart(material, kind,
     runner.run(attempt_request, [('prepare', lambda: calls.append('old'), lambda: True)])
     restored = RecoveryAttempt(records.append, runner.record)
     material.session_id = 'new-printer-session'
-    second, second_ticket = material._issue_recovery_ticket(kind, dict(selection, session=material.session_id))
+    second, second_ticket = material._recovery_review_service()._issue_recovery_ticket(kind, dict(selection, session=material.session_id))
     assert first_ticket['sequence'] != second_ticket['sequence']
     prefix = 'wmp2rc_' if kind == 'continue' else 'wmp2rr_'
     for operation, ticket in ((first, first_ticket), (second, second_ticket)):
@@ -10005,14 +10014,14 @@ def test_recovery_ticket_ids_do_not_repeat_after_session_restart(material, kind,
     assert first['id'] != second['id']
     assert len(first['id']) <= 64 and len(second['id']) <= 64
     with pytest.raises(ValueError, match='session'):
-        material._consume_recovery_ticket(kind, first, ticket_command(first, first_ticket))
-    assert material._consume_recovery_ticket(kind, second, ticket_command(second, second_ticket))
+        material._recovery_review_service()._consume_recovery_ticket(kind, first, ticket_command(first, first_ticket))
+    assert material._recovery_review_service()._consume_recovery_ticket(kind, second, ticket_command(second, second_ticket))
     next_request = {key: second[key] for key in ('id', 'session', 'execution_hash', 'file')}
     assert restored.run(next_request, [('prepare', lambda: calls.append('new'), lambda: True)])['state'] == 'complete'
     with pytest.raises(ValueError, match='already attempted'):
         restored.run(next_request, [('prepare', lambda: calls.append('replay'), lambda: True)])
     with pytest.raises(ValueError, match='consumed|superseded'):
-        material._consume_recovery_ticket(kind, second, ticket_command(second, second_ticket))
+        material._recovery_review_service()._consume_recovery_ticket(kind, second, ticket_command(second, second_ticket))
     assert calls == ['old', 'new']
 
 
@@ -10043,7 +10052,7 @@ int main() {
         material.session_id = session
         for kind, prefix in (('continue', 'wmp2rc_'), ('resolve', 'wmp2rr_')):
             selection = dict(id='selection', session=session, action='abandon')
-            request, ticket = material._issue_recovery_ticket(kind, selection)
+            request, ticket = material._recovery_review_service()._issue_recovery_ticket(kind, selection)
             cases.append(dict(request=request, ticket=ticket, prefix=prefix))
     result = subprocess.run([str(binary)], input=json.dumps(cases), check=True,
                             capture_output=True, text=True)
@@ -10089,7 +10098,7 @@ def test_fault_service_current_binding_refuses_concrete_invalid_state(fault_serv
     import io
     material, objects, state = fault_service_material
     if change in ('empty', 'unknown'):
-        material._attachment = lambda now: {'state': change, 'head': ''}
+        material._material_status()._attachment = lambda now: {'state': change, 'head': ''}
     elif change == 'motor': objects['toolhead'].get_status(1)['extruder'] = 'extruder'
     elif change == 'file': objects['virtual_sdcard'].current_file = io.StringIO('different')
     elif change == 'cursor': objects['virtual_sdcard'].file_position += 1
@@ -10107,20 +10116,20 @@ def test_fault_service_history_does_not_disable_new_load(fault_service_material,
     material.filament_operation = {'state': history}
     material.toolhead_operation = {'state': history}
     assert material._filament_plan(2, 'load', 1)['head'] == 'h2'
-    available, reason = material._fault_manual_toolhead(1)
+    available, reason = material._toolchange_repair()._fault_manual_toolhead(1)
     assert available and not reason
 
 
 def test_fault_take_dock_exception_is_not_general_paused_permission(fault_service_material):
     material, objects, state = fault_service_material
     objects['gcode_macro _CHANGE_TOOL'] = objects['gcode_macro PARK_CURRENT_TOOL'] = object()
-    assert material._toolhead_context(2, 'dock', 1, fresh=True)['head'] == 'h2'
-    assert material._toolhead_context(3, 'take', 1, fresh=True)['head'] == 'h2'
+    assert material._toolheads()._toolhead_context(2, 'dock', 1, fresh=True)['head'] == 'h2'
+    assert material._toolheads()._toolhead_context(3, 'take', 1, fresh=True)['head'] == 'h2'
     saved_origin = dict(material._toolchange_pause['context'])
     assert material._toolchange_pause['context'] == saved_origin
     material._toolchange_pause = None
     with pytest.raises(ValueError, match='idle printer'):
-        material._toolhead_context(3, 'take', 1, fresh=True)
+        material._toolheads()._toolhead_context(3, 'take', 1, fresh=True)
 
 
 def test_fault_load_actual_completion_keeps_print_origin_and_marks_required(fault_service_material, monkeypatch):
@@ -10143,22 +10152,22 @@ def test_fault_load_actual_completion_keeps_print_origin_and_marks_required(faul
     objects['gcode'] = SimpleNamespace(run_script_from_command=run)
     sensor['filament_detected'] = True
     monkeypatch.setattr('wm_material.run_standalone_extrusion_sequence', lambda printer, script: None)
-    material._execute_filament(FakeCommand(), 2, 'load', plan)
+    material._filament_service()._execute_filament(FakeCommand(), 2, 'load', plan)
     assert material.filament_operation['state'] == 'complete'
     assert record['service_required'] == {'h2'} and record['context'] == original
     assert objects['gcode_move'].saved_states == {}
-    material._check_fault_service_complete(record, 1)
+    material._toolchange_repair()._check_fault_service_complete(record, 1)
     # Exercise the real unload/load execution entrypoints in the same fault
     # pause. A successful unload is not permission to resume without material.
     unload = material._filament_plan(2, 'unload', 1)
     material.filament_operation = {'state': 'running', 'head': 'h2', 'pause_origin': unload['pause_origin']}
-    material._execute_filament(FakeCommand(), 2, 'unload', unload)
+    material._filament_service()._execute_filament(FakeCommand(), 2, 'unload', unload)
     with pytest.raises(ValueError, match='Load or check filament in Head 3'):
-        material._check_fault_service_complete(record, 1)
+        material._toolchange_repair()._check_fault_service_complete(record, 1)
     reload = material._filament_plan(2, 'load', 1)
     material.filament_operation = {'state': 'running', 'head': 'h2', 'pause_origin': reload['pause_origin']}
-    material._execute_filament(FakeCommand(), 2, 'load', reload)
-    material._check_fault_service_complete(record, 1)
+    material._filament_service()._execute_filament(FakeCommand(), 2, 'load', reload)
+    material._toolchange_repair()._check_fault_service_complete(record, 1)
     assert record['context'] == original and record['logical_e'] == 42.
     assert objects['gcode_move'].saved_states == {}
 
@@ -10173,7 +10182,7 @@ def ordinary_pause_toolhead(paused_origin_material):
     callbacks, scripts = [], []
     physical = {'state': 'attached', 'head': 'h2'}
     offset = [.2, -.1, .05]
-    material._attachment = lambda now: dict(physical)
+    material._material_status()._attachment = lambda now: dict(physical)
     objects['gcode_macro _CHANGE_TOOL'] = object()
     objects['gcode_macro PARK_CURRENT_TOOL'] = object()
     material.printer.is_shutdown = lambda: False
@@ -10214,7 +10223,7 @@ def test_ordinary_paused_dock_take_preserves_origin_and_offset(ordinary_pause_to
     assert objects['gcode_move'].saved_states==original
     assert material._pause_origin is origin
     assert not origin.get('serviced',False)
-    material._retire_changed_print_recovery=lambda *args: None
+    material._paused_service()._retire_changed_print_recovery=lambda *args: None
     material.cmd_CHECK_RESUME(FakeCommand())
 
 

@@ -19,9 +19,9 @@ def test_progress_nested_resume_clears_on_every_exit(error):
         return 42
     def execute():
         assert m._resume_progress == {'phase': 'checking'}
-        m._resume_phase('heating')
+        m._paused_service()._resume_phase('heating')
         assert m._resume_progress == {'phase': 'heating'}
-        m._resume_phase('returning')
+        m._paused_service()._resume_phase('returning')
         assert m._observe_resume(nested) == 42
         assert m._resume_progress == {'phase': 'returning'}
         if error:
@@ -33,7 +33,7 @@ def test_progress_nested_resume_clears_on_every_exit(error):
     else:
         assert m._observe_resume(execute) == 7
     assert m._resume_progress == {}
-    m._resume_phase('heating')
+    m._paused_service()._resume_phase('heating')
     assert m._resume_progress == {}
 
 
@@ -50,7 +50,7 @@ def test_tool_retry_does_not_claim_normal_restore_phases():
     m = material(tool_fault=True)
     def execute():
         assert m._resume_progress == {'phase': 'toolchange'}
-        m._resume_phase('heating')
+        m._paused_service()._resume_phase('heating')
         assert m._resume_progress == {'phase': 'toolchange'}
     m._observe_resume(execute)
     assert m._resume_progress == {}

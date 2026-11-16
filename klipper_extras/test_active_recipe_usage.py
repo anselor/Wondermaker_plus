@@ -38,7 +38,7 @@ def usage_machine(print_material):
     obj,objects,request,path=print_material
     cfg=settings()
     objects['configfile']=SimpleNamespace(get_status=lambda now:{'settings':cfg})
-    obj._recovery_file_effect_contract=lambda:envelope.effect_contract(cfg,dict(envelope.TRANSFORMS))
+    obj._recovery_clearance()._recovery_file_effect_contract=lambda:envelope.effect_contract(cfg,dict(envelope.TRANSFORMS))
     variables=objects['save_variables'].values['variables']
     variables.update({f'box_modify_t{i}':i for i in range(4)})
     variables.update({f'box_modify_t{i}_backup':i for i in range(4)})
@@ -111,12 +111,12 @@ def test_actual_sd_scan_survives_unavailable_optional_recovery(usage_machine):
     sd=objects['virtual_sdcard']
     sd.from_sd=True;sd.file_position=0;sd.next_file_position=1
     objects['gcode_macro START_PRINT']=SimpleNamespace(get_status=lambda now:{'print_body_ready':False})
-    obj._recipe_usage_observation=None
+    obj._material_settings()._recipe_usage_observation=None
     # The fixture has no loaded h3 evidence. Recovery staging fails only after
     # the actual open SD stream has been independently scanned for membership.
     with pytest.raises(ValueError,match='Loaded material evidence'):
-        obj._stage_active_sd_recovery()
-    assert obj._active_recipe_heads(0,check_file=True)=={'h2','h3'}
+        obj._recovery_jobs()._stage_active_sd_recovery()
+    assert obj._material_settings()._active_recipe_heads(0,check_file=True)=={'h2','h3'}
     save(obj,0,nozzle_temp=220)
 
 
@@ -126,7 +126,7 @@ def test_managed_entry_never_gates_print_on_usage_support(print_material,unsuppo
     obj,objects,request,path=print_material
     cfg=settings()
     objects['configfile']=SimpleNamespace(get_status=lambda now:{'settings':cfg})
-    obj._recovery_file_effect_contract=lambda:envelope.effect_contract(cfg,dict(envelope.TRANSFORMS))
+    obj._recovery_clearance()._recovery_file_effect_contract=lambda:envelope.effect_contract(cfg,dict(envelope.TRANSFORMS))
     data=STAMP if not unsupported else STAMP.replace(b'\nPRINT_END',b'\nMY_CUSTOM_MACRO\nPRINT_END')
     path.write_bytes(data)
     request['file'].update(size=path.stat().st_size,modified=path.stat().st_mtime)
@@ -134,22 +134,22 @@ def test_managed_entry_never_gates_print_on_usage_support(print_material,unsuppo
     if missing_recovery:
         loaded=obj._loaded_filament_status(0)
         loaded['h2'].pop('source')
-        obj._loaded_filament_status=lambda now:loaded
+        obj._filament_state()._loaded_filament_status=lambda now:loaded
     obj.cmd_START_PRINT(start_command(request))
     if missing_recovery:assert 'source identity' in obj._print_recovery_error
     assert obj.print_submission['state']=='submitted'
     assert objects['gcode'].scripts[-1].startswith('SDCARD_PRINT_FILE')
-    observation=getattr(obj,'_recipe_usage_observation',None)
+    observation=getattr(obj._material_settings(),'_recipe_usage_observation',None)
     if unsupported:
         assert observation is None
-        assert 'MY_CUSTOM_MACRO' in obj._recipe_usage_error
+        assert 'MY_CUSTOM_MACRO' in obj._material_settings()._recipe_usage_error
     else:
         assert observation['tools']==(2,3)
         assert observation['stream'] is None
         with path.open() as actual:
             objects['virtual_sdcard'].current_file=actual
             obj._bind_usage_stream()
-            assert obj._active_recipe_heads(0,check_file=True)=={'h2','h3'}
+            assert obj._material_settings()._active_recipe_heads(0,check_file=True)=={'h2','h3'}
 
 
 def test_complete_tool_membership_uses_full_mapping_not_requested_subset(usage_machine):
@@ -163,7 +163,7 @@ def test_complete_tool_membership_uses_full_mapping_not_requested_subset(usage_m
     scan=obj._begin_usage_scan(str(path))
     for line in STAMP.splitlines(keepends=True):scan['scanner'].feed(line)
     obj._finish_usage_scan(scan,hashlib.sha256(STAMP).hexdigest(),stream)
-    assert obj._active_recipe_heads(0,check_file=True)=={'h1'}
+    assert obj._material_settings()._active_recipe_heads(0,check_file=True)=={'h1'}
     save(obj,2,material='PLA')
     with pytest.raises(ValueError):save(obj,1,material='PLA')
 
@@ -181,13 +181,13 @@ def test_optional_recovery_still_detects_in_place_source_change_during_scan(prin
     obj,objects,request,path=print_material
     cfg=settings()
     objects['configfile']=SimpleNamespace(get_status=lambda now:{'settings':cfg})
-    obj._recovery_file_effect_contract=lambda:envelope.effect_contract(cfg,dict(envelope.TRANSFORMS))
+    obj._recovery_clearance()._recovery_file_effect_contract=lambda:envelope.effect_contract(cfg,dict(envelope.TRANSFORMS))
     path.write_bytes(STAMP)
     request['file'].update(size=path.stat().st_size,modified=path.stat().st_mtime)
     loaded=obj._loaded_filament_status(0)
-    obj._loaded_filament_status=lambda now:loaded
+    obj._filament_state()._loaded_filament_status=lambda now:loaded
     obj.printer.get_reactor().pause=lambda when:loaded['h2'].update(source='external:h1')
     obj.cmd_START_PRINT(start_command(request))
     assert obj.print_submission['state']=='submitted'
     assert 'Loaded filament changed during recovery staging' in obj._print_recovery_error
-    assert obj._recipe_usage_observation['tools']==(2,3)
+    assert obj._material_settings()._recipe_usage_observation['tools']==(2,3)

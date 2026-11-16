@@ -33,10 +33,10 @@ def test_presence_write_failure_keeps_observation_without_poll_retries(filament_
     def fail(flags):
         calls.append(flags)
         raise OSError('full disk')
-    monkeypatch.setattr(obj, '_write_filament_flags', fail)
+    monkeypatch.setattr(obj._filament_state(), '_write_filament_flags', fail)
     sensor.detected = False
     for now in (10, 10.3, 11, 12): obj._loaded_filament_status(now)
-    assert len(calls) == 1 and obj._load_filament_flags()['h2'] is False
+    assert len(calls) == 1 and obj._filament_state()._load_filament_flags()['h2'] is False
     assert obj._filament_presence_error == 'full disk'
 
 
@@ -46,12 +46,12 @@ def test_prepared_resume_correction_does_not_repeat_admission_after_return(pause
     saved = obj._pause_origin['states']['PAUSE']
     saved.update(base_position=[0, 0, 0, 2], extrude_factor=.8)
     objects['gcode_move'].saved_states['PAUSE'].update(saved)
-    obj.cmd_CHECK_RESUME = lambda command: None
+    obj._paused_service().cmd_CHECK_RESUME = lambda command: None
     calls = []
     objects['gcode'] = NS(run_script_from_command=calls.append)
     obj.cmd_PREPARE_RESUME_E(FakeCommand())
     def fail(command): raise AssertionError('Post-return admission must not run')
-    obj.cmd_CHECK_RESUME = fail
+    obj._paused_service().cmd_CHECK_RESUME = fail
     obj.cmd_RESTORE_RESUME_E(FakeCommand())
     obj.cmd_RESTORE_RESUME_E(FakeCommand())
     assert calls == ['G92 E50']
@@ -67,10 +67,10 @@ def test_deferred_tangle_is_scoped_and_delivered_once(material, change):
     objects = {'virtual_sdcard': sd, 'print_stats': NS(get_status=lambda now: {'state': state['job']}),
                'pause_resume': NS(get_status=lambda now: {'is_paused': False})}
     material.printer = NS(get_reactor=lambda: reactor, lookup_object=lambda name, default=None: objects.get(name, default))
-    material._attachment = lambda now: {'state': 'attached', 'head': state['head']}
+    material._material_status()._attachment = lambda now: {'state': 'attached', 'head': state['head']}
     helper = NS(sensor_enabled=True, filament_present=False)
-    material._defer_path_runout(helper, 2, calls.append)
-    material._defer_path_runout(helper, 2, calls.append)
+    material._filament_state()._defer_path_runout(helper, 2, calls.append)
+    material._filament_state()._defer_path_runout(helper, 2, calls.append)
     assert len(timers) == 1 and timers[0](1.25) == 1.5
     if change == 'mount': state['head'] = 'h2'
     elif change == 'clear': helper.filament_present = True
@@ -84,9 +84,9 @@ def test_deferred_tangle_is_scoped_and_delivered_once(material, change):
 def test_tangle_stale_pause_flag_cannot_suppress_active_sd(material):
     objects = {'virtual_sdcard': NS(is_active=lambda: True)}
     material.printer = NS(lookup_object=lambda name, default=None: objects.get(name, default))
-    assert material._runout_pause_needed({'is_paused': True})
+    assert material._filament_state()._runout_pause_needed({'is_paused': True})
     objects['virtual_sdcard'].is_active = lambda: False
-    assert not material._runout_pause_needed({'is_paused': True})
+    assert not material._filament_state()._runout_pause_needed({'is_paused': True})
 
 
 def test_transition_unknown_recipe_uses_residue_lower_bound():

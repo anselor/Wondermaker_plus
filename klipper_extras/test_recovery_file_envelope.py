@@ -90,8 +90,8 @@ def test_contract_matches_delivered_macro_sources_and_rejects_changes():
 def test_measured_envelope_preferred_without_analysis_or_writes(tmp_path):
     obj=object.__new__(wm_material.WMMaterial)
     path=tmp_path/'measured.json';path.write_bytes(b'actual measured payload')
-    obj._deposition_envelope_path=lambda:str(path)
-    obj._recovery_job_path=lambda:pytest.fail('measured evidence does not need fallback')
+    obj._execution_evidence()._deposition_envelope_path=lambda:str(path)
+    obj._recovery_storage()._recovery_job_path=lambda:pytest.fail('measured evidence does not need fallback')
     assert obj._recovery_deposition_payload({})==b'actual measured payload'
 
 
@@ -99,8 +99,8 @@ def test_older_missing_proof_has_actionable_limitation_and_does_not_write(tmp_pa
     obj=object.__new__(wm_material.WMMaterial)
     envelope=tmp_path/'missing.json';job=tmp_path/'job.json'
     payload=json.dumps({'context':{}}).encode();job.write_bytes(payload)
-    obj._deposition_envelope_path=lambda:str(envelope)
-    obj._recovery_job_path=lambda:str(job)
+    obj._execution_evidence()._deposition_envelope_path=lambda:str(envelope)
+    obj._recovery_storage()._recovery_job_path=lambda:str(job)
     with pytest.raises(ValueError,match='older print'):
         obj._recovery_deposition_payload({'job_fingerprint':obj._recovery_fingerprint(payload)})
     assert not envelope.exists() and job.read_bytes()==payload
@@ -126,22 +126,22 @@ def test_supported_readback_is_read_only_cached_and_revalidates_context(tmp_path
     execution,context=arguments();payload=json.dumps({'context':context}).encode()
     job.write_bytes(payload);gcode.write_bytes(STAMP)
     execution.update(job_fingerprint=obj._recovery_fingerprint(payload),mesh_fingerprint='mesh')
-    obj._deposition_envelope_path=lambda:str(envelope)
-    obj._recovery_job_path=lambda:str(job)
-    obj._recovery_file_effect_contract=lambda:PROOF
-    obj._recovery_file_mesh=lambda execution:([[0.,0.],[0.,0.]],0.,'mesh')
+    obj._execution_evidence()._deposition_envelope_path=lambda:str(envelope)
+    obj._recovery_storage()._recovery_job_path=lambda:str(job)
+    obj._recovery_clearance()._recovery_file_effect_contract=lambda:PROOF
+    obj._recovery_clearance()._recovery_file_mesh=lambda execution:([[0.,0.],[0.,0.]],0.,'mesh')
     mesh=SimpleNamespace(fade_target=0.,get_status=lambda now:{'mesh_matrix':[[0.,0.],[0.,0.]]})
     reactor=SimpleNamespace(monotonic=lambda:0.,pause=lambda when:None)
     obj.printer=SimpleNamespace(get_reactor=lambda:reactor,lookup_object=lambda name:mesh if name=='bed_mesh' else object())
     def file_identity(sd, info):
         st=gcode.stat()
         return str(gcode),(st.st_dev,st.st_ino,st.st_size,st.st_mtime_ns)
-    obj._print_file_identity=file_identity
+    obj._print_service()._print_file_identity=file_identity
     result=obj._recovery_deposition_payload(execution)
     assert json.loads(result)['max_z']==2.
     assert not envelope.exists() and job.read_bytes()==payload
     assert obj._recovery_deposition_payload(execution)==result
-    obj._recovery_file_effect_contract=lambda:{'version':1,'sha256':'f'*64}
+    obj._recovery_clearance()._recovery_file_effect_contract=lambda:{'version':1,'sha256':'f'*64}
     with pytest.raises(ValueError,match='proof changed'):obj._recovery_deposition_payload(execution)
     assert not envelope.exists()
 
@@ -170,7 +170,7 @@ def test_restart_saved_mesh_reconstruction_does_not_activate_or_write(tmp_path, 
     canonical=[grid,[[0.,0.],[200.,200.],offsets[:2]],[1.,10.,9.,fade,.15]]
     fingerprint=hashlib.sha256(json.dumps(canonical,separators=(',',':'),allow_nan=False).encode()).hexdigest()
     execution={'mesh_offsets':offsets,'mesh_fingerprint':fingerprint}
-    assert obj._recovery_file_mesh(execution)==(grid,fade,fingerprint)
+    assert obj._recovery_clearance()._recovery_file_mesh(execution)==(grid,fade,fingerprint)
     assert mesh.get_status(0)['profile_name']==''
     assert not list(tmp_path.iterdir())
     # Exercise the real read-only payload path after restart, not just the helper.
@@ -179,18 +179,18 @@ def test_restart_saved_mesh_reconstruction_does_not_activate_or_write(tmp_path, 
     job=tmp_path/'job.json';gcode=tmp_path/'stamp.gcode';envelope=tmp_path/'missing.json'
     payload=json.dumps({'context':context}).encode();job.write_bytes(payload);gcode.write_bytes(STAMP)
     execution['job_fingerprint']=obj._recovery_fingerprint(payload)
-    obj._recovery_job_path=lambda:str(job);obj._deposition_envelope_path=lambda:str(envelope)
-    obj._recovery_file_effect_contract=lambda:PROOF
+    obj._recovery_storage()._recovery_job_path=lambda:str(job);obj._execution_evidence()._deposition_envelope_path=lambda:str(envelope)
+    obj._recovery_clearance()._recovery_file_effect_contract=lambda:PROOF
     obj.printer.get_reactor=lambda:SimpleNamespace(monotonic=lambda:0.,pause=lambda when:None)
     def identity(sd, info):
         stat=gcode.stat()
         return str(gcode),(stat.st_dev,stat.st_ino,stat.st_size,stat.st_mtime_ns)
-    obj._print_file_identity=identity
+    obj._print_service()._print_file_identity=identity
     assert json.loads(obj._recovery_deposition_payload(execution))['max_z']==2.
     assert not envelope.exists() and job.read_bytes()==payload
     assert mesh.get_status(0)['profile_name']==''
     profile['points'][0][0]=.8
-    with pytest.raises(ValueError,match='differs'):obj._recovery_file_mesh(execution)
+    with pytest.raises(ValueError,match='differs'):obj._recovery_clearance()._recovery_file_mesh(execution)
 
 
 def test_rounded_mesh_fingerprint_cannot_shrink_integer_ceiling():

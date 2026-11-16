@@ -33,7 +33,7 @@ def test_resume_permitted_but_proven_recipe_edit_retires_old_authority(paused_ev
     else:
         loaded = obj._loaded_filament_status(0)
         loaded['h2']['identity'] = dict(loaded['h2']['identity'], material='ABS')
-        obj._loaded_filament_status = lambda now: loaded
+        obj._filament_state()._loaded_filament_status = lambda now: loaded
     command = FakeCommand()
     obj.cmd_CHECK_RESUME(command)
     assert obj._read_recovery_job()['state'] == 'invalidated'
@@ -48,10 +48,10 @@ def test_resume_preserves_authority_without_proven_same_job_recipe_edit(paused_e
     if condition == 'transient_current_mapping':
         objects['save_variables'].values['variables']['box_modify_t0'] = 2
     elif condition == 'unknown_sensor':
-        obj._loaded_filament_status = lambda now: {'h2': {'state': 'unknown'}}
+        obj._filament_state()._loaded_filament_status = lambda now: {'h2': {'state': 'unknown'}}
     elif condition == 'other_file':
         objects['save_variables'].values['variables']['box_modify_t0_backup'] = 2
-        obj._recovery_active_file = lambda *args: (_ for _ in ()).throw(ValueError('other file'))
+        obj._recovery_storage()._recovery_active_file = lambda *args: (_ for _ in ()).throw(ValueError('other file'))
     obj.cmd_CHECK_RESUME(FakeCommand())
     assert obj._read_recovery_job() == record
     assert execution.exists() and envelope.exists()

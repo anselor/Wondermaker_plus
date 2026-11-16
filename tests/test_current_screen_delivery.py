@@ -119,7 +119,7 @@ def installed_backend(package, tmp_path):
     home = tmp_path / 'printer-home'
     extras = home / 'klipper/klippy/extras'
     extras.mkdir(parents=True)
-    for name in ('wm_material.py', 'wmp_orca_profiles.py', 'wmp_nozzles.py', 'wmp_saved_variables.py', 'wmp_recovery_retirement.py', 'wmp_recovery.py', 'wmp_identification.py', 'wmp_case_light.py'):
+    for name in pb.backend_helper_names(root):
         shutil.copyfile(root / 'klipper_extras' / name, extras / name)
     config = home / 'printer_data/config'
     config.mkdir(parents=True)
@@ -132,11 +132,11 @@ def test_matching_backend_gate_leaves_configuration_and_data_untouched(package, 
     root, _ = package
     home, _ = installed_backend(package, tmp_path)
     before = {str(p): p.read_bytes() for p in home.rglob('*') if p.is_file()}
-    assert len(pb.verify_backend_helpers(root, home)) == 8
+    assert set(pb.verify_backend_helpers(root, home)) == set(pb.backend_helper_names(root))
     assert before == {str(p): p.read_bytes() for p in home.rglob('*') if p.is_file()}
 
 
-@pytest.mark.parametrize('name', ['wm_material.py', 'wmp_orca_profiles.py', 'wmp_nozzles.py', 'wmp_saved_variables.py', 'wmp_recovery_retirement.py', 'wmp_recovery.py', 'wmp_identification.py', 'wmp_case_light.py'])
+@pytest.mark.parametrize('name', pb.backend_helper_names(ROOT))
 @pytest.mark.parametrize('missing', [True, False])
 def test_missing_or_changed_installed_helper_refuses_activation(package, tmp_path, name, missing):
     root, _ = package

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
+#include "stock_api.hpp"
 #include "button_caption.hpp"
 #include "stock_progress_panel.hpp"
 #include "stock_dialog_backdrop.hpp"
@@ -10,25 +11,23 @@ namespace wmp_ui { namespace native {
 class StockCalibrationStatus {
  StockProgressPanel progress_;
  void*page_=nullptr,*panel_=nullptr,*body_=nullptr;std::string rendered_,failure_,session_,request_;bool setup_=false,restarted_=false;
- template<class F>static F fn(std::uintptr_t a){return dialog_function<F>(a);}
- static bool valid(void*p){return p&&fn<bool(*)(void*)>(lv_obj_is_valid)(p);}
- static void place(void*p,int x,int y,int w,int h){fn<void(*)(void*,int,int)>(lv_obj_set_size)(p,w,h);fn<void(*)(void*,int,int,int)>(lv_obj_align)(p,1,x,y);}
- static void label(void*p,const std::string&s){fn<void(*)(void*,std::uint32_t,unsigned)>(lv_obj_set_style_text_color)(p,0xffffffffU,0);fn<void(*)(void*,const char*)>(lv_label_set_text)(p,s.c_str());fn<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(p,reinterpret_cast<void*>(0x26297a0),0);}
+ static void place(void*p,int x,int y,int w,int h){stock_function<void(*)(void*,int,int)>(lv_obj_set_size)(p,w,h);stock_function<void(*)(void*,int,int,int)>(lv_obj_align)(p,1,x,y);}
+ static void label(void*p,const std::string&s){stock_function<void(*)(void*,std::uint32_t,unsigned)>(lv_obj_set_style_text_color)(p,0xffffffffU,0);stock_function<void(*)(void*,const char*)>(lv_label_set_text)(p,s.c_str());stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(p,reinterpret_cast<void*>(0x26297a0),0);}
  bool visible()const{
-  auto*screen=fn<void*(*)(void*)>(lv_disp_get_scr_act)(nullptr);auto*p=page_;
-  for(unsigned i=0;p&&i<20;++i){if(!valid(p)||fn<bool(*)(void*,unsigned)>(lv_obj_has_flag)(p,1))return false;if(p==screen)return true;p=fn<void*(*)(void*)>(lv_obj_get_parent)(p);}return false;
+  auto*screen=stock_function<void*(*)(void*)>(lv_disp_get_scr_act)(nullptr);auto*p=page_;
+  for(unsigned i=0;p&&i<20;++i){if(!stock_object_valid(p)||stock_function<bool(*)(void*,unsigned)>(lv_obj_has_flag)(p,1))return false;if(p==screen)return true;p=stock_function<void*(*)(void*)>(lv_obj_get_parent)(p);}return false;
  }
- void clear(){progress_.close();auto*p=panel_;panel_=body_=nullptr;rendered_.clear();if(valid(p))fn<void(*)(void*)>(lv_obj_del)(p);}
+ void clear(){progress_.close();auto*p=panel_;panel_=body_=nullptr;rendered_.clear();if(stock_object_valid(p))stock_function<void(*)(void*)>(lv_obj_del)(p);}
 public:
  std::function<void()> back;
  void begin(const std::string&session,const std::string&request){clear();failure_.clear();session_=session;request_=request;restarted_=false;}
 
  void created(void*page,bool setup=false){
   clear();page_=nullptr;setup_=setup;failure_.clear();session_.clear();request_.clear();restarted_=false;
-  if(valid(page)&&fn<void*(*)(void*,void(*)(void*),int,void*)>(lv_obj_add_event_cb)(page,&deleted,33,this))page_=page;
+  if(stock_object_valid(page)&&stock_function<void*(*)(void*,void(*)(void*),int,void*)>(lv_obj_add_event_cb)(page,&deleted,33,this))page_=page;
  }
  void update(const Json&data,const std::string&override_text={}){
-  if(!valid(page_)){clear();return;}
+  if(!stock_object_valid(page_)){clear();return;}
   const bool fresh=data.value("display_fresh",data.value("fresh",false));const auto session=data.value("calibration_session","");
   if(fresh&&!session.empty()){
    // A new Klipper session says nothing about the result shown on this
@@ -60,34 +59,34 @@ public:
   else if(!fresh||session.empty())text="Waiting for printer status...";
   if(!override_text.empty())text=override_text;
   if(text.empty()){clear();return;}
-  if(!valid(panel_)){
-   auto*screen=fn<void*(*)(void*)>(lv_disp_get_scr_act)(nullptr);
-   const int w=fn<int(*)(void*)>(lv_obj_get_width)(screen),h=fn<int(*)(void*)>(lv_obj_get_height)(screen);
-   panel_=fn<void*(*)(void*)>(lv_obj_create)(page_);if(!panel_)return;
-   fn<void*(*)(void*,void(*)(void*),int,void*)>(lv_obj_add_event_cb)(panel_,&deleted,33,this);
-   fn<void(*)(void*,const void*,unsigned)>(lv_obj_add_style)(panel_,reinterpret_cast<void*>(0x463c8d8),0);
-   stock_dialog_backdrop(panel_);fn<void(*)(void*,int,unsigned)>(lv_obj_set_style_bg_opa)(panel_,255,0);place(panel_,setup_?0:90,setup_?0:100,setup_?w:w-100,setup_?h:h-110);
-   auto*title=fn<void*(*)(void*)>(lv_label_create)(panel_);label(title,"Calibration");place(title,12,10,w-260,30);
-   {auto*b=fn<void*(*)(void*)>(lv_obj_create)(panel_);stock_dialog_backdrop(b);place(b,w-230,0,120,40);
-   auto*l=fn<void*(*)(void*)>(lv_label_create)(b);label(l,"BACK");center_button_caption(b,l,"BACK");
-   fn<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(l,reinterpret_cast<void*>(0xf84928),0);
-   fn<void*(*)(void*,void(*)(void*),int,void*)>(lv_obj_add_event_cb)(b,&pressed,7,this);}
-   auto*rule=fn<void*(*)(void*)>(lv_obj_create)(panel_);stock_dialog_backdrop(rule);place(rule,12,40,w-124,1);
-   fn<void(*)(void*,std::uint32_t,unsigned)>(lv_obj_set_style_bg_color)(rule,0xff606060U,0);fn<void(*)(void*,int,unsigned)>(lv_obj_set_style_bg_opa)(rule,255,0);
-   body_=fn<void*(*)(void*)>(lv_label_create)(panel_);place(body_,20,60,w-140,h-190);fn<void(*)(void*,int)>(lv_label_set_long_mode)(body_,0);
+  if(!stock_object_valid(panel_)){
+   auto*screen=stock_function<void*(*)(void*)>(lv_disp_get_scr_act)(nullptr);
+   const int w=stock_function<int(*)(void*)>(lv_obj_get_width)(screen),h=stock_function<int(*)(void*)>(lv_obj_get_height)(screen);
+   panel_=stock_function<void*(*)(void*)>(lv_obj_create)(page_);if(!panel_)return;
+   stock_function<void*(*)(void*,void(*)(void*),int,void*)>(lv_obj_add_event_cb)(panel_,&deleted,33,this);
+   stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_add_style)(panel_,reinterpret_cast<void*>(0x463c8d8),0);
+   stock_dialog_backdrop(panel_);stock_function<void(*)(void*,int,unsigned)>(lv_obj_set_style_bg_opa)(panel_,255,0);place(panel_,setup_?0:90,setup_?0:100,setup_?w:w-100,setup_?h:h-110);
+   auto*title=stock_function<void*(*)(void*)>(lv_label_create)(panel_);label(title,"Calibration");place(title,12,10,w-260,30);
+   {auto*b=stock_function<void*(*)(void*)>(lv_obj_create)(panel_);stock_dialog_backdrop(b);place(b,w-230,0,120,40);
+   auto*l=stock_function<void*(*)(void*)>(lv_label_create)(b);label(l,"BACK");center_button_caption(b,l,"BACK");
+   stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(l,reinterpret_cast<void*>(0xf84928),0);
+   stock_function<void*(*)(void*,void(*)(void*),int,void*)>(lv_obj_add_event_cb)(b,&pressed,7,this);}
+   auto*rule=stock_function<void*(*)(void*)>(lv_obj_create)(panel_);stock_dialog_backdrop(rule);place(rule,12,40,w-124,1);
+   stock_function<void(*)(void*,std::uint32_t,unsigned)>(lv_obj_set_style_bg_color)(rule,0xff606060U,0);stock_function<void(*)(void*,int,unsigned)>(lv_obj_set_style_bg_opa)(rule,255,0);
+   body_=stock_function<void*(*)(void*)>(lv_label_create)(panel_);place(body_,20,60,w-140,h-190);stock_function<void(*)(void*,int)>(lv_label_set_long_mode)(body_,0);
    progress_.attach(panel_,20,60,w-140,h-190);
   }
-  if(valid(body_)&&text!=rendered_){
+  if(stock_object_valid(body_)&&text!=rendered_){
    label(body_,text);rendered_=text;
-   if(progress_.attached()){progress_.update({{"instruction",text},{"steps",Json::array()}});fn<void(*)(void*,unsigned)>(lv_obj_add_flag)(body_,1);}
+   if(progress_.attached()){progress_.update({{"instruction",text},{"steps",Json::array()}});stock_function<void(*)(void*,unsigned)>(lv_obj_add_flag)(body_,1);}
   }
  }
 private:
- static void deleted(void*e)noexcept{try{auto*o=static_cast<StockCalibrationStatus*>(fn<void*(*)(void*)>(lv_event_get_user_data)(e));if(!o)return;
-  auto*p=fn<void*(*)(void*)>(lv_event_get_target)(e);
+ static void deleted(void*e)noexcept{try{auto*o=static_cast<StockCalibrationStatus*>(stock_function<void*(*)(void*)>(lv_event_get_user_data)(e));if(!o)return;
+  auto*p=stock_function<void*(*)(void*)>(lv_event_get_target)(e);
   if(p==o->page_){o->page_=nullptr;o->failure_.clear();o->session_.clear();o->restarted_=false;}
   if(p==o->panel_){o->panel_=o->body_=nullptr;o->rendered_.clear();}
  }catch(...){} }
- static void pressed(void*e)noexcept{try{auto*o=static_cast<StockCalibrationStatus*>(fn<void*(*)(void*)>(lv_event_get_user_data)(e));if(o&&o->visible()&&valid(o->panel_)&&o->back)o->back();}catch(...){} }
+ static void pressed(void*e)noexcept{try{auto*o=static_cast<StockCalibrationStatus*>(stock_function<void*(*)(void*)>(lv_event_get_user_data)(e));if(o&&o->visible()&&stock_object_valid(o->panel_)&&o->back)o->back();}catch(...){} }
 };
 }}

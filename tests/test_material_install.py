@@ -45,7 +45,7 @@ def setup(tmp_path, existing=True, **failures):
     sftp.path(cfg).parent.mkdir(parents=True)
     if existing:
         sftp.path(cfg).write_text('[wm_material]\nload_feed_mm: 57\nload_purge_mm: 62\ncross_material_purge_mm: 95\n')
-        for name in ('wm_material.py', 'wmp_orca_profiles.py', 'wmp_nozzles.py', 'wmp_saved_variables.py', 'wmp_recovery_retirement.py', 'wmp_recovery_file_envelope.py'):
+        for name in material.HELPERS:
             sftp.path(extra).with_name(name).write_text('previous ' + name)
     for name in ('wmp_filament_operation.json', 'wmp_filament_loaded.json', 'wmp_hotend_materials.json', 'wmp_filaments.json', 'wmp_filament_catalogue.json', 'tmt1.ini'):
         sftp.path(cfg).with_name(name).write_text('user data ' + name)
@@ -62,7 +62,7 @@ def test_upgrade_preserves_custom_settings_and_filament_data(tmp_path):
     before = snapshot(sftp.path(cfg).parent)
     material.install(ctx)
     assert snapshot(sftp.path(cfg).parent) == before
-    for name in ('wm_material.py', 'wmp_orca_profiles.py', 'wmp_nozzles.py', 'wmp_saved_variables.py', 'wmp_recovery_retirement.py', 'wmp_recovery_file_envelope.py'):
+    for name in material.HELPERS:
         assert sftp.path(extra).with_name(name).read_bytes() == (Path(material.SRC) / name).read_bytes()
         assert list(sftp.path(extra).parent.glob(name + '.wmp-backup-*'))
     first = snapshot(tmp_path)
@@ -79,7 +79,11 @@ def test_fresh_install_creates_defaults(tmp_path):
 @pytest.mark.parametrize('existing', [False, True])
 @pytest.mark.parametrize('failure', [
     {'fail_stage': 'wm_material.py'},
+    {'fail_stage': 'wmp_plr_records.py'},
+    {'fail_stage': 'wmp_filament_types.py'},
+    {'fail_stage': 'wmp_filament_profiles.py'},
     {'fail_publish': 1}, {'fail_publish': 2}, {'fail_publish': 3},
+    {'fail_publish': 6}, {'fail_publish': 7},
 ])
 def test_failures_restore_previous_install(tmp_path, existing, failure):
     ctx, _, _, _ = setup(tmp_path, existing=existing, **failure)
@@ -90,7 +94,7 @@ def test_failures_restore_previous_install(tmp_path, existing, failure):
 
 
 def test_new_config_publication_failure_rolls_back_helpers(tmp_path):
-    ctx, _, _, _ = setup(tmp_path, existing=False, fail_publish=4)
+    ctx, _, _, _ = setup(tmp_path, existing=False, fail_publish=len(material.HELPERS) + 1)
     before = snapshot(tmp_path)
     with pytest.raises(OSError, match='injected'):
         material.install(ctx)
@@ -132,7 +136,7 @@ def test_helper_receipt_supports_config_failure_rollback(tmp_path):
     recovery.write_bytes(b'previous recovery')
     before = snapshot(tmp_path)
     changes = material.install(ctx, include_recovery=True, install_config=False)
-    assert len(changes) == 9
+    assert len(changes) == len(material.HELPERS) + 3
     material.rollback(ctx, changes)
     assert snapshot(tmp_path) == before
 
@@ -150,7 +154,7 @@ def test_rollback_refuses_concurrent_edit_before_restoring_any_helpers(tmp_path)
 
 @pytest.mark.parametrize('existing',[False,True])
 @pytest.mark.parametrize('after_rename',[False,True])
-@pytest.mark.parametrize('publication_index',[1,2,3,4,5])
+@pytest.mark.parametrize('publication_index',range(1, len(material.HELPERS) + 1))
 def test_process_loss_uses_prepublication_journal(tmp_path,monkeypatch,existing,after_rename,publication_index):
     from test_deploy import deploy
     from install_journal import Journal
@@ -172,7 +176,7 @@ def test_process_loss_uses_prepublication_journal(tmp_path,monkeypatch,existing,
     with pytest.raises(SystemExit):material.install(ctx)
     saved=Journal(journal.path).load('printer','printer')
     assert saved.value['inflight']=='material'
-    assert len(saved.recovery_receipts()[0][1])==(6 if existing else 7)
+    assert len(saved.recovery_receipts()[0][1])==(len(material.HELPERS) + (not existing))
     monkeypatch.setattr(sftp,'posix_rename',rename)
     monkeypatch.setattr(deploy.REGISTRY['material'],'rollback',material.rollback)
     deploy.recover_installation(ctx,journal.path)
@@ -311,3 +315,26 @@ def test_remote_paths_do_not_use_host_path_separator(tmp_path, monkeypatch):
     monkeypatch.setattr(config, 'remove_configuration', lambda ctx, **kw: {'retained_dependencies': []})
     material.uninstall(ctx)
     assert not sftp.path(extra).exists()
+
+
+@pytest.mark.parametrize('package_import', [False, True])
+def test_installed_helpers_import_without_repository_fallback(tmp_path, package_import):
+    """Exercise actual transitive imports using only freshly installed files."""
+    import subprocess
+    import sys
+    ctx, sftp, extra, _ = setup(tmp_path, existing=False)
+    material.install(ctx)
+    directory = sftp.path(extra).parent
+    import_root = directory.parent if package_import else directory
+    statement = 'from extras import wm_material' if package_import else 'import wm_material'
+    subprocess.run([sys.executable, '-I', '-c',
+                    'import sys; sys.path.insert(0, %r); %s; '
+                    'assert callable(wm_material.load_config)' % (str(import_root), statement)],
+                   check=True, capture_output=True, text=True)
+
+
+def test_runtime_contract_matches_installable_helper_set():
+    import preload_bundle
+    root = Path(material.ROOT)
+    assert set(preload_bundle.backend_helper_names(root)) == set(material.HELPERS) | {
+        'wmp_identification.py', 'wmp_recovery.py', 'wmp_case_light.py'}

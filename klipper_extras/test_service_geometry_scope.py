@@ -19,7 +19,7 @@ def test_same_attached_head_does_not_require_any_dock(service_material):
 @pytest.mark.parametrize('attached,required', [('', {2}), ('h1', {1, 2})])
 def test_switch_validates_only_visited_docks(service_material, attached, required):
     obj, _, state = service_material
-    obj._attachment = lambda now: {'state': 'attached' if attached else 'empty', 'head': attached}
+    obj._material_status()._attachment = lambda now: {'state': 'attached' if attached else 'empty', 'head': attached}
     saved = state['save_variables']['variables']
     for i in set(range(4)) - required: saved['t%d_position' % i] = None
     context = obj._service_context(2, 1)
@@ -49,7 +49,7 @@ def test_homing_revalidates_newly_visited_dock_before_travel(service_material):
         scripts.append(script)
         if script.startswith('G28'):
             state['toolhead']['homed_axes'] = 'xy'
-            obj._attachment = lambda now: {'state': 'empty', 'head': ''}
+            obj._material_status()._attachment = lambda now: {'state': 'empty', 'head': ''}
     objects['gcode'] = SimpleNamespace(run_script_from_command=run)
     with pytest.raises(ValueError, match='dock calibration'):
         obj._prepare_service(2, context)
@@ -82,9 +82,9 @@ def test_nozzle_save_excludes_actual_identification_writer(material):
 
 def test_paused_plan_passes_origin_offset_into_geometry_validation(service_material):
     obj, _, state = service_material
-    obj._idle_for_filament_settings = lambda now: False
+    obj._material_settings()._idle_for_filament_settings = lambda now: False
     obj._pause_origin = {'head': 'h3'}
-    obj._paused_filament_origin = lambda head, now: {'id': 'paused'}
+    obj._paused_service()._paused_filament_origin = lambda head, now: {'id': 'paused'}
     state['save_variables']['variables']['t3_offset'] = None
     with pytest.raises(ValueError, match='offsets for Head 4'):
         obj._filament_plan(2, 'load', 1)

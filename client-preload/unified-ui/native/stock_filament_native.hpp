@@ -2,7 +2,7 @@
 #pragma once
 #include "stock_filament_page.hpp"
 #include "stock_palette.hpp"
-#include "profile1113.hpp"
+#include "stock_api.hpp"
 #include "stock_brand_controls.hpp"
 #include "stock_toolhead_view.hpp"
 #include "stock_ace_filaments.hpp"
@@ -15,9 +15,6 @@
 #include <cmath>
 #include <cstdio>
 namespace wmp_ui { namespace native {
-#ifdef WMP_NATIVE_TEST
-void* test_resolve(std::uintptr_t);
-#endif
 // Used only after executable + profile window verification in Runtime.
 // Reuses stock cards/pickers and adds only missing brand selectors inside cards.
 // No replacement root, sidebar or Settings navigation is created here.
@@ -80,11 +77,11 @@ public:
  // Recolour the stock white circle for arbitrary RGB values, preserving its
  // transparency and shape. Zero means use the stock image without recolouring.
  void colour_tints(const std::array<std::uint32_t,4>&values){tints_=values;}
- bool valid(void*p)const override{return p&&fn<bool(*)(void*)>(lv_obj_is_valid)(p);}
- void*parent(void*p)const override{return fn<void*(*)(void*)>(lv_obj_get_parent)(p);}
+ bool valid(void*p)const override{return p&&stock_function<bool(*)(void*)>(lv_obj_is_valid)(p);}
+ void*parent(void*p)const override{return stock_function<void*(*)(void*)>(lv_obj_get_parent)(p);}
  void place(void*p,StockRect r)override{
-  fn<void(*)(void*,int,int)>(lv_obj_set_size)(p,r.w,r.h);
-  fn<void(*)(void*,int,int,int)>(lv_obj_align)(p,1,r.x,r.y); // LV_ALIGN_TOP_LEFT
+  stock_function<void(*)(void*,int,int)>(lv_obj_set_size)(p,r.w,r.h);
+  stock_function<void(*)(void*,int,int,int)>(lv_obj_align)(p,1,r.x,r.y); // LV_ALIGN_TOP_LEFT
  }
  void created(void*page){
 #if defined(__aarch64__)
@@ -113,27 +110,27 @@ public:
   // Callback data stays stable until DELETE. A constructor call for a new page
   // may precede deletion of the old page, so never reuse a single mutable token.
   bindings_.push_back({this,generation});auto*binding=&bindings_.back();
-  if(!fn<void*(*)(void*,void(*)(void*),int,void*)>(lv_obj_add_event_cb)(view.content,&on_delete,33,binding)){
+  if(!stock_function<void*(*)(void*,void(*)(void*),int,void*)>(lv_obj_add_event_cb)(view.content,&on_delete,33,binding)){
    lifecycle_.deleted(generation);bindings_.pop_back();return;
   }
   page_=page;content_=view.content;actions_=actions;tips_=tips;fresh_=false;slots_=view.slots;count_=view.count;tool_labels_.fill(nullptr);navigation_=nullptr;finish_=nullptr;finish_notice_=nullptr;import_button_=nullptr;navigation_binding_=binding;
   if(tool_head_>=count_)tool_head_=0;
   // Capture the verified first decorative child before vendor layout runs.
   rule_=nullptr;
-  if(fn<unsigned(*)(void*)>(lv_obj_get_child_cnt)(content_)>0){
-   auto*first=fn<void*(*)(void*,int)>(lv_obj_get_child)(content_,0);
-   if(first!=actions_&&first!=tips_&&fn<unsigned(*)(void*)>(lv_obj_get_child_cnt)(first)==0&&
-      fn<bool(*)(void*,const void*)>(lv_obj_check_type)(first,reinterpret_cast<void*>(0x3636328)))rule_=first;
+  if(stock_function<unsigned(*)(void*)>(lv_obj_get_child_cnt)(content_)>0){
+   auto*first=stock_function<void*(*)(void*,int)>(lv_obj_get_child)(content_,0);
+   if(first!=actions_&&first!=tips_&&stock_function<unsigned(*)(void*)>(lv_obj_get_child_cnt)(first)==0&&
+      stock_function<bool(*)(void*,const void*)>(lv_obj_check_type)(first,reinterpret_cast<void*>(0x3636328)))rule_=first;
   }
   // Arm before returning from construction, not on the next status/timer tick.
-  fn<void(*)(void*,unsigned)>(lv_obj_add_flag)(actions_,1);
+  stock_function<void(*)(void*,unsigned)>(lv_obj_add_flag)(actions_,1);
  }
  bool visible()const{
   if(!lifecycle_.active()||!valid(page_)||!valid(content_))return false;
-  auto*screen=fn<void*(*)(void*)>(lv_disp_get_scr_act)(nullptr);
+  auto*screen=stock_function<void*(*)(void*)>(lv_disp_get_scr_act)(nullptr);
   void*ancestor=content_;unsigned depth=0;
   while(ancestor&&ancestor!=screen&&depth++<16){
-   if(!valid(ancestor)||fn<bool(*)(void*,unsigned)>(lv_obj_has_flag)(ancestor,1))return false;
+   if(!valid(ancestor)||stock_function<bool(*)(void*,unsigned)>(lv_obj_has_flag)(ancestor,1))return false;
    ancestor=parent(ancestor);
   }
   return ancestor==screen;
@@ -144,12 +141,12 @@ public:
   if(!visible()){ace_.discard_drafts();return;}
   fresh_=fresh&&standalone;
   // Vendor refresh may show the motion row again after page construction.
-  if(valid(actions_)&&parent(actions_)==content_)fn<void(*)(void*,unsigned)>(lv_obj_add_flag)(actions_,1);
+  if(valid(actions_)&&parent(actions_)==content_)stock_function<void(*)(void*,unsigned)>(lv_obj_add_flag)(actions_,1);
   // Check geometry after layout and keep the vendor refresh from restoring it.
-  if(valid(rule_)&&parent(rule_)==content_&&fn<int(*)(void*)>(lv_obj_get_height)(rule_)<=2&&fn<int(*)(void*)>(lv_obj_get_width)(rule_)>400)
-   fn<void(*)(void*,unsigned)>(lv_obj_add_flag)(rule_,1);
-  const int width=fn<int(*)(void*)>(lv_obj_get_content_width)(content_);
-  const int height=fn<int(*)(void*)>(lv_obj_get_content_height)(content_);
+  if(valid(rule_)&&parent(rule_)==content_&&stock_function<int(*)(void*)>(lv_obj_get_height)(rule_)<=2&&stock_function<int(*)(void*)>(lv_obj_get_width)(rule_)>400)
+   stock_function<void(*)(void*,unsigned)>(lv_obj_add_flag)(rule_,1);
+  const int width=stock_function<int(*)(void*)>(lv_obj_get_content_width)(content_);
+  const int height=stock_function<int(*)(void*)>(lv_obj_get_content_height)(content_);
   if(tool_mode_||ace_mode_){
    if(width<640||height<300)return;
    if(!ace_mode_){tools_.mount(content_);tools_.head_count(count_);}
@@ -157,27 +154,27 @@ public:
     if(!valid(s.card)||parent(s.card)!=content_)return;
     if(tool_mode_){
      const bool chosen=i==tool_head_;
-     fn<void(*)(void*,unsigned)>(chosen?lv_obj_clear_flag:lv_obj_add_flag)(s.card,1);
+     stock_function<void(*)(void*,unsigned)>(chosen?lv_obj_clear_flag:lv_obj_add_flag)(s.card,1);
      if(chosen){
       place(s.card,{12,80,180,height-182});
       place(s.colour,{4,0,83,83});place(s.material,{92,36,80,38});place(s.material_label,{0,5,80,28});
-      fn<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(s.material_label,reinterpret_cast<void*>(0x26297a0),0);
-      fn<void(*)(void*,unsigned)>(lv_obj_add_flag)(s.number,1);
-      for(auto*child:{s.colour,s.material})fn<void(*)(void*,unsigned)>(lv_obj_clear_flag)(child,1);
-      if(valid(tool_labels_[i]))fn<void(*)(void*,unsigned)>(lv_obj_add_flag)(tool_labels_[i],1);
+      stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(s.material_label,reinterpret_cast<void*>(0x26297a0),0);
+      stock_function<void(*)(void*,unsigned)>(lv_obj_add_flag)(s.number,1);
+      for(auto*child:{s.colour,s.material})stock_function<void(*)(void*,unsigned)>(lv_obj_clear_flag)(child,1);
+      if(valid(tool_labels_[i]))stock_function<void(*)(void*,unsigned)>(lv_obj_add_flag)(tool_labels_[i],1);
       const auto identity=StockToolheadView::identity_for(tool_data_,i);
       bool loaded=false;for(const auto&head:tool_data_.value("heads",Json::array()))if(head.value("id","")=="h"+std::to_string(i))loaded=head.value("loaded",Json::object()).value("state","")=="loaded";
       const auto material=identity.value("material","");
-      fn<void(*)(void*,const char*)>(lv_label_set_text)(s.material_label,(loaded&&material.empty()?std::string("Unknown"):material).c_str());
-      fn<void(*)(void*,unsigned)>(lv_obj_add_flag)(s.material,1);
+      stock_function<void(*)(void*,const char*)>(lv_label_set_text)(s.material_label,(loaded&&material.empty()?std::string("Unknown"):material).c_str());
+      stock_function<void(*)(void*,unsigned)>(lv_obj_add_flag)(s.material,1);
       std::uint32_t tint=0;const bool known=stock_rgb(identity_display_text(identity,"color",""),tint);
-      fn<void(*)(void*,unsigned)>(known?lv_obj_clear_flag:lv_obj_add_flag)(s.colour,1);
+      stock_function<void(*)(void*,unsigned)>(known?lv_obj_clear_flag:lv_obj_add_flag)(s.colour,1);
 #if defined(__aarch64__) || defined(WMP_NATIVE_TEST)
       if(known)for(int state=0;state<2;++state){
        const auto*white=stock_white_filament_asset();
-       fn<void(*)(void*,int,const void*,const void*,const void*)>(lv_imgbtn_set_src)(s.colour,state,nullptr,white,nullptr);
-       fn<void(*)(void*,std::uint32_t,unsigned)>(lv_obj_set_style_img_recolor)(s.colour,tint,state?0x20:0);
-       fn<void(*)(void*,unsigned char,unsigned)>(lv_obj_set_style_img_recolor_opa)(s.colour,255,state?0x20:0);
+       stock_function<void(*)(void*,int,const void*,const void*,const void*)>(lv_imgbtn_set_src)(s.colour,state,nullptr,white,nullptr);
+       stock_function<void(*)(void*,std::uint32_t,unsigned)>(lv_obj_set_style_img_recolor)(s.colour,tint,state?0x20:0);
+       stock_function<void(*)(void*,unsigned char,unsigned)>(lv_obj_set_style_img_recolor_opa)(s.colour,255,state?0x20:0);
       }
 #endif
      }
@@ -185,32 +182,32 @@ public:
     }
     place(s.card,{12+int(i)*(width-24)/4,4,(width-24)/4-8,40});
     for(auto style:{std::uintptr_t(0x463c908),std::uintptr_t(0x463c918)})
-     fn<void(*)(void*,const void*,unsigned)>(lv_obj_remove_style)(s.card,reinterpret_cast<void*>(style),0);
-    fn<void(*)(void*,const void*,unsigned)>(lv_obj_add_style)(s.card,reinterpret_cast<void*>(ace_filter_&&i==tool_head_?0x463c918:0x463c908),0);
-    for(auto*child:{s.number,s.colour,s.material})if(valid(child))fn<void(*)(void*,unsigned)>(lv_obj_add_flag)(child,1);
-    if(!tool_labels_[i]){tool_labels_[i]=fn<void*(*)(void*)>(lv_label_create)(s.card);
-     fn<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(tool_labels_[i],reinterpret_cast<void*>(0xf84928),0);}
+     stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_remove_style)(s.card,reinterpret_cast<void*>(style),0);
+    stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_add_style)(s.card,reinterpret_cast<void*>(ace_filter_&&i==tool_head_?0x463c918:0x463c908),0);
+    for(auto*child:{s.number,s.colour,s.material})if(valid(child))stock_function<void(*)(void*,unsigned)>(lv_obj_add_flag)(child,1);
+    if(!tool_labels_[i]){tool_labels_[i]=stock_function<void*(*)(void*)>(lv_label_create)(s.card);
+     stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(tool_labels_[i],reinterpret_cast<void*>(0xf84928),0);}
     const auto title="Head "+std::to_string(i+1);
-    fn<void(*)(void*,const char*)>(lv_label_set_text)(tool_labels_[i],title.c_str());place(tool_labels_[i],{8,8,(width-24)/4-24,26});center_button_caption(s.card,tool_labels_[i],title);
+    stock_function<void(*)(void*,const char*)>(lv_label_set_text)(tool_labels_[i],title.c_str());place(tool_labels_[i],{8,8,(width-24)/4-24,26});center_button_caption(s.card,tool_labels_[i],title);
    }
    if(ace_mode_){
-    if(valid(tips_))fn<void(*)(void*,unsigned)>(lv_obj_add_flag)(tips_,1);
+    if(valid(tips_))stock_function<void(*)(void*,unsigned)>(lv_obj_add_flag)(tips_,1);
     update_navigation(height);ace_.mount(content_);auto data=tool_data_;data["fresh"]=fresh_;
     const bool head_tabs=!data.value("units",Json::array()).empty();data["head_tabs_visible"]=head_tabs;
     ace_.update(data,head_tabs&&ace_filter_?"h"+std::to_string(tool_head_):"",width,height,46);
     // The editor is inset within stock content; hide the overview tabs rather
     // than allowing their selected borders to peek around the modal edges.
     for(unsigned i=0;i<count_;++i)
-     fn<void(*)(void*,unsigned)>((ace_.modal_active()||!head_tabs)?lv_obj_add_flag:lv_obj_clear_flag)(slots_[i].card,1);
-    if(ace_.modal_active())for(auto*p:{navigation_,import_button_,finish_,finish_notice_})if(valid(p))fn<void(*)(void*,unsigned)>(lv_obj_add_flag)(p,1);
+     stock_function<void(*)(void*,unsigned)>((ace_.modal_active()||!head_tabs)?lv_obj_add_flag:lv_obj_clear_flag)(slots_[i].card,1);
+    if(ace_.modal_active())for(auto*p:{navigation_,import_button_,finish_,finish_notice_})if(valid(p))stock_function<void(*)(void*,unsigned)>(lv_obj_add_flag)(p,1);
     return;
    }
    if(valid(tips_)){
-    fn<void(*)(void*,unsigned)>(lv_obj_clear_flag)(tips_,1);
+    stock_function<void(*)(void*,unsigned)>(lv_obj_clear_flag)(tips_,1);
     const auto mounting=StockToolheadView::mounting_for(tool_data_,tool_head_);
     const auto title=message_.empty()?"Toolhead management - "+mounting:mounting+" - "+message_;
     place(tips_,{12,0,width-24,28});
-    fn<void(*)(void*,const char*)>(lv_label_set_text)(tips_,fresh_?title.c_str():"Printer status unavailable");
+    stock_function<void(*)(void*,const char*)>(lv_label_set_text)(tips_,fresh_?title.c_str():"Printer status unavailable");
    }
    tools_.update(tool_data_,tool_head_,tool_step_,tool_target_,width,height);return;
   }
@@ -219,7 +216,7 @@ public:
    update_navigation(height);
    if(identity_head_>=0){
     for(unsigned i=0;i<count_;++i){auto&s=slots_[i];const bool chosen=int(i)==identity_head_;
-     fn<void(*)(void*,unsigned)>(chosen?lv_obj_clear_flag:lv_obj_add_flag)(s.card,1);
+     stock_function<void(*)(void*,unsigned)>(chosen?lv_obj_clear_flag:lv_obj_add_flag)(s.card,1);
      if(chosen){
       place(s.card,{(width-280)/2,40,280,height-88});
       place(s.colour,{98,40,83,83});place(s.material,{8,126,264,38});place(s.material_label,{0,5,264,28});
@@ -230,17 +227,17 @@ public:
     if(!brands_[i].empty())brand_controls_.update(i,slots_[i].card,brands_[i],brand_catalogue_,fresh_);
    // Hide the actual stock action container; no invisible covering widget.
    // The scoped callback guard below is a second barrier against queued clicks.
-   if(valid(actions_)&&parent(actions_)==content_)fn<void(*)(void*,unsigned)>(lv_obj_add_flag)(actions_,1);
-   if(valid(tips_)&&parent(tips_)==content_)fn<void(*)(void*,const char*)>(lv_label_set_text)(tips_,fresh_?(message_.empty()?(identity_head_>=0?("Head "+std::to_string(identity_head_+1)+" - filament settings").c_str():"Filament settings"):message_.c_str()):"Printer status unavailable");
+   if(valid(actions_)&&parent(actions_)==content_)stock_function<void(*)(void*,unsigned)>(lv_obj_add_flag)(actions_,1);
+   if(valid(tips_)&&parent(tips_)==content_)stock_function<void(*)(void*,const char*)>(lv_label_set_text)(tips_,fresh_?(message_.empty()?(identity_head_>=0?("Head "+std::to_string(identity_head_+1)+" - filament settings").c_str():"Filament settings"):message_.c_str()):"Printer status unavailable");
    if(fresh_)for(unsigned i=0;i<count_;++i){const auto&s=slots_[i];
     if(!materials_[i].empty()&&valid(s.material_label)&&parent(s.material_label)==s.material)
-     fn<void(*)(void*,const char*)>(lv_label_set_text)(s.material_label,materials_[i].c_str());
+     stock_function<void(*)(void*,const char*)>(lv_label_set_text)(s.material_label,materials_[i].c_str());
     if(colours_[i]&&valid(s.colour)&&parent(s.colour)==s.card){
      for(int state=0;state<2;++state){
-      fn<void(*)(void*,int,const void*,const void*,const void*)>(lv_imgbtn_set_src)(s.colour,state,nullptr,colours_[i],nullptr);
+      stock_function<void(*)(void*,int,const void*,const void*,const void*)>(lv_imgbtn_set_src)(s.colour,state,nullptr,colours_[i],nullptr);
       const unsigned selector=state?0x20:0; // LV_STATE_PRESSED / default
-      fn<void(*)(void*,std::uint32_t,unsigned)>(lv_obj_set_style_img_recolor)(s.colour,tints_[i],selector);
-      fn<void(*)(void*,unsigned char,unsigned)>(lv_obj_set_style_img_recolor_opa)(s.colour,tints_[i]?255:0,selector);
+      stock_function<void(*)(void*,std::uint32_t,unsigned)>(lv_obj_set_style_img_recolor)(s.colour,tints_[i],selector);
+      stock_function<void(*)(void*,unsigned char,unsigned)>(lv_obj_set_style_img_recolor_opa)(s.colour,tints_[i]?255:0,selector);
      }
     }
    }
@@ -248,13 +245,13 @@ public:
  }
  bool intercept(void*event){
   if(!event||!lifecycle_.active()||!valid(content_))return false;
-  if(fn<int(*)(void*)>(lv_event_get_code)(event)!=7)return false;
-  auto*object=fn<void*(*)(void*)>(lv_event_get_target)(event);
+  if(stock_function<int(*)(void*)>(lv_event_get_code)(event)!=7)return false;
+  auto*object=stock_function<void*(*)(void*)>(lv_event_get_target)(event);
   // Only the migrated page's descendants: no global command or event filter.
   unsigned depth=0;while(object&&object!=content_&&depth++<16){if(!valid(object))return false;object=parent(object);}
   if(object!=content_)return false;
   if(blocked_||import_view_.active())return true;
-  const auto action=reinterpret_cast<std::uintptr_t>(fn<void*(*)(void*)>(lv_event_get_user_data)(event));
+  const auto action=reinterpret_cast<std::uintptr_t>(stock_function<void*(*)(void*)>(lv_event_get_user_data)(event));
   if(tool_mode_&&action>=8&&action<=15){
    if(fresh_&&visible()&&unsigned((action-8)%4)==tool_head_&&tools_.edit_allowed()&&tools_.action)tools_.action("edit-filament");
    return true;
@@ -293,61 +290,61 @@ private:
  void*navigation_=nullptr,*finish_=nullptr,*finish_notice_=nullptr;bool onboarding_=false;Binding*navigation_binding_=nullptr;
  void update_navigation(int height){
   if(onboarding_&&!finish_){
-   finish_=fn<void*(*)(void*)>(lv_btn_create)(content_);
+   finish_=stock_function<void*(*)(void*)>(lv_btn_create)(content_);
    if(finish_){
-    fn<void(*)(void*,const void*,unsigned)>(lv_obj_add_style)(finish_,reinterpret_cast<void*>(0x463c8e8),0);
-    auto*label=fn<void*(*)(void*)>(lv_label_create)(finish_);
-    fn<void(*)(void*,const char*)>(lv_label_set_text)(label,"FINISH");
-    fn<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(label,reinterpret_cast<void*>(0x26297a0),0);
+    stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_add_style)(finish_,reinterpret_cast<void*>(0x463c8e8),0);
+    auto*label=stock_function<void*(*)(void*)>(lv_label_create)(finish_);
+    stock_function<void(*)(void*,const char*)>(lv_label_set_text)(label,"FINISH");
+    stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(label,reinterpret_cast<void*>(0x26297a0),0);
     place(finish_,{12,height-44,176,38});center_button_caption(finish_,label,"FINISH");
-    fn<void*(*)(void*,void(*)(void*),int,void*)>(lv_obj_add_event_cb)(finish_,&finish_setup_event,7,navigation_binding_);
+    stock_function<void*(*)(void*,void(*)(void*),int,void*)>(lv_obj_add_event_cb)(finish_,&finish_setup_event,7,navigation_binding_);
    }
   }
   if(valid(finish_)){
-   fn<void(*)(void*,unsigned)>(onboarding_?lv_obj_clear_flag:lv_obj_add_flag)(finish_,1);
+   stock_function<void(*)(void*,unsigned)>(onboarding_?lv_obj_clear_flag:lv_obj_add_flag)(finish_,1);
    place(finish_,{12,height-44,176,38});
-   fn<void(*)(void*,unsigned)>(fresh_&&!blocked_?lv_obj_clear_state:lv_obj_add_state)(finish_,128);
+   stock_function<void(*)(void*,unsigned)>(fresh_&&!blocked_?lv_obj_clear_state:lv_obj_add_state)(finish_,128);
   }
-  if(onboarding_&&!message_.empty()&&!finish_notice_)finish_notice_=fn<void*(*)(void*)>(lv_label_create)(content_);
+  if(onboarding_&&!message_.empty()&&!finish_notice_)finish_notice_=stock_function<void*(*)(void*)>(lv_label_create)(content_);
   if(valid(finish_notice_)){
    place(finish_notice_,{198,height-44,270,38});
-   fn<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(finish_notice_,reinterpret_cast<void*>(lv_font_montserrat_14),0);
-   fn<void(*)(void*,const char*)>(lv_label_set_text)(finish_notice_,message_.c_str());
-   fn<void(*)(void*,unsigned)>(onboarding_&&!message_.empty()?lv_obj_clear_flag:lv_obj_add_flag)(finish_notice_,1);
+   stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(finish_notice_,reinterpret_cast<void*>(lv_font_montserrat_14),0);
+   stock_function<void(*)(void*,const char*)>(lv_label_set_text)(finish_notice_,message_.c_str());
+   stock_function<void(*)(void*,unsigned)>(onboarding_&&!message_.empty()?lv_obj_clear_flag:lv_obj_add_flag)(finish_notice_,1);
   }
   if(!navigation_){
-   navigation_=fn<void*(*)(void*)>(lv_btn_create)(content_);
+   navigation_=stock_function<void*(*)(void*)>(lv_btn_create)(content_);
    if(!navigation_)return;
-   if(!fn<void*(*)(void*,void(*)(void*),int,void*)>(lv_obj_add_event_cb)(navigation_,&navigate,7,navigation_binding_)){
-    fn<void(*)(void*)>(lv_obj_del)(navigation_);navigation_=nullptr;return;
+   if(!stock_function<void*(*)(void*,void(*)(void*),int,void*)>(lv_obj_add_event_cb)(navigation_,&navigate,7,navigation_binding_)){
+    stock_function<void(*)(void*)>(lv_obj_del)(navigation_);navigation_=nullptr;return;
    }
-   fn<void(*)(void*,const void*,unsigned)>(lv_obj_add_style)(navigation_,reinterpret_cast<void*>(0x463c8e8),0);
-   fn<void(*)(void*,const void*,unsigned)>(lv_obj_add_style)(navigation_,reinterpret_cast<void*>(0x463c8f8),0x20);
-   auto*label=fn<void*(*)(void*)>(lv_label_create)(navigation_);
-   fn<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(label,reinterpret_cast<void*>(0x26297a0),0);
-   fn<void(*)(void*,const char*)>(lv_label_set_text)(label,"Toolheads");
+   stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_add_style)(navigation_,reinterpret_cast<void*>(0x463c8e8),0);
+   stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_add_style)(navigation_,reinterpret_cast<void*>(0x463c8f8),0x20);
+   auto*label=stock_function<void*(*)(void*)>(lv_label_create)(navigation_);
+   stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(label,reinterpret_cast<void*>(0x26297a0),0);
+   stock_function<void(*)(void*,const char*)>(lv_label_set_text)(label,"Toolheads");
    place(label,{6,8,164,22});
-   fn<void(*)(void*,int,unsigned)>(lv_obj_set_style_text_align)(label,2,0);
+   stock_function<void(*)(void*,int,unsigned)>(lv_obj_set_style_text_align)(label,2,0);
   }
   // USB profile importing is deferred; keep its implementation for a later release.
-  const int width=fn<int(*)(void*)>(lv_obj_get_content_width)(content_);
+  const int width=stock_function<int(*)(void*)>(lv_obj_get_content_width)(content_);
   place(navigation_,{width-188,height-44,176,38});
-  for(auto*p:{navigation_,import_button_})if(valid(p))fn<void(*)(void*,unsigned)>(lv_obj_clear_flag)(p,1);
-  fn<void(*)(void*,unsigned)>(fresh_?lv_obj_clear_state:lv_obj_add_state)(navigation_,128);
+  for(auto*p:{navigation_,import_button_})if(valid(p))stock_function<void(*)(void*,unsigned)>(lv_obj_clear_flag)(p,1);
+  stock_function<void(*)(void*,unsigned)>(fresh_?lv_obj_clear_state:lv_obj_add_state)(navigation_,128);
  }
  static void finish_setup_event(void*event)noexcept{try{
-  auto*b=static_cast<Binding*>(fn<void*(*)(void*)>(lv_event_get_user_data)(event));if(!b)return;auto*o=b->owner;
+  auto*b=static_cast<Binding*>(stock_function<void*(*)(void*)>(lv_event_get_user_data)(event));if(!b)return;auto*o=b->owner;
   if(!o->lifecycle_.active()||b->generation!=o->lifecycle_.generation()||!o->visible()||!o->onboarding_||!o->fresh_||o->blocked_||o->ace_.modal_active()||o->import_view_.active())return;
-  if(fn<void*(*)(void*)>(lv_event_get_target)(event)!=o->finish_)return;
+  if(stock_function<void*(*)(void*)>(lv_event_get_target)(event)!=o->finish_)return;
   if(o->finish_setup)o->finish_setup();
  }catch(...){} }
  static void import_pressed(void*event)noexcept{try{
-  auto*b=static_cast<Binding*>(fn<void*(*)(void*)>(lv_event_get_user_data)(event));if(!b)return;auto*o=b->owner;
-  if(!o->lifecycle_.active()||b->generation!=o->lifecycle_.generation()||!o->visible()||o->tool_mode_||o->import_view_.active()||fn<void*(*)(void*)>(lv_event_get_target)(event)!=o->import_button_)return;
+  auto*b=static_cast<Binding*>(stock_function<void*(*)(void*)>(lv_event_get_user_data)(event));if(!b)return;auto*o=b->owner;
+  if(!o->lifecycle_.active()||b->generation!=o->lifecycle_.generation()||!o->visible()||o->tool_mode_||o->import_view_.active()||stock_function<void*(*)(void*)>(lv_event_get_target)(event)!=o->import_button_)return;
   if(o->import_view_.show(o->content_))o->ace_.interaction_blocked(true);
  }catch(...){} }
  static void navigate(void*event)noexcept{
-  try{auto*b=static_cast<Binding*>(fn<void*(*)(void*)>(lv_event_get_user_data)(event));if(!b)return;
+  try{auto*b=static_cast<Binding*>(stock_function<void*(*)(void*)>(lv_event_get_user_data)(event));if(!b)return;
    auto*o=b->owner;
    if(!o->lifecycle_.active()||b->generation!=o->lifecycle_.generation()||o->tool_mode_||o->blocked_||o->import_view_.active())return;
    // Recheck visibility and freshness, including queued clicks after navigation.
@@ -360,15 +357,8 @@ private:
  }
  std::list<Binding>bindings_;StockFilamentPage lifecycle_;void*page_=nullptr,*content_=nullptr,*actions_=nullptr,*tips_=nullptr;bool fresh_=false;
  static void*pointer(std::uintptr_t address){return *reinterpret_cast<void*volatile*>(address);}
- template<class F>static F fn(std::uintptr_t address){
-#ifdef WMP_NATIVE_TEST
-  return reinterpret_cast<F>(test_resolve(address));
-#else
-  return reinterpret_cast<F>(address);
-#endif
- }
  static void on_delete(void*event)noexcept{
-  try{auto*b=static_cast<Binding*>(fn<void*(*)(void*)>(lv_event_get_user_data)(event));if(!b)return;
+  try{auto*b=static_cast<Binding*>(stock_function<void*(*)(void*)>(lv_event_get_user_data)(event));if(!b)return;
    auto*owner=b->owner;owner->lifecycle_.deleted(b->generation);
    for(auto it=owner->bindings_.begin();it!=owner->bindings_.end();++it)if(&*it==b){owner->bindings_.erase(it);break;}
   }catch(...){}

@@ -1,4 +1,5 @@
 """Exact prebuilt screen payload verification. Never loads the candidate library."""
+import ast
 import base64
 import hashlib
 import json
@@ -272,6 +273,17 @@ def preflight_script(root,client,*,qualify=False):
     return Path(__file__).read_text(encoding='utf-8')+'''\nimport tempfile\nwith tempfile.TemporaryDirectory(prefix='wmp-screen-check-') as temporary:\n for relative, encoded in %r.items():\n  target=Path(temporary)/relative;target.parent.mkdir(parents=True,exist_ok=True);target.write_bytes(base64.b64decode(encoded))\n bundle=load_bundle(temporary)\n if exact_profile(bundle,%r) and %r:raise ValueError('native source delivery unavailable: '+%r)\n enabled=select_delivery(temporary,%r,qualify=%r)\n print('screen bundle exact1113 dependency check passed' if enabled else 'screen unavailable on this profile; existing C fixes retained')\n'''%(files,client,source_error,source_error,client,qualify)
 
 
+def backend_helper_names(root):
+    """Use the native runtime contract for every installed backend dependency."""
+    source = Path(root) / 'client-preload/unified-ui/native/runtime_inputs.py'
+    tree = ast.parse(source.read_text(encoding='utf-8'), filename=str(source))
+    declaration = next(node for node in tree.body if isinstance(node, ast.Assign)
+                       and any(isinstance(target, ast.Name) and target.id == 'RUNTIME_INPUTS'
+                               for target in node.targets))
+    return tuple(Path(name).name for name in ast.literal_eval(declaration.value)
+                 if name.startswith('klipper_extras/') and name.endswith('.py'))
+
+
 def verify_backend_helpers(root, home):
     """Read-only gate against the staged package, before publishing its UI.
 
@@ -283,7 +295,7 @@ def verify_backend_helpers(root, home):
     load_bundle(root)  # Validate the manifest digest before trusting its entries.
     inputs=json.loads((root/CURRENT_BUNDLE/'source-inputs.json').read_text(encoding='utf-8'))
     verified={}
-    for name in ('wm_material.py','wmp_orca_profiles.py','wmp_nozzles.py','wmp_saved_variables.py', 'wmp_recovery_retirement.py','wmp_recovery.py','wmp_identification.py','wmp_case_light.py'):
+    for name in backend_helper_names(root):
         expected=inputs.get('klipper_extras/'+name)
         if not isinstance(expected,str) or not re.fullmatch('[0-9a-f]{64}',expected):
             raise ValueError('screen package omits backend helper: '+name)

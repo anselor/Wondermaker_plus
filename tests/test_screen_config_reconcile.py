@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 from test_deploy import deploy  # Tool import path.
+from components.material import HELPERS as MATERIAL_HELPERS
 import preload_bundle as bundle
 import reconcile_screen_config as reconcile
 
@@ -610,14 +611,10 @@ def test_config_install_and_rollback_with_real_helper_publication(printer, tmp_p
         assert Journal(journal.path).load('printer','printer').value['state']=='restored'
         return
     receipt = config.install(ctx)
-    assert {Path(row[0]).name for row in receipt['helpers']} == {
-        'wmp_orca_profiles.py', 'wmp_nozzles.py', 'wmp_saved_variables.py',
-        'wmp_recovery_retirement.py', 'wmp_recovery_file_envelope.py', 'wm_material.py', 'wmp_identification.py',
-        'wmp_recovery.py', 'wmp_case_light.py'}
+    assert {Path(row[0]).name for row in receipt['helpers']} == set(MATERIAL_HELPERS) | {
+        'wmp_identification.py', 'wmp_recovery.py', 'wmp_case_light.py'}
     assert (directory/reconcile.FILENAME).is_file()
-    for name in ('wm_material.py', 'wmp_nozzles.py', 'wmp_orca_profiles.py',
-                 'wmp_identification.py', 'wmp_recovery.py', 'wmp_case_light.py',
-                 'wmp_saved_variables.py', 'wmp_recovery_file_envelope.py'):
+    for name in MATERIAL_HELPERS + ('wmp_identification.py', 'wmp_recovery.py', 'wmp_case_light.py'):
         assert sftp.path(extra).with_name(name).read_bytes() == (ROOT/'klipper_extras'/name).read_bytes()
     config.rollback(ctx, receipt)
     assert snapshot() == before
