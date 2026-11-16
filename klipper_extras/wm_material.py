@@ -259,8 +259,10 @@ class WMMaterial:
                                desc="Confirm the selected dock cleared after pickup; stationary bounded observation")
         gcode.register_command("_WMP_COUPLING_STROKE", self.cmd_COUPLING_STROKE,
                                desc="Run one owned coupling stroke with propagated homing errors")
+        gcode.register_command("_WMP_TOOLHEAD_PROGRESS", self.cmd_TOOLHEAD_PROGRESS,
+                               desc="Update a matching touchscreen toolhead progress step; no motion")
         gcode.register_command("WMP_TOOLHEAD_ACTION", self.cmd_TOOLHEAD_ACTION,
-                               desc="Take or dock a physical head using WM toolchange macros")
+                               desc="Mount or dock a physical head using WM toolchange macros")
         gcode.register_command("WMP_PROFILE_IMPORT", self.cmd_PROFILE_IMPORT,
                                desc="Scan, review and save Orca filament presets from USB")
         gcode.register_command("WMP_SET_NOZZLE", self.cmd_SET_NOZZLE,
@@ -430,6 +432,7 @@ class WMMaterial:
     _ordinary_paused_toolhead_status = component_method("_toolheads", "_ordinary_paused_toolhead_status")
 
     _admit_material_sequence = component_method("_command_routing", "_admit_material_sequence")
+    cmd_TOOLHEAD_PROGRESS = component_method("_toolheads", "cmd_TOOLHEAD_PROGRESS")
     cmd_TOOLHEAD_ACTION = component_method("_toolheads", "cmd_TOOLHEAD_ACTION")
 
     cmd_RECOVER_TOOLHEAD = component_method("_toolheads", "cmd_RECOVER_TOOLHEAD")

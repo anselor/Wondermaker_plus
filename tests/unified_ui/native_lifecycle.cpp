@@ -29,6 +29,7 @@ int async_failure(void(*)(void*),void*){return 0;}
 struct Event;
 struct Callback {void(*fn)(void*);int code;void*data;};
 struct Node {std::string text,image,options;unsigned layout_updates=0;bool height_fixed=false;bool pending_layout=false,open=false,is_image=false,is_label=false;unsigned selected=0,state=0,zoom_factor=256,disable_writes=0;int text_alignment=0,label_long_mode=-1;std::uintptr_t font_address=0;std::uint32_t text_color=0,background_color=0;int opacity=255,background_opacity=255;std::vector<std::uintptr_t>styles;std::uint32_t tint[2]={0,0};unsigned tint_opa[2]={0,0};Node*parent=nullptr;std::vector<Node*>children;std::vector<Callback>callbacks;bool live=true;unsigned flags=0;int x=0,y=0,w=800,h=480,scroll=0,dir=0,inset_x=0,inset_y=0;};
+void line_points(void*,const void*,std::uint16_t){}
 struct Event {Node*node;int code;void*data;};
 std::vector<std::unique_ptr<Node>>nodes;std::function<void(Node*)>layout_hook;
 Node* make(void*p){nodes.emplace_back(new Node);auto*n=nodes.back().get();n->parent=static_cast<Node*>(p);if(p)n->parent->children.push_back(n);return n;}
@@ -215,6 +216,7 @@ if(a==0x38626e8){static const std::string asset("stock-white-filament.bin");retu
  MAP(lv_img_get_src,image_source);MAP(lv_img_src_get_type,image_type);MAP(lv_img_decoder_get_info,image_info);
  MAP(lv_img_create,make);MAP(lv_img_set_src,image_src);MAP(lv_img_set_zoom,zoom);MAP(lv_img_set_pivot,pos);
  MAP(lv_imgbtn_set_src,image_button_src);MAP(lv_obj_set_style_img_recolor,tint);MAP(lv_obj_set_style_img_recolor_opa,tint_opacity);
+ MAP(lv_line_create,make);MAP(lv_line_set_points,line_points);MAP(lv_obj_set_style_line_width,style);MAP(lv_obj_set_style_line_color,color);
  MAP(lv_obj_create,make);MAP(lv_btn_create,make);MAP(lv_label_create,make_label);MAP(lv_label_get_text,get_text);MAP(lv_disp_get_default,display);MAP(lv_disp_get_scr_act,active);MAP(lv_disp_get_layer_top,top_layer);MAP(lv_disp_get_layer_sys,sys_layer);
  MAP(lv_obj_is_valid,live);MAP(lv_obj_get_parent,parent);MAP(lv_obj_get_child,child);MAP(lv_obj_get_child_cnt,count);MAP(lv_obj_get_coords,coords);MAP(lv_obj_get_content_coords,coords);
  MAP(lv_obj_add_flag,flag);MAP(lv_obj_clear_flag,unflag);MAP(lv_obj_has_flag,has);MAP(lv_obj_has_state,has_state);MAP(lv_obj_set_pos,pos);MAP(lv_obj_set_size,size);MAP(lv_obj_del,del);MAP(lv_obj_clean,clean);MAP(lv_obj_add_event_cb,bind);
@@ -3172,7 +3174,7 @@ int main(int argc,char**argv){
   dialog.result({{"state","failed"},{"message","Stopped. Head 1 is mounted."}});
   begin=find("STOPPED");assert(begin&&(begin->state&128));fake::send(begin,7);assert(tool_recoveries==1);
   fake::send(find("CLOSE"),7);assert(!dialog.active());
-  assert(dialog.open_tracking(parent,tool_recovery,"h2","take",Receipt{"tool-interrupted","pending","Taking head"}));
+  assert(dialog.open_tracking(parent,tool_recovery,"h2","take",Receipt{"tool-interrupted","pending","Mounting head"}));
   assert(step("2. Verify attachment sensors"));assert(procedure_backend.calls==1);
   dialog.close();
   unsigned confirmations=0;std::string confirmed_state;
@@ -3284,7 +3286,7 @@ int main(int argc,char**argv){
      {{"phase","moving"},{"label",std::string(action)=="take"?"Mount head":"Dock head"}},
      {{"phase","verifying"},{"label","Verify attachment sensors"}}})}}}};
   auto find=[&](const std::string&text){for(const auto&n:fake::nodes)if(n->live&&n->text==text&&!(n->flags&1))for(auto*p=n->parent;p;p=p->parent)if(p==parent)return n.get();return static_cast<fake::Node*>(nullptr);};
-  assert(dialog.open_tracking(parent,snapshot,"h3",action,{"tool-progress","pending","Taking head"}));
+  assert(dialog.open_tracking(parent,snapshot,"h3",action,{"tool-progress","pending","Mounting head"}));
   assert(find("1. Check head attachment"));
   auto*move=find(std::string("2. ")+(std::string(action)=="take"?"Mount head":"Dock head"));
   assert(move&&move->text_color==0xffff6600U);
@@ -3536,7 +3538,7 @@ int main(int argc,char**argv){
   else assert(static_cast<fake::Node*>(slot.card)->flags&1);
  }
  fake::Node*retract=nullptr;
- for(const auto&node:fake::nodes)if(node->live&&node->text=="\xef\x81\xb7 Retract\n25 mm")retract=node->parent;
+ for(const auto&node:fake::nodes)if(node->live&&node->text=="Retract\n25 mm")retract=node->parent;
  assert(retract&&retract->parent==tool_content);
  for(auto*n:tool_content->children){if(n->text=="Distance (mm)"||n->text=="Actual: 28 / 0 C")assert(n->text_color==0xffeeeeeeU);}
  fake::send(retract,7);assert(tool_action=="retract");
@@ -3546,7 +3548,12 @@ int main(int argc,char**argv){
  assert(edit_icon->x==152&&edit_icon->y==80&&edit_icon->w==40&&edit_icon->h==32);
  tool_action.clear();fake::send(edit_icon,7);assert(tool_action.empty()&&(edit_icon->flags&1));
  tool_action.clear();tool_content->flags|=1;fake::send(edit_icon,7);assert(tool_action.empty());tool_content->flags&=~1U;
- for(int distance:{1,5,10,25,50})assert(tool_button(std::to_string(distance))->styles.back()==(distance==25?0x463c918U:0x463c908U));
+ for(int distance:{1,10,25,50})assert(tool_button(std::to_string(distance))->styles.back()==(distance==25?0x463c918U:0x463c908U));
+ assert(!tool_button("5"));
+ for(int distance:{1,10,25,50}){auto*b=tool_button(std::to_string(distance));assert(b->h==52&&b->w>=70);}
+ assert(retract->children.size()==2&&retract->children[1]->x==51&&retract->children[1]->y==8);
+ auto*extrude=tool_button("Extrude\n25 mm");assert(extrude->children.size()==2&&extrude->children[1]->y==56);
+ assert(retract->children[0]->text_alignment==2&&extrude->children[0]->text_alignment==2);
  assert(!tool_button("[25]"));
  stock_native.tool_data(data,10,220);stock_native.tick(true,true);
  assert(tool_button("10")->styles.back()==0x463c918U&&tool_button("25")->styles.back()==0x463c908U);
@@ -3557,7 +3564,7 @@ int main(int argc,char**argv){
  assert(!(tool_button("Load")->flags&1)&&(tool_button("Unload")->flags&1));
  assert(tool_button("Load")->w==180&&tool_button("Unload")->w==180);
  assert(tool_button("Load")->x==tool_button("Unload")->x);
- assert(tool_button("Load")->y+tool_button("Load")->h==tool_button("\xef\x81\xb8 Extrude\n25 mm")->y+tool_button("\xef\x81\xb8 Extrude\n25 mm")->h);
+ assert(tool_button("Load")->y+tool_button("Load")->h==tool_button("Extrude\n25 mm")->y+tool_button("Extrude\n25 mm")->h);
  assert(tool_button("Load")->children[0]->text_alignment==2);
  auto tool_label=[&](const std::string&caption){for(const auto&node:fake::nodes)if(node->live&&node->parent==tool_content&&node->text==caption&&!(node->flags&1))return true;return false;};
  assert(tool_label("Empty"));
@@ -3574,10 +3581,22 @@ int main(int argc,char**argv){
   Json error_status={{"webhooks",{{"state","ready"}}},{"print_stats",{{"state","error"}}},{"virtual_sdcard",{{"is_active",sd}}},{"pause_resume",{{"is_paused",paused}}}};
   auto available=tool_state;available["owner"]="standalone";available["job"]=project(error_status,Json::object(),false,"test")["job"];
   available["capabilities"]["toolhead_action"]=true;available["attachment"]={{"state","empty"}};available["heads"][0]["mounting"]="No head mounted";
-  stock_native.tool_data(available,25,220);stock_native.tick(true,true);auto*take=tool_button("Take");assert(take);
+  stock_native.tool_data(available,25,220);stock_native.tick(true,true);auto*take=tool_button("Mount");assert(take);
   assert(bool(take->state&128)==(sd||paused));tool_action.clear();fake::send(take,7);assert((tool_action=="take-dock")==(!sd&&!paused));
  }
  auto mounted=tool_state;mounted["owner"]="standalone";mounted["job"]={{"state","idle"}};mounted["capabilities"]["toolhead_action"]=true;mounted["heads"][0]["mounting"]="Mounted";
+ stock_native.tool_data(mounted,25,220);stock_native.tick(true,true);
+ assert(tool_button("Head 3")->children[0]->text_color==0xffff6600U);
+ // Viewing a different head keeps the physical mount indicator on Head 4.
+ auto other_mounted=mounted;
+ other_mounted["heads"][0]["mounting"]="Not mounted";
+ other_mounted["heads"].push_back({{"id","h3"},{"mounting","Mounted"}});
+ stock_native.tool_data(other_mounted,25,220);stock_native.tick(true,true);
+ assert(tool_button("Head 3")->styles.back()==0x463c918U);
+ assert(tool_button("Head 3")->children[0]->text_color==0xffeeeeeeU);
+ assert(tool_button("Head 4")->children[0]->text_color==0xffff6600U);
+ other_mounted["fresh"]=false;stock_native.tool_data(other_mounted,25,220);stock_native.tick(true,true);
+ assert(tool_button("Head 4")->children[0]->text_color==0xffeeeeeeU);
  stock_native.tool_data(mounted,25,220);stock_native.tick(true,true);
  assert(tool_button("Dock")&&!(tool_button("Dock")->state&128));tool_action.clear();fake::send(tool_button("Dock"),7);assert(tool_action=="take-dock");
  for(bool allowed:{false,true})for(bool fresh:{false,true})for(const auto*op:{"complete","pending","running"}){
@@ -3598,7 +3617,7 @@ int main(int argc,char**argv){
  mounted["toolhead_operation"]={{"state","running"}};stock_native.tool_data(mounted,25,220);stock_native.tick(true,true);
  assert(tool_button("Dock")->state&128);tool_action.clear();fake::send(tool_button("Dock"),7);assert(tool_action.empty());
  mounted["toolhead_operation"]=Json::object();mounted["heads"][0]["mounting"]="Not mounted";
- stock_native.tool_data(mounted,25,220);stock_native.tick(true,true);assert(tool_button("Take")&&!(tool_button("Take")->state&128));
+ stock_native.tool_data(mounted,25,220);stock_native.tick(true,true);assert(tool_button("Mount")&&!(tool_button("Mount")->state&128));
  auto inserted=mounted;inserted["capabilities"]["confirm_filament"]=true;
  inserted["heads"][0]["loaded"]={{"state","empty"},{"sensor_present",true}};
  stock_native.tool_data(inserted,25,220);stock_native.tick(true,true);
@@ -3624,7 +3643,7 @@ int main(int argc,char**argv){
  for(const auto*operation:{"filament_operation","toolhead_operation"}){
   auto interrupted=tool_state;interrupted[operation]={{"state","unknown"}};
   stock_native.tool_data(interrupted,25,220);stock_native.tick(true,true);
-  for(const auto*caption:{"Load","Unload","X","\xef\x81\xb7 Retract\n25 mm","\xef\x81\xb8 Extrude\n25 mm"}){
+  for(const auto*caption:{"Load","Unload","X","Retract\n25 mm","Extrude\n25 mm"}){
    auto*control=tool_button(caption);assert(control&&(control->state&128));
    tool_action.clear();fake::send(control,7);assert(tool_action.empty());
   }
@@ -3637,10 +3656,10 @@ int main(int argc,char**argv){
  stock_native.tool_data(tool_state,25,220);stock_native.tick(true,true);
  assert(tool_button("Retracting...")&&(tool_button("Retracting...")->state&128));
  assert(edit_icon->state&128);tool_action.clear();fake::send(edit_icon,7);assert(tool_action.empty());
- assert(tool_button("\xef\x81\xb8 Extrude\n25 mm")->state&128);
+ assert(tool_button("Extrude\n25 mm")->state&128);
  for(unsigned i=0;i<4;++i)assert(tool_button("Head "+std::to_string(i+1))->styles.back()==(i==2?0x463c918U:0x463c908U));
  tool_state["tool_ui_busy"]["pending"]=false;stock_native.tool_data(tool_state,25,220);stock_native.tick(true,true);
- assert(!(tool_button("\xef\x81\xb7 Retract\n25 mm")->state&128));
+ assert(!(tool_button("Retract\n25 mm")->state&128));
  tool_state["heads"][0]["loaded"]={{"state","unknown"}};
  stock_native.tool_data(tool_state,25,220);stock_native.tick(true,true);
  assert(!tool_button("Filament identity unknown\nCheck filament"));
@@ -3655,7 +3674,7 @@ int main(int argc,char**argv){
  assert(tool_tips->text=="Toolhead management - Mounted"&&tool_tips->y+tool_tips->h<=32);assert(tool_button("Dock")&&(tool_button("Dock")->state&128));
  stock_native.message("Operation refused");stock_native.tick(true,true);assert(tool_tips->text=="Mounted - Operation refused");stock_native.message("");
  tool_state["heads"][0]["mounting"]="Not mounted";stock_native.tool_data(tool_state,25,220);stock_native.tick(true,true);
- assert(tool_tips->text=="Toolhead management - Not mounted");assert(tool_button("Take"));
+ assert(tool_tips->text=="Toolhead management - Not mounted");assert(tool_button("Mount"));
  tool_state["heads"][0]["mounting"]="bogus";stock_native.tool_data(tool_state,25,220);stock_native.tick(true,true);
  assert(tool_tips->text=="Toolhead management - Attachment unknown");
  stock_native.tick(false,false);assert(tool_tips->text=="Printer status unavailable");stock_native.tick(true,true);

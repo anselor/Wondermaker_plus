@@ -247,6 +247,16 @@
       "bytes": "fd7bbda9fd030091e00f00f9e15f0039e21300b9ff1700f9e05f4039e02b00b9"
     },
     {
+      "name": "lv_obj_set_style_line_width",
+      "address": "0x6ae6b8",
+      "bytes": "fd7bbda9fd030091e00f00f9e12f0079e21300b9ff1700f9e02fc079e02b00b9"
+    },
+    {
+      "name": "lv_obj_set_style_line_color",
+      "address": "0x6ae7b8",
+      "bytes": "fd7bbda9fd030091e00f00f9e11300b9e21700b9ff1700f9e01340b9e02b00b9"
+    },
+    {
       "name": "lv_obj_set_style_text_color",
       "address": "0x6ae974",
       "bytes": "fd7bbda9fd030091e00f00f9e11300b9e21700b9ff1700f9e01340b9e02b00b9"
@@ -435,6 +445,16 @@
       "name": "lv_dropdown_is_open",
       "address": "0x71cffc",
       "bytes": "fd7bbda9fd030091e00f00f9e00f40f9e01700f9e01740f9001c40f921008052"
+    },
+    {
+      "name": "lv_line_create",
+      "address": "0x71e788",
+      "bytes": "fd7bbda9fd030091e00f00f9e10f40f9007901d000e033915309fe97e01700f9"
+    },
+    {
+      "name": "lv_line_set_points",
+      "address": "0x71e7bc",
+      "bytes": "fd7bbca9fd030091e01700f9e11300f9e23f0079e01740f9e01f00f9e01f40f9"
     },
     {
       "name": "MyriadPro_Bold_20",

@@ -42,14 +42,16 @@ public:
    const auto id="head:"+std::to_string(i);
    button(id,"Head "+std::to_string(i+1),12+int(i)*(width-24)/4,32,(width-24)/4-8,40);
    selection(id,i==head);
+   stock_function<void(*)(void*,std::uint32_t,unsigned)>(lv_obj_set_style_text_color)(
+    objects_.at(id).second,mounting_for(data,i)=="Mounted"?0xffff6600U:0xffeeeeeeU,0);
   }
   const int right=width-146;
   const int middle=right-220;
   label("distance","Distance (mm)",208,80,middle,24);
-  for(int value:{1,5,10,25,50}){
-   int col=value==1?0:value==5?1:value==10?2:value==25?3:4;
+  for(int value:{1,10,25,50}){
+   int col=value==1?0:value==10?1:value==25?2:3;
    const auto id="step:"+std::to_string(value);
-   button(id,std::to_string(value),208+col*(middle/5),104,middle/5-6,36);
+   button(id,std::to_string(value),208+col*(middle/4),104,middle/4-6,52);
    selection(id,step==value);
   }
   Json selected;
@@ -107,9 +109,8 @@ public:
    stock_function<void(*)(void*,int,unsigned)>(property)(edit.first,0,0);
   edit_allowed_=data.value("fresh",false)&&!ace_managed&&selected.is_object()&&(data.value("owner","")=="standalone"||(!pending&&filament_identity_editable(data,"h"+std::to_string(head))));
   visible("edit-filament",edit_allowed_);enabled("edit-filament",edit_allowed_);
-  button("retract",pending&&this_head&&busy_action=="retract"?"Retracting...":"\xef\x81\xb7 Retract\n"+std::to_string(step)+" mm",right,80,134,74);
-  button("extrude",pending&&this_head&&busy_action=="extrude"?"Extruding...":"\xef\x81\xb8 Extrude\n"+std::to_string(step)+" mm",right,height-130,134,74);
-  for(const auto&id:{"retract","extrude"})stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(objects_.at(id).second,reinterpret_cast<void*>(lv_font_montserrat_14),0);
+  feed_button("retract",pending&&this_head&&busy_action=="retract"?"Retracting...":"Retract\n"+std::to_string(step)+" mm",right,80,true);
+  feed_button("extrude",pending&&this_head&&busy_action=="extrude"?"Extruding...":"Extrude\n"+std::to_string(step)+" mm",right,height-130,false);
   for(const auto&id:{"retract","extrude","target","off"})enabled(id,!pending&&data.value("fresh",false));
   if(data.value("owner","")=="standalone")enabled("off",true);
   button("check-filament","Check filament",208,height-44,120,38);
@@ -119,7 +120,7 @@ public:
   enabled("check-filament",!pending&&data.value("fresh",false));
   button("view-operation",interrupted?"Recover":"Progress",336,height-44,76,38);visible("view-operation",interrupted||in_progress);
   const auto mounting=mounting_for(data,head);
-  button("take-dock",mounting=="Mounted"?"Dock":mounting=="Not mounted"||mounting=="No head mounted"?"Take":"Mount state unknown",12,height-44,180,38);
+  button("take-dock",mounting=="Mounted"?"Dock":mounting=="Not mounted"||mounting=="No head mounted"?"Mount":"Mount state unknown",12,height-44,180,38);
   const auto tool_state=data.value("toolhead_operation",Json::object()).value("state","");
   enabled("take-dock",take_allowed_=!pending&&data.value("fresh",false)&&data.value("owner","")=="standalone"&&data.value("capabilities",Json::object()).value("toolhead_action",false)&&mounting!="Attachment unknown"&&tool_state!="running"&&(data.value("job",Json::object()).value("state","")=="idle"||data.value("job",Json::object()).value("state","")=="complete"||paused_toolhead_action_available(data,"h"+std::to_string(head),mounting=="Mounted"?"dock":"take")));
   const auto nozzle=selected.is_object()?selected.value("nozzle",Json::object()):Json::object();
@@ -164,6 +165,26 @@ private:
   stock_function<void(*)(void*,int,int,int)>(lv_obj_align)(object,1,x,y);
   stock_function<void(*)(void*,const char*)>(lv_label_set_text)(caption,text.c_str());
   if(clickable)center_button_caption(object,caption,text);
+ }
+ // Keep vector chevrons independent of the caption font and centered on the
+ // full touch target. Their static points outlive LVGL's retained point pointer.
+ void feed_button(const std::string&id,const std::string&text,int x,int y,bool retract){
+  button(id,text,x,y,134,74);
+  auto widgets=objects_.at(id);auto*object=widgets.first;auto*caption=widgets.second;
+  stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(caption,reinterpret_cast<void*>(MyriadPro_Regular_16),0);
+  stock_function<void(*)(void*,int,int)>(lv_obj_set_size)(caption,122,40);
+  stock_function<void(*)(void*,int,int,int)>(lv_obj_align)(caption,1,6,retract?27:7);
+  auto*chevron=stock_function<int(*)(void*)>(lv_obj_get_child_cnt)(object)>1
+   ?stock_function<void*(*)(void*,int)>(lv_obj_get_child)(object,1):nullptr;
+  if(!chevron){
+   chevron=stock_function<void*(*)(void*)>(lv_line_create)(object);
+   stock_function<void(*)(void*,int,unsigned)>(lv_obj_set_style_line_width)(chevron,3,0);
+   stock_function<void(*)(void*,std::uint32_t,unsigned)>(lv_obj_set_style_line_color)(chevron,0xffeeeeeeU,0);
+  }
+  struct Point{std::int16_t x,y;};
+  static const Point up[]={{0,10},{16,0},{32,10}},down[]={{0,0},{16,10},{32,0}};
+  stock_function<void(*)(void*,const Point*,std::uint16_t)>(lv_line_set_points)(chevron,retract?up:down,3);
+  stock_function<void(*)(void*,int,int)>(lv_obj_set_pos)(chevron,51,retract?8:56);
  }
  void button(const std::string&id,const std::string&t,int x,int y,int w,int h){control(id,t,x,y,w,h,true);}
  void label(const std::string&id,const std::string&t,int x,int y,int w,int h){control(id,t,x,y,w,h,false);}

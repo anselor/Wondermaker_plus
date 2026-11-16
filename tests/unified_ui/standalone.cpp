@@ -233,7 +233,7 @@ int main(){
   assert(http.script.find("WMP_TOOLHEAD_ACTION HEAD=2 ACTION=take ID=")==0);
   assert(http.guard=="WMP_CHECK_COMMAND_GENERATION SESSION=test-session GENERATION=0");
   assert(http.script.find("SESSION=test-session ATTACHED=h1")!=std::string::npos);
-  data["toolhead_operation"]={{"id",receipt.id},{"session","test-session"},{"head","h2"},{"action","take"},{"state","running"},{"message","Taking head"}};
+  data["toolhead_operation"]={{"id",receipt.id},{"session","test-session"},{"head","h2"},{"action","take"},{"state","running"},{"message","Mounting head"}};
   backend.observe(data);assert(data["receipts"][receipt.id]["state"]=="pending");
   data["toolhead_operation"]["state"]="complete";data["attachment"]["head"]="h2";backend.observe(data);assert(data["receipts"][receipt.id]["state"]=="complete");
   assert(backend.submit(take).state=="refused"); // stale attachment

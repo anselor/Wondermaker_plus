@@ -29,7 +29,7 @@ public:
   out+=age>=0?"Last status update: "+std::to_string(age)+" ms ago\n":"Last status update: not received\n";
   out+="Advertised features (not hardware validation):\n";
   const auto caps=d.value("capabilities",Json::object());
-  for(const auto&item:std::vector<std::pair<std::string,std::string>>{{"load","Load"},{"unload","Unload"},{"toolhead_action","Take / Dock"},{"save_nozzle","Nozzle editing"}})
+  for(const auto&item:std::vector<std::pair<std::string,std::string>>{{"load","Load"},{"unload","Unload"},{"toolhead_action","Mount / Dock"},{"save_nozzle","Nozzle editing"}})
    out+="  "+item.second+": "+(!fresh?"Unknown":caps.value(item.first,false)?"Supported":"Unavailable")+"\n";
   // start_print is a file-preview action capability, absent before choosing a
   // file. Report the owner's advertised mapping protocol independently.

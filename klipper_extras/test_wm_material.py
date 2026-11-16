@@ -10263,3 +10263,47 @@ def test_ordinary_paused_toolhead_wrong_head_and_failed_pickup_retry(ordinary_pa
     callbacks.pop()(1)
     assert material.toolhead_operation['state']=='complete'
     assert offset==[.2,-.1,.05]
+
+
+def test_toolhead_switch_reports_old_head_docking_before_mount(toolhead_material):
+    material, objects, state, scripts, callbacks = toolhead_material
+    material.cmd_TOOLHEAD_ACTION(toolhead_command(material, HEAD='3'))
+    assert [step['label'] for step in material.toolhead_operation['steps']] == [
+        'Check head attachment', 'Dock Head 3', 'Mount Head 4', 'Verify attachment sensors']
+    phases = []
+    def run(script):
+        scripts.append(script)
+        if script == '_CHANGE_TOOL T=3':
+            phases.append(material.toolhead_operation['phase'])
+            material.cmd_TOOLHEAD_PROGRESS(FakeCommand(T='3', PHASE='docking'))
+            phases.append(material.toolhead_operation['phase'])
+            assert material.toolhead_operation['message'] == 'Docking Head 3...'
+            material.cmd_TOOLHEAD_PROGRESS(FakeCommand(T='3', PHASE='moving'))
+            phases.append(material.toolhead_operation['phase'])
+            assert material.toolhead_operation['message'] == 'Mounting Head 4...'
+            material._material_status()._attachment = lambda now: {'state': 'attached', 'head': 'h3'}
+    objects['gcode'].run_script_from_command = run
+    callbacks.pop()(1)
+    assert phases == ['docking', 'docking', 'moving']
+    assert material.toolhead_operation['state'] == 'complete'
+
+
+@pytest.mark.parametrize('attachment', [{'state': 'empty', 'head': ''}, {'state': 'attached', 'head': 'h2'}])
+def test_toolhead_take_without_switch_omits_docking_step(toolhead_material, attachment):
+    material, objects, state, scripts, callbacks = toolhead_material
+    material._material_status()._attachment = lambda now: attachment
+    material.cmd_TOOLHEAD_ACTION(toolhead_command(material, ATTACHED=attachment['head'] or 'none'))
+    assert [step['phase'] for step in material.toolhead_operation['steps']] == ['checking', 'moving', 'verifying']
+
+
+@pytest.mark.parametrize('updates', [{'T': '1', 'PHASE': 'moving'}, {'T': '3', 'PHASE': 'invalid'}])
+def test_toolhead_progress_notification_cannot_change_other_operation(toolhead_material, updates):
+    material, objects, state, scripts, callbacks = toolhead_material
+    material.cmd_TOOLHEAD_ACTION(toolhead_command(material, HEAD='3'))
+    before = dict(material.toolhead_operation)
+    material.cmd_TOOLHEAD_PROGRESS(FakeCommand(**updates))
+    assert material.toolhead_operation == before and scripts == []
+    material.toolhead_operation['state'] = 'complete'
+    before = dict(material.toolhead_operation)
+    material.cmd_TOOLHEAD_PROGRESS(FakeCommand(T='3', PHASE='moving'))
+    assert material.toolhead_operation == before and scripts == []

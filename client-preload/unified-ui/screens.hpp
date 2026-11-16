@@ -93,7 +93,7 @@ inline Json App::render() {
   action("heat","Heat","temperature",410,302,82,45);action("off","Off","temperature",500,302,82,45);
   action("retract","↑ Retract","step",630,159,137,90);add("step",std::to_string(step_)+" mm",645,266,113,30);action("extrude","↓ Extrude","step",630,308,137,90);
   if(busy()&&operation_.value("action","")=="step"&&operation_.value("arguments",Json::object()).value("head","")==head_)for(auto&b:widgets_)if(b.id==(operation_["arguments"].value("mm",0)<0?"retract":"extrude")){b.busy=true;b.text="Working…";}
-  button("take","Take head",96,431,140,38);button("dock","Dock head",246,431,140,38);button("nav:filaments",ace?"Filaments / slots":"Filaments",600,431,167,38);
+  button("take","Mount head",96,431,140,38);button("dock","Dock head",246,431,140,38);button("nav:filaments",ace?"Filaments / slots":"Filaments",600,431,167,38);
  }else if(page_=="filaments") {
   const bool discovered=ace&&!data_.value("candidates",Json::array()).empty();
   if(ace)tabs(126);

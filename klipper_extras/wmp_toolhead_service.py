@@ -154,6 +154,19 @@ class ToolheadService:
         return attachment
 
 
+    def cmd_TOOLHEAD_PROGRESS(self, gcmd):
+        # Presentation only. Print-driven changes have no matching UI operation;
+        # never admit/refuse motion or create a receipt from this notification.
+        operation = self.toolhead_operation
+        phase = gcmd.get("PHASE", "")
+        if (operation.get("state") == "running" and operation.get("action") == "take"
+                and operation.get("head") == "h" + gcmd.get("T", "")
+                and phase in {step["phase"] for step in operation.get("steps", [])}
+                and phase in ("docking", "moving")):
+            operation["phase"] = phase
+            operation["message"] = ("Docking Head %d..." % (int(operation["previous_head"][1]) + 1)
+                                    if phase == "docking" else "Mounting Head %d..." % (int(operation["head"][1]) + 1))
+
     def cmd_TOOLHEAD_ACTION(self, gcmd):
         request_id = gcmd.get("ID")
         if not re.fullmatch(r"[A-Za-z0-9_-]{1,96}", request_id):
@@ -192,13 +205,17 @@ class ToolheadService:
             raise gcmd.error(str(error))
         if not sequenced:
             requests.add(request_id)
+        previous_head = attachment["head"] if attachment["state"] == "attached" else ""
+        switching = action == "take" and previous_head and previous_head != "h%d" % head
+        steps = [{"phase": "checking", "label": "Check head attachment"}]
+        if switching:
+            steps.append({"phase": "docking", "label": "Dock Head %d" % (int(previous_head[1]) + 1)})
+        steps.extend([{"phase": "moving", "label": "Mount Head %d" % (head + 1) if action == "take" else "Dock head"},
+                      {"phase": "verifying", "label": "Verify attachment sensors"}])
         self.toolhead_operation = {"id": request_id, "session": self.material.session_id,
-                                   "head": "h%d" % head, "action": action,
-                                   "state": "running", "message": "Taking head" if action == "take" else "Docking head",
-                                   "phase": "checking", "steps": [
-                                       {"phase": "checking", "label": "Check head attachment"},
-                                       {"phase": "moving", "label": "Mount head" if action == "take" else "Dock head"},
-                                       {"phase": "verifying", "label": "Verify attachment sensors"}]}
+                                   "head": "h%d" % head, "action": action, "previous_head": previous_head,
+                                   "state": "running", "message": ("Mounting Head %d..." if action == "take" else "Docking Head %d...") % (head + 1),
+                                   "phase": "checking", "steps": steps}
         # Record intent for diagnostics. Live ownership and the session/request
         # generation retire callbacks independently of durable acknowledgement.
         self._record_toolhead_result()
@@ -224,7 +241,9 @@ class ToolheadService:
                     if attachment["state"] == "attached":
                         run("SAVE_VARIABLE VARIABLE=current_extruder VALUE=%d" % int(attachment["head"][1]))
                     dispatched = True
-                    self.toolhead_operation["phase"] = "moving"
+                    self.toolhead_operation["phase"] = "docking" if switching else "moving"
+                    if switching:
+                        self.toolhead_operation["message"] = "Docking Head %d..." % (int(previous_head[1]) + 1)
                     run("_CHANGE_TOOL T=%d" % head if action == "take" else "PARK_CURRENT_TOOL")
                     run("M400")
                     self.toolhead_operation["phase"] = "verifying"

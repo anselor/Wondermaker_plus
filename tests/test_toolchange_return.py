@@ -391,3 +391,20 @@ def test_paused_already_attached_target_still_runs_success_suffix_before_explici
     assert 'WIPE_NOZZLE' not in names
     m.run('WIPE_NOZZLE')
     assert sum(name == 'WIPE_NOZZLE' for name, _ in m.events) == 1
+
+
+def test_toolhead_progress_brackets_stock_dock_and_mount_without_changing_motion():
+    model = MotionModel(state='standby', current=0)
+    def render(managed):
+        printer = copy.deepcopy(model.p)
+        if managed:
+            printer['wm_material'] = {}
+        return [line.strip() for line in model.templates['_CHANGING_TOOL'].render(
+            printer=printer, params={'T': '1'}, action_respond_info=lambda *args: '').splitlines()
+            if line.strip()]
+    stock = render(False)
+    managed = render(True)
+    assert [line for line in managed if not line.startswith('_WMP_TOOLHEAD_PROGRESS')] == stock
+    assert managed.index('_WMP_TOOLHEAD_PROGRESS T=1 PHASE=docking') < managed.index('_UNLOCK_TOOL T=0')
+    assert managed.index('_UNLOCK_TOOL T=0') < managed.index('_WMP_TOOLHEAD_PROGRESS T=1 PHASE=moving')
+    assert managed.index('_WMP_TOOLHEAD_PROGRESS T=1 PHASE=moving') < managed.index('_LOCK_TOOL T=1')
