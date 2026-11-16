@@ -2,7 +2,8 @@
 """Physical toolhead service, sensor checks and operation outcomes.
 
 Owns toolhead request/result state. Shared printer access and command generation
-remain with the material coordinator; stock movement and check ordering are unchanged."""
+remain with the material coordinator; stock motion is preserved and pickup checks
+settle after retreat, with final identity confirmation before model travel."""
 import json
 import logging
 import math
@@ -454,6 +455,32 @@ class ToolheadService:
         raise error
 
 
+    def _pickup_sensors(self):
+        now = self.material.printer.get_reactor().monotonic()
+        def read(name, field):
+            try:
+                return self.material.printer.lookup_object(name).get_status(now).get(field)
+            except (AttributeError, KeyError, TypeError, ValueError):
+                return None
+        return {"hall": read("custom_hall", "Raw"),
+                "locked": read("filament_switch_sensor sensor_b", "filament_detected"),
+                "docks": [read("filament_switch_sensor docked%d" % i, "filament_detected") for i in range(4)]}
+
+    def cmd_PICKUP_BEGIN(self, gcmd):
+        # Observation only: no motion, admission latch or saved failure state.
+        self.material._check_command_generation(gcmd)
+        head = gcmd.get_int("HEAD", minval=0, maxval=3)
+        sensors = self._pickup_sensors()
+        hall = sensors["hall"]
+        self._pickup_observation = {
+            "head": head, "session": self.material.session_id,
+            "defer": gcmd.get("DEFER", "0") == "1",
+            "generation": getattr(self.material, "_command_generation", 0),
+            "empty": type(hall) in (int, float) and 4700 <= hall <= 6000
+                     and sensors["locked"] is False and all(v is True for v in sensors["docks"])}
+        logging.info("Pickup approach head=%d empty=%r hall=%r sensor_b=%r docks=%r",
+                     head, self._pickup_observation["empty"], hall, sensors["locked"], sensors["docks"])
+
     def cmd_CHECK_PICKUP_RELEASE(self, gcmd):
         head = gcmd.get_int("HEAD", minval=0, maxval=3)
         reactor = self.material.printer.get_reactor()
@@ -472,26 +499,58 @@ class ToolheadService:
             except (AttributeError, KeyError, TypeError, ValueError):
                 return None
         guard()
+        proof = getattr(self, "_pickup_observation", None)
+        self._pickup_observation = None  # One check, never authority for a later pickup.
+        def confirmed_approach():
+            if (observed is not True or not proof or not proof["empty"]
+                    or not proof["defer"] or gcmd.get("FINAL", "0") != "0"):
+                return False
+            if (proof["head"] != head or proof["session"] != self.material.session_id
+                    or proof["generation"] != getattr(self.material, "_command_generation", 0)):
+                return False
+            sensors = self._pickup_sensors()
+            hall = sensors["hall"]
+            confirmed = (type(hall) in (int, float) and 3450 <= hall < 4700
+                         and sensors["locked"] is True
+                         and all(value is True for i, value in enumerate(sensors["docks"]) if i != head))
+            if confirmed:
+                logging.warning("Pickup provisionally confirmed from empty-to-coupled transition head=%d: "
+                                "dock switch still occupied; final identity check required; hall=%r sensor_b=%r docks=%r",
+                                head, hall, sensors["locked"], sensors["docks"])
+            return confirmed
         start = reactor.monotonic()
         name = "filament_switch_sensor docked%d" % head
         initial = observed = read(name, "filament_detected")
-        # M400 completes motion, not delivery of the MCU button report. Give
-        # queued callbacks up to 0.5s while stationary; this is not a new stroke,
-        # homing retry, or permission to ignore a persistently occupied dock.
-        while observed is not False and reactor.monotonic() - start < .5:
-            reactor.pause(min(start + .5, reactor.monotonic() + .05))
-            guard()  # Cancellation/new ownership retires this old observation.
-            observed = read(name, "filament_detected")
+        # M400 finishes motion, not delivery of the MCU button report. A
+        # mismatch in the first short observation window is provisional: give
+        # the switch a separate stationary recheck before interrupting a print.
+        # Clear docks take no extra time. Neither window repeats any motion.
+        approach_confirmed = False
+        for deadline in (start + .5, start + 2.):
+            while observed is not False and reactor.monotonic() < deadline:
+                reactor.pause(min(deadline, reactor.monotonic() + .05))
+                guard()  # Cancellation/new ownership retires this observation.
+                observed = read(name, "filament_detected")
+            if observed is False:
+                break
+            approach_confirmed = confirmed_approach()
+            if approach_confirmed:
+                break
+            if deadline == start + .5:
+                logging.warning("Pickup dock indication provisional head=%d docked=%r; "
+                                "rechecking while stationary before pausing", head, observed)
         saved = guard()
         elapsed = reactor.monotonic() - start
         hall = read("custom_hall", "Raw")
         locked = read("filament_switch_sensor sensor_b", "filament_detected")
         logging.info("Pickup dock check head=%d initial=%r final=%r elapsed=%.3fs hall=%r sensor_b=%r",
                      head, initial, observed, elapsed, hall, locked)
-        if observed is False:
+        if observed is False or approach_confirmed:
             return
         # Current-attempt fault only. Never require a diagnostic disk write or
         # clear an earlier fault; a fresh explicit user action can retry later.
+        logging.warning("Pickup confirmation unresolved head=%d approach=%r sensors=%r",
+                        head, proof, self._pickup_sensors())
         saved["fail_flag"] = -5
         self.material._command_generation = getattr(self.material, "_command_generation", 0) + 1
         error = gcmd.error("Head %d pickup not confirmed after %.3fs: docked%d=%r (initial=%r; expected False after retreat). "

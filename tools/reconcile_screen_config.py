@@ -217,6 +217,22 @@ def plan(root, directory):
                 ownership.get(section, {}).pop(option, None)
                 warnings.append('Preserved user or unproven managed setting: ' + section + ' / ' + option)
 
+    # Migrate WM+'s former 50 mm finish default, including when it lives in
+    # the underlying legacy config. Retain other operator-selected distances.
+    section, option = 'gcode_macro PRINT_END', 'variable_bed_drop'
+    source = output if output.has_option(section, option) else base
+    if source.has_option(section, option):
+        try:
+            old_default = float(source.get(section, option)) == 50.0
+        except ValueError:
+            old_default = False
+        if old_default:
+            if not output.has_section(section):
+                output.add_section(section)
+            value = expected.get(section, option)
+            output.set(section, option, value)
+            ownership.setdefault(section, {})[option] = option_hash(value)
+
     import io
     stream = io.StringIO()
     output.write(stream)

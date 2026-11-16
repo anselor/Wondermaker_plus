@@ -6891,14 +6891,14 @@ def managed_cancel_cleanup(paused_recovery_worker):
         elif command.startswith('SET_GCODE_VARIABLE MACRO=START_PRINT'):
             states['gcode_macro START_PRINT']['print_body_ready'] = False
         elif command == 'CLEAR_PAUSE': pause['is_paused'] = False
-        else: assert command.split()[0] in ('M400', 'M107', 'BED_MESH_CLEAR', 'M220', 'RESET_FLOW_EXTRUDER', 'SAVE_VARIABLE', 'SET_VELOCITY_LIMIT', 'SET_IDLE_TIMEOUT', 'M84', '_WMP_CASE_LIGHT_PRINT_END')
+        else: assert command.split()[0] in ('M400', 'M107', 'BED_MESH_CLEAR', 'M220', 'RESET_FLOW_EXTRUDER', 'SAVE_VARIABLE', 'SET_VELOCITY_LIMIT', 'SET_IDLE_TIMEOUT', 'M84', '_WMP_CASE_LIGHT_PRINT_END', '_WMP_PRINT_LOWER_BED')
     objects['gcode'].run_script_from_command = run
     binding = {'session': material.session_id, 'file': objects['print_stats'].filename,
                'handle': sd.current_file}
     return fixture, binding, cleanup, original_worker
 
 
-def test_managed_cancel_cleanup_preserves_evidence_without_motion(managed_cancel_cleanup):
+def test_managed_cancel_cleanup_preserves_evidence_and_lowers_bed(managed_cancel_cleanup):
     fixture, binding, cleanup, original_worker = managed_cancel_cleanup
     material, objects, states, calls, review, request, timers, body, mutex = fixture
     material.filament_operation = {'state': 'unknown', 'id': 'partial-feed'}
@@ -6911,6 +6911,8 @@ def test_managed_cancel_cleanup_preserves_evidence_without_motion(managed_cancel
     assert phases == [('stopping', 'complete')] + [(name, state) for name in material._CANCEL_STAGES[1:] for state in ('running', 'complete')]
     assert cleanup[:5] == ['M400', 'TURN_OFF_HEATERS', '_WMP_PRINT_CONTEXT_CLEAR',
                        'SET_GCODE_VARIABLE MACRO=START_PRINT VARIABLE=print_body_ready VALUE=False', 'CLEAR_PAUSE']
+    assert cleanup.index('_WMP_PRINT_LOWER_BED') < cleanup.index('BED_MESH_CLEAR')
+    assert cleanup[cleanup.index('_WMP_PRINT_LOWER_BED') + 1] == 'M400'
     assert binding['handle'].closed and objects['virtual_sdcard'].current_file is None
     assert objects['print_stats'].state == 'cancelled'
     assert objects['print_stats'].filament_used == 123.
@@ -6944,6 +6946,7 @@ def test_managed_cancel_partial_cleanup_cannot_report_complete(managed_cancel_cl
     if failure == 'drain':
         assert cleanup[:2] == ['M400', 'TURN_OFF_HEATERS']
         assert 'M84' not in cleanup
+        assert '_WMP_PRINT_LOWER_BED' not in cleanup
     assert (objects['virtual_sdcard'].current_file is binding['handle']) is (failure == 'file')
 
 
@@ -7431,6 +7434,7 @@ def test_cancel_resolution_finishes_idle_heater_and_pause_cleanup(managed_cancel
     assert states['extruder2']['target'] == 0
     assert objects['pause_resume'].get_status(1)['is_paused'] is False
     assert material._print_cancel['state'] == 'complete'
+    assert '_WMP_PRINT_LOWER_BED' not in cleanup
 
 
 @pytest.mark.parametrize('encoded', ['zz', '00', '5b5d', '7b226964223a5b5d7d'])

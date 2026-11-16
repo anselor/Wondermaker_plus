@@ -1065,3 +1065,13 @@ def test_legacy_provenance_is_not_an_active_include(printer):
     assert provenance and all(name in result['plan']['read_hashes'] for name in provenance)
     assert all(name not in result['texts'] for name in provenance)
     assert all('.wmp-config-backup-' not in pattern for pattern in result['plan']['include_matches'])
+
+
+@pytest.mark.parametrize('distance,expected', [('50.0', 150.), ('80.0', 80.), ('0', 0.)])
+def test_finish_bed_drop_upgrade_migrates_old_default_only(printer, distance, expected):
+    with (printer / 'custom.cfg').open('a') as stream:
+        stream.write('\n[gcode_macro PRINT_END]\nvariable_bed_drop: ' + distance + '\n')
+    for _ in range(3):
+        apply_plan(printer, reconcile.plan(ROOT, printer))
+        current = bundle.read_active_config(printer / 'printer.cfg')
+        assert current.getfloat('gcode_macro PRINT_END', 'variable_bed_drop') == expected

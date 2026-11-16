@@ -378,10 +378,11 @@ front-edge position could strike the front panel. The earlier Y2 workaround is
 superseded by this left-edge route.
 
 At print end or cancellation, `PRINT_END.variable_bed_drop` defaults to lowering
-the bed by up to 50 mm, limited by the bottom endstop. Both paths use the shared
-`_WMP_PRINT_END_CLEARANCE_AND_WIPE` helper, which accounts for G-code offsets and
-skips the Z move when no downward travel remains. It wipes only while X, Y, and Z
-remain homed, then leaves the head over the left brush. `PRINT_END` leaves its SD reader to
+the bed by up to 150 mm, limited by the bottom endstop. Both paths use the shared
+`_WMP_PRINT_LOWER_BED` helper, which accounts for G-code offsets and skips the
+move when Z is unhomed or no downward travel remains. Completion also wipes while
+X, Y, and Z remain homed, then leaves the head over the left brush. Cancellation
+lowers the bed after queued motion stops, without homing or moving X/Y. `PRINT_END` leaves its SD reader to
 reach EOF; cancellation resets the file and explicitly clears native pause flags.
 
 Final cooldowns in `NOZZLE_PREPARE` and `POP` wait only until temperature falls

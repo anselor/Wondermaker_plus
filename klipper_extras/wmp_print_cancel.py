@@ -476,7 +476,7 @@ class PrintCancellation:
 
 
     def _cancel_print_cleanup(self, binding, phase=lambda name, state="running": None):
-        """Cleanup an admitted, stopped SD job without adding physical motion.
+        """Cleanup an admitted, stopped SD job and lower its homed bed.
 
         Private primitive: the reactor intent/fence must stop SD dispatch and
         acquire the G-code mutex before calling. The caller journals any partial
@@ -530,7 +530,7 @@ class PrintCancellation:
             cleanup_phase(name, "complete")
             return True
         cleanup_phase("stopping", "complete")
-        attempt("draining", lambda: run("M400"))
+        drained = attempt("draining", lambda: run("M400"))
         def cool():
             run("TURN_OFF_HEATERS")
             names = self.material.printer.lookup_object("heaters").get_all_heaters()
@@ -579,8 +579,16 @@ class PrintCancellation:
                 raise ValueError("Native pause cleanup was not confirmed")
             self.material._recovery_release_paused_worker(cancelled=True)
         attempt("clearing_pause", clear_pause)
-        # These independent actions restore stock non-motion housekeeping. Never
-        # enter retract, park, wipe, homing or a coupling sequence from Cancel.
+        # Lower only an actual cancelled job after its queued motion drained.
+        # The shared helper skips unhomed Z and clamps to remaining bottom travel.
+        # Do not home, retract, wipe or move the carriage from Cancel.
+        if drained and cancelled[0] and not idle_resolution:
+            try:
+                run("_WMP_PRINT_LOWER_BED")
+                run("M400")
+            except Exception as error:
+                warnings.append("bed lowering: " + str(error))
+        # These independent actions restore stock non-motion housekeeping.
         housekeeping = ["M107", "BED_MESH_CLEAR", "M220 S100",
             "SET_GCODE_VARIABLE MACRO=START_PRINT VARIABLE=adaptive_mesh VALUE=0",
             "RESET_FLOW_EXTRUDER"]

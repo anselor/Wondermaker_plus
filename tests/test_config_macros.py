@@ -303,7 +303,7 @@ def test_vendor_resume_clears_native_pause_state_before_sd_resume():
     assert commands.index('CLEAR_PAUSE') < commands.index('M24')
 
 
-def render_print_finish(model, macro, bed_drop=50.):
+def render_print_finish(model, macro, bed_drop=150.):
     model.p['gcode_macro PRINT_END'] = {'bed_drop': bed_drop}
     model.p['save_variables']['variables']['current_extruder'] = 0
     script = model.templates[macro].render(printer=model.p, params={})
@@ -311,13 +311,14 @@ def render_print_finish(model, macro, bed_drop=50.):
     assert script.count(helper) == 1
     assert script.index(helper) < script.index('BED_MESH_CLEAR')
     assert script.index(helper) < script.index('M84')
-    return script.replace(helper, model.templates[helper].render(
+    script = script.replace(helper, model.templates[helper].render(
         printer=model.p, params={}))
+    return script.replace("_WMP_PRINT_LOWER_BED", model.templates["_WMP_PRINT_LOWER_BED"].render(printer=model.p, params={}))
 
 
 @pytest.mark.parametrize('macro', ['PRINT_END', 'CANCEL_PRINT'])
 @pytest.mark.parametrize('physical_z,gcode_z,expected_target', [
-    (20., 19.7, 69.7),
+    (20., 19.7, 169.7),
     (275., 274.7, 299.7),
     (300., 299.7, None),
     (304., 303.7, None),
@@ -360,7 +361,7 @@ def test_print_end_skips_wipe_without_all_axes_homed(macro, homed):
     m.p['gcode_move'] = {
         'gcode_position': {'z': 20.}, 'position': {'z': 20.}}
     script = render_print_finish(m, macro)
-    assert ('G1 Z70.0 F3000' in script) == ('z' in homed)
+    assert ('G1 Z170.0 F3000' in script) == ('z' in homed)
     assert 'WIPE_NOZZLE' not in script
 
 
@@ -1236,3 +1237,57 @@ def test_manual_step_repairs_historical_filament_result_but_not_live_operation(j
         printer['AFC'] = {}
         with pytest.raises(RuntimeError, match='Finish the filament operation'):
             render()
+
+
+@pytest.mark.parametrize('owner', ['standalone', 'openace', 'AFC'])
+def test_pickup_observation_precedes_approach_without_changing_other_owners(owner):
+    printer = {'save_variables': {'variables': {'fail_flag': 0, 'current_extruder': 99,
+        **{'t%d_position' % i: [50. + i * 60, 335.] for i in range(4)}}},
+        'toolhead': {'homed_axes': 'xyz'}, 'gcode_move': {'position': {'y': 270.}},
+        'wm_material': {'session_id': 'session', 'command_generation': 4}}
+    if owner != 'standalone': printer[owner] = {}
+    script = templates(ROOT / 'config/live')['_LOCK_TOOL'].render(printer=printer, params={'T': '2'})
+    commands = [line.strip() for line in script.splitlines() if line.strip() and not line.lstrip().startswith('#')]
+    observation = '_WMP_PICKUP_BEGIN HEAD=2 SESSION=session GENERATION=4 DEFER=0'
+    if owner == 'standalone':
+        index = commands.index(observation)
+        assert commands[index - 1] == 'M400'
+        assert index < next(i for i, line in enumerate(commands) if line.startswith('G0 X'))
+    else:
+        assert observation not in commands
+    assert commands[-1] == '_CHECK_T_SEQUENCE T=2'
+
+
+def test_normal_toolchange_rechecks_pickup_after_nested_wipe_before_model_return():
+    printer = {'save_variables': {'variables': {'fail_flag': 0, 'current_extruder': 2}},
+               'wm_material': {'session_id': 'session', 'command_generation': 4}}
+    script = templates(ROOT / 'config/live')['_CHANGE_TOOL'].render(
+        printer=printer, params={'T': '3'})
+    checked = '_CHECK_CHANGE_TOOL T=3'
+    final = '_WMP_CHECK_PICKUP_RELEASE HEAD=3 FINAL=1 SESSION=session GENERATION=4'
+    assert script.index(checked) < script.index(final) < script.index('_WMP_TOOL_RETURN_FINISH')
+    printer['openace'] = {}
+    other = templates(ROOT / 'config/live')['_CHANGE_TOOL'].render(printer=printer, params={'T': '3'})
+    assert final not in other
+
+
+@pytest.mark.parametrize("homed,physical_z,gcode_z,target", [
+    ("xyz", 20., 19.7, 169.7), ("z", 275., 280., 305.),
+    ("xyz", 300., 300., None), ("xy", 20., 20., None),
+])
+def test_cancel_bed_lowering_is_z_only_and_preserves_gcode_state(homed, physical_z, gcode_z, target):
+    m = HeaterModel(ROOT / 'config/live')
+    m.p['gcode_macro PRINT_END'] = {'bed_drop': 150.}
+    m.p['configfile']['settings']['stepper_z'] = {'position_endstop': 300}
+    m.p['toolhead'].update(homed_axes=homed, position={'z': physical_z})
+    m.p['gcode_move']['gcode_position'] = {'z': gcode_z}
+    script = m.templates['_WMP_PRINT_LOWER_BED'].render(printer=m.p, params={})
+    moves = [line.strip() for line in script.splitlines() if line.strip().startswith('G1 ')]
+    assert moves == ([] if target is None else [f'G1 Z{target} F3000'])
+    assert 'WIPE_NOZZLE' not in script and 'G28' not in script
+    if 'z' in homed:
+        assert 'RESTORE_GCODE_STATE NAME=wmp_print_lower_bed MOVE=0' in script
+
+def test_default_finish_bed_drop_is_150_mm():
+    source = (ROOT / 'config/live/macros.cfg').read_text()
+    assert 'variable_bed_drop: 150.0' in source

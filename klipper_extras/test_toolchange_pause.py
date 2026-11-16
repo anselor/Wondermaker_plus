@@ -85,7 +85,7 @@ def job(tmp_path):
             context[cmd.get('VARIABLE')] = ast.literal_eval(cmd.get('VALUE'))
     gcode.register_command('SET_GCODE_VARIABLE', setvar)
     for name in ('_check_current_extruder_value', '_check_hall_sensor', '_check_tool_exist', '_CHANGING_TOOL',
-                 '_CHECK_CHANGE_TOOL', '_CHECK_CHANGE_TOOL_AGAIN', '_WMP_TOOL_RETURN_FINISH', 'SAVE_VARIABLE', 'M400', 'WIPE_NOZZLE', '_WAIT_TOOL_TEMPERATURE', 'SET_HEATER_TEMPERATURE', 'TEMPERATURE_WAIT'):
+                 '_CHECK_CHANGE_TOOL', '_CHECK_CHANGE_TOOL_AGAIN', '_WMP_TOOL_RETURN_FINISH', 'SAVE_VARIABLE', 'M400', 'WIPE_NOZZLE', '_WAIT_TOOL_TEMPERATURE', 'SET_HEATER_TEMPERATURE', 'TEMPERATURE_WAIT', '_WMP_CHECK_PICKUP_RELEASE'):
         gcode.register_command(name.upper(), lambda cmd: events.append(('retry', cmd.get_command())))
     material._cancel_routes_ready()
     gcode.gcode_handlers = gcode.ready_gcode_handlers
@@ -266,7 +266,7 @@ def clearance_job(job):
               homing_origin=Coord(0,0,0),position=Coord(120,130,4),gcode_position=Coord(120,130,4))
     th = job.states['toolhead'];th.update(max_accel=1234.,position=Coord(120,130,4),axis_maximum=Coord(300,300,5))
     job.states['gcode_macro _CHANGE_TOOL'] = {'save_position':1}
-    job.states['wm_material'] = {'session_id':'session'}
+    job.states['wm_material'] = {'session_id':'session', 'command_generation':0}
     job.states['configfile'] = {'settings':{'printer':{'max_accel':5000.}}}
     job.context.update(return_speed=200.,pending=0)
     job.saved.update(fail_flag=0,current_extruder=2,probe_tool=0,t0_offset=[0,0,0],t3_offset=[0,0,0])
@@ -275,6 +275,7 @@ def clearance_job(job):
         snapshot=copy.deepcopy(job.states)
         snapshot['print_stats']={'state':job.stats.state}
         snapshot['pause_resume']={'is_paused':job.pause.is_paused}
+        snapshot['wm_material']['command_generation']=job.material._command_generation
         def error(message):raise cmd.error(message)
         script=templates[cmd.get_command()].render(printer=snapshot,params=cmd.get_command_parameters(),action_raise_error=error)
         job.gcode.run_script_from_command(script)
@@ -563,3 +564,11 @@ def test_fault_retry_matches_uninterrupted_retained_extrusion_coordinates(job, i
     assert original_return == job.context['position']
     assert sum(event == ('stock_checked',) for event in job.events) == 1
     assert job.sd.is_active()
+
+
+def test_resume_checks_final_pickup_identity_after_wipe_before_print_return(job):
+    paused(job)
+    job.gcode.run_script('RESUME')
+    commands = [event[1] for event in job.events if event[0] == 'retry']
+    assert commands.index('WIPE_NOZZLE') < commands.index('_WMP_CHECK_PICKUP_RELEASE') < commands.index('_WMP_TOOL_RETURN_FINISH')
+    assert not job.pause.is_paused and job.sd.is_active()

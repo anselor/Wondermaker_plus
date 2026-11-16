@@ -255,8 +255,10 @@ class WMMaterial:
                                desc="Release a supported failed pickup, retreat, then report the failed attempt")
         gcode.register_command("_WMP_CHECK_DOCK_SUPPORT", self.cmd_CHECK_DOCK_SUPPORT,
                                desc="Confirm dock support before unlock; stationary bounded observation")
+        gcode.register_command("_WMP_PICKUP_BEGIN", self.cmd_PICKUP_BEGIN,
+                               desc="Observe empty carriage before pickup; no movement or saved state")
         gcode.register_command("_WMP_CHECK_PICKUP_RELEASE", self.cmd_CHECK_PICKUP_RELEASE,
-                               desc="Confirm the selected dock cleared after pickup; stationary bounded observation")
+                               desc="Confirm pickup after retreat using dock release or this attempt's empty-to-coupled evidence")
         gcode.register_command("_WMP_COUPLING_STROKE", self.cmd_COUPLING_STROKE,
                                desc="Run one owned coupling stroke with propagated homing errors")
         gcode.register_command("_WMP_TOOLHEAD_PROGRESS", self.cmd_TOOLHEAD_PROGRESS,
@@ -655,6 +657,7 @@ class WMMaterial:
     cmd_FAILED_PICKUP_CLEANUP = component_method("_toolheads", "cmd_FAILED_PICKUP_CLEANUP")
 
     cmd_CHECK_DOCK_SUPPORT = component_method("_toolheads", "cmd_CHECK_DOCK_SUPPORT")
+    cmd_PICKUP_BEGIN = component_method("_toolheads", "cmd_PICKUP_BEGIN")
     cmd_CHECK_PICKUP_RELEASE = component_method("_toolheads", "cmd_CHECK_PICKUP_RELEASE")
 
     cmd_COUPLING_STROKE = component_method("_toolheads", "cmd_COUPLING_STROKE")

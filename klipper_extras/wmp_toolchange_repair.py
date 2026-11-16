@@ -287,6 +287,7 @@ class ToolchangeRepair:
                 retry_script += "_WAIT_TOOL_TEMPERATURE\n"
             if stage != "return" and not record.get("wipe_complete"):
                 retry_script += "WIPE_NOZZLE\n"
+            retry_script += "_WMP_CHECK_PICKUP_RELEASE HEAD=%d FINAL=1 SESSION=%s GENERATION=%d\n" % (target, self.material.session_id, generation)
             retry_script += ("_WMP_TOOL_RETURN_FINISH RESUMING=1\nSAVE_VARIABLE VARIABLE=changing_tool VALUE=0\n"
                 "SET_GCODE_VARIABLE MACRO=_CHANGE_TOOL VARIABLE=save_position VALUE=1\nM400")
             for line in retry_script.split("\n"):
