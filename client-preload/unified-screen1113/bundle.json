@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "scope": "reviewed-delivery",
+  "profile": {
+    "firmware": "1.1.13",
+    "sha256": "b60c96c5caf980a127a3d284e5ac98e799dfd79691cb1a52aafd06fd818c4715",
+    "size": 61340216
+  },
+  "artifact": {
+    "file": "screen.so",
+    "sha256": "c2fb33a56573b7c82224bcedec45650de375788cb9a9556b25cff9c0dad9202e",
+    "size": 3045312,
+    "machine": "AArch64",
+    "nodelete": true,
+    "needed": [
+      "libc.so.6",
+      "libgcc_s.so.1",
+      "libpthread.so.0",
+      "libstdc++.so.6"
+    ]
+  },
+  "legacy_c_sha256": "6f5dc98cc32612212c6419694296c7dc63329f79c3d6ea226a211b6c2ff13799",
+  "source_manifest_sha256": "1c02e80644d734f8ea7fb2d8a2ec8c21128139c1c27d95f55141eba9aed5f767",
+  "source_archive_sha256": "ba9a6d9e11358886a2f9987f9aa14da8e384e54efba5c400a39b5742d114c196"
+}
