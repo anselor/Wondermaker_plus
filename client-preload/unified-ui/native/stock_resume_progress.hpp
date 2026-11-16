@@ -22,7 +22,8 @@ inline Json resume_progress_view(const Json&data){
     temperatures+="Head "+std::to_string(id[1]-'0'+1)+": "+std::to_string(int(head.value("actual",0.0)))+" / "+std::to_string(int(target))+" C";
    }
   }
-  view["instruction"]=temperatures;
+  view["heading"]="Heating bed and nozzles";
+  view["value"]=temperatures;
  }
  return view;
 }

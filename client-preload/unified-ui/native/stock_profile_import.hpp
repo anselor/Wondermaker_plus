@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
-#include "button_caption.hpp"
+#include "stock_header_action.hpp"
+#include "stock_option_row.hpp"
 #include "stock_api.hpp"
 #include "../model.hpp"
 #include "stock_dialog_backdrop.hpp"
@@ -63,17 +64,12 @@ private:
   auto*node=stock_function<void*(*)(void*)>(lv_label_create)(parent);if(!node)throw std::runtime_error("Import label allocation failed");caption(node,text);stock_object_place(node,x,y,w,h);
  }
  void button(void*parent,const std::string&text,int action,int x,int y,int w,int h,bool enabled=true,const std::string&value="",bool header=false){
-  auto*node=stock_function<void*(*)(void*)>(header?lv_obj_create:lv_btn_create)(parent);if(!node)throw std::runtime_error("Import button allocation failed");
-  if(header){stock_dialog_backdrop(node);stock_function<void(*)(void*,int,unsigned)>(lv_obj_set_style_bg_opa)(node,0,0);stock_function<void(*)(void*,int,unsigned)>(lv_obj_set_style_border_width)(node,0,0);}
-  else {style(node,0x463c8e8);}
-  stock_object_place(node,x,y,w,h);label(node,text,header?4:8,header?2:8,w-(header?8:16),h-(header?8:12));
-  center_button_caption(node,stock_function<void*(*)(void*,int)>(lv_obj_get_child)(node,0),text);
-  if(header){
-   auto*caption=stock_function<void*(*)(void*,int)>(lv_obj_get_child)(node,0);
-   stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(caption,reinterpret_cast<void*>(MyriadPro_Bold_20),0);
-   stock_function<void(*)(void*,int,unsigned)>(lv_obj_set_style_text_align)(caption,2,0);
-   if(!enabled)stock_function<void(*)(void*,std::uint32_t,unsigned)>(lv_obj_set_style_text_color)(caption,0xff888888U,0);
-  }
+  auto*node=header?stock_header_action(parent,text,x,y,w,h,std::min(h,40)):
+   stock_function<void*(*)(void*)>(lv_btn_create)(parent);
+  if(!node)throw std::runtime_error("Import button allocation failed");
+  if(!header){style(node,0x463c8e8);stock_object_place(node,x,y,w,h);label(node,text,8,8,w-16,h-12);
+   center_button_caption(node,stock_function<void*(*)(void*,int)>(lv_obj_get_child)(node,0),text);}
+  else stock_header_action_caption(node,text,enabled,std::min(h,40));
   if(!enabled)stock_function<void(*)(void*,unsigned)>(lv_obj_add_state)(node,128);
   choices_.push_back({node,enabled?action:-1,value});
   if(!stock_function<void*(*)(void*,void(*)(void*),int,void*)>(lv_obj_add_event_cb)(node,&pressed,7,this))throw std::runtime_error("Import event allocation failed");
@@ -95,7 +91,13 @@ private:
   if(!ready()){label(body,"USB profile import requires standalone WM+ support.",8,y,width_-48,52);return;}
   if(busy){label(body,pending_action_=="save"?"Saving profiles...":"Reading USB profiles...",8,y,width_-48,28);return;}
   if(state=="files"){
-   for(const auto&file:result_.value("files",Json::array())){button(body,file.value("name",""),2,8,y,width_-48,44,true,file.value("id",""));y+=50;}
+   for(const auto&file:result_.value("files",Json::array())){
+    const auto row=StockOptionRow::create(body,file.value("name",""),"",8,y,width_-48,64,false);
+    if(!row.object)throw std::runtime_error("Import file choice allocation failed");
+    choices_.push_back({row.object,2,file.value("id","")});
+    if(!stock_function<void*(*)(void*,void(*)(void*),int,void*)>(lv_obj_add_event_cb)(row.object,&pressed,7,this))throw std::runtime_error("Import event allocation failed");
+    y+=64+StockOptionRow::gap;
+   }
    if(y==4)label(body,result_.value("message","No profile files found"),8,y,width_-48,48);
   }else if(state=="review"){
    label(body,result_.value("name",""),8,y,width_-48,44);y+=48;

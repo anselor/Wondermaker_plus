@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 #include "stock_api.hpp"
-#include "button_caption.hpp"
+#include "stock_header_action.hpp"
 #include "stock_progress_panel.hpp"
 #include "stock_dialog_backdrop.hpp"
 #include "../model.hpp"
@@ -72,9 +72,8 @@ public:
    stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_add_style)(panel_,reinterpret_cast<void*>(0x463c8d8),0);
    stock_dialog_backdrop(panel_);stock_function<void(*)(void*,int,unsigned)>(lv_obj_set_style_bg_opa)(panel_,255,0);place(panel_,setup_?0:90,setup_?0:100,setup_?w:w-100,setup_?h:h-110);
    auto*title=stock_function<void*(*)(void*)>(lv_label_create)(panel_);label(title,"Calibration");place(title,12,10,w-260,30);
-   {auto*b=stock_function<void*(*)(void*)>(lv_obj_create)(panel_);stock_dialog_backdrop(b);place(b,w-230,0,120,40);
-   auto*l=stock_function<void*(*)(void*)>(lv_label_create)(b);label(l,"BACK");center_button_caption(b,l,"BACK");
-   stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(l,reinterpret_cast<void*>(MyriadPro_Bold_20),0);
+   {auto*b=stock_header_action(panel_,"BACK",w-230,0,120);
+   if(!b){clear();return;}
    stock_function<void*(*)(void*,void(*)(void*),int,void*)>(lv_obj_add_event_cb)(b,&pressed,7,this);}
    auto*rule=stock_function<void*(*)(void*)>(lv_obj_create)(panel_);stock_dialog_backdrop(rule);place(rule,12,40,w-124,1);
    stock_function<void(*)(void*,std::uint32_t,unsigned)>(lv_obj_set_style_bg_color)(rule,0xff606060U,0);stock_function<void(*)(void*,int,unsigned)>(lv_obj_set_style_bg_opa)(rule,255,0);

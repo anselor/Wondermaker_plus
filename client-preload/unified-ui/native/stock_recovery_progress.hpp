@@ -257,6 +257,7 @@ public:
    stages=Json::array({{{"name","Review interrupted cancellation"},{"state","complete"}},
                        {{"name","Verify cancellation resolved"},{"state","complete"}}});
   }else for(const auto&stage:receipt.value("stages",Json::array()))stages.push_back(stage);
+  std::string temperature_text;
   const auto temperatures=result.value("temperatures",Json::object());
   for(const auto&stage:stages){
    const auto name=stage.value("name","");const auto state=stage.value("state","");
@@ -268,13 +269,13 @@ public:
     else if(heater.key()=="extruder")label="Head 1";
     else if(heater.key().size()==9&&heater.key().compare(0,8,"extruder")==0&&heater.key()[8]>='1'&&heater.key()[8]<='3')label="Head "+std::to_string(heater.key()[8]-'0'+1);
     if(!label.empty()&&std::isfinite(current)&&std::isfinite(target)&&current>=-100&&current<=1000&&target>0&&target<=1000)
-     summary+="\n"+label+": "+std::to_string(int(std::round(current)))+" / "+std::to_string(int(std::round(target)))+" C";
+     temperature_text+=(temperature_text.empty()?"":"\n")+label+": "+std::to_string(int(std::round(current)))+" / "+std::to_string(int(std::round(target)))+" C";
    }
   }
-  text(summary_,summary);
+  text(summary_,summary+(temperature_text.empty()?"":"\n"+temperature_text));
   if(progress_.attached()){
    const bool terminal=failed||phase=="complete"||phase=="abandoned"||phase=="printing"||phase=="paused";
-   progress_.update({{"instruction",summary},{"steps",terminal?Json::array():plr_progress_steps(stages)}});
+   progress_.update({{"instruction",summary},{"value",temperature_text},{"steps",terminal?Json::array():plr_progress_steps(stages)}});
    stock_function<void(*)(void*,unsigned)>(lv_obj_add_flag)(summary_,1);
     return;
   }

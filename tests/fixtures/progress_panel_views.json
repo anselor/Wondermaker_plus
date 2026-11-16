@@ -1,0 +1,553 @@
+[
+  {
+    "fit": true,
+    "height": 480,
+    "name": "scrub-state-1",
+    "scrub_options": true,
+    "view": {
+      "choices_height": 216,
+      "decisions": true,
+      "heading": "How will the nozzles be cleaned?",
+      "instruction": "",
+      "note": "",
+      "steps": [
+        {
+          "label": "Prepare",
+          "state": "running"
+        },
+        {
+          "label": "Head 1",
+          "state": "pending"
+        },
+        {
+          "label": "Head 2",
+          "state": "pending"
+        },
+        {
+          "label": "Head 3",
+          "state": "pending"
+        },
+        {
+          "label": "Head 4",
+          "state": "pending"
+        },
+        {
+          "label": "Calibrate",
+          "state": "pending"
+        }
+      ],
+      "steps_width": 200,
+      "title": "Nozzle offset calibration",
+      "title_width": 540
+    },
+    "width": 800
+  },
+  {
+    "fit": true,
+    "height": 480,
+    "name": "scrub-state-3",
+    "scrub_options": false,
+    "view": {
+      "decisions": false,
+      "heading": "Ready to clean the nozzles.",
+      "instruction": "Press Confirm to start.",
+      "note": "",
+      "steps": [
+        {
+          "label": "Prepare",
+          "state": "complete"
+        },
+        {
+          "label": "Head 1",
+          "state": "complete"
+        },
+        {
+          "label": "Head 2",
+          "state": "complete"
+        },
+        {
+          "label": "Head 3",
+          "state": "complete"
+        },
+        {
+          "label": "Head 4",
+          "state": "running"
+        },
+        {
+          "label": "Calibrate",
+          "state": "pending"
+        }
+      ],
+      "steps_width": 200,
+      "title": "Nozzle offset calibration",
+      "title_width": 540
+    },
+    "width": 800
+  },
+  {
+    "fit": true,
+    "height": 480,
+    "name": "scrub-state-4",
+    "scrub_options": false,
+    "view": {
+      "decisions": false,
+      "heading": "Mounting head 4...",
+      "instruction": "",
+      "note": "",
+      "steps": [
+        {
+          "label": "Prepare",
+          "state": "complete"
+        },
+        {
+          "label": "Head 1",
+          "state": "complete"
+        },
+        {
+          "label": "Head 2",
+          "state": "complete"
+        },
+        {
+          "label": "Head 3",
+          "state": "complete"
+        },
+        {
+          "label": "Head 4",
+          "state": "running"
+        },
+        {
+          "label": "Calibrate",
+          "state": "pending"
+        }
+      ],
+      "steps_width": 200,
+      "title": "Nozzle offset calibration",
+      "title_width": 540
+    },
+    "width": 800
+  },
+  {
+    "fit": true,
+    "height": 480,
+    "name": "scrub-state-5",
+    "scrub_options": false,
+    "view": {
+      "decisions": false,
+      "heading": "Heating head 4...",
+      "instruction": "",
+      "note": "",
+      "steps": [
+        {
+          "label": "Prepare",
+          "state": "complete"
+        },
+        {
+          "label": "Head 1",
+          "state": "complete"
+        },
+        {
+          "label": "Head 2",
+          "state": "complete"
+        },
+        {
+          "label": "Head 3",
+          "state": "complete"
+        },
+        {
+          "label": "Head 4",
+          "state": "running"
+        },
+        {
+          "label": "Calibrate",
+          "state": "pending"
+        }
+      ],
+      "steps_width": 200,
+      "title": "Nozzle offset calibration",
+      "title_width": 540,
+      "value": "127 / 160 °C"
+    },
+    "width": 800
+  },
+  {
+    "fit": true,
+    "height": 480,
+    "name": "scrub-state-6",
+    "scrub_options": false,
+    "view": {
+      "decisions": false,
+      "heading": "Scrub the nozzle on head 4",
+      "instruction": "Brush the nozzle tip until it is clean, then press Confirm.",
+      "note": "The nozzle is hot.",
+      "steps": [
+        {
+          "label": "Prepare",
+          "state": "complete"
+        },
+        {
+          "label": "Head 1",
+          "state": "complete"
+        },
+        {
+          "label": "Head 2",
+          "state": "complete"
+        },
+        {
+          "label": "Head 3",
+          "state": "complete"
+        },
+        {
+          "label": "Head 4",
+          "state": "running"
+        },
+        {
+          "label": "Calibrate",
+          "state": "pending"
+        }
+      ],
+      "steps_width": 200,
+      "title": "Nozzle offset calibration",
+      "title_width": 540
+    },
+    "width": 800
+  },
+  {
+    "fit": true,
+    "height": 480,
+    "name": "scrub-state-7",
+    "scrub_options": false,
+    "view": {
+      "decisions": false,
+      "heading": "Head 4 has cooled.",
+      "instruction": "Press Confirm to reheat.",
+      "note": "",
+      "steps": [
+        {
+          "label": "Prepare",
+          "state": "complete"
+        },
+        {
+          "label": "Head 1",
+          "state": "complete"
+        },
+        {
+          "label": "Head 2",
+          "state": "complete"
+        },
+        {
+          "label": "Head 3",
+          "state": "complete"
+        },
+        {
+          "label": "Head 4",
+          "state": "running"
+        },
+        {
+          "label": "Calibrate",
+          "state": "pending"
+        }
+      ],
+      "steps_width": 200,
+      "title": "Nozzle offset calibration",
+      "title_width": 540
+    },
+    "width": 800
+  },
+  {
+    "fit": true,
+    "height": 480,
+    "name": "scrub-state-8",
+    "scrub_options": false,
+    "view": {
+      "decisions": false,
+      "heading": "Cancelling...",
+      "instruction": "Cooling and returning head 4 to its dock. Offsets are unchanged.",
+      "note": "",
+      "steps": [
+        {
+          "label": "Prepare",
+          "state": "complete"
+        },
+        {
+          "label": "Head 1",
+          "state": "complete"
+        },
+        {
+          "label": "Head 2",
+          "state": "complete"
+        },
+        {
+          "label": "Head 3",
+          "state": "complete"
+        },
+        {
+          "label": "Head 4",
+          "state": "running"
+        },
+        {
+          "label": "Calibrate",
+          "state": "pending"
+        }
+      ],
+      "steps_width": 200,
+      "title": "Nozzle offset calibration",
+      "title_width": 540
+    },
+    "width": 800
+  },
+  {
+    "fit": true,
+    "height": 480,
+    "name": "scrub-state-9",
+    "scrub_options": false,
+    "view": {
+      "decisions": false,
+      "heading": "",
+      "instruction": "Head 4 could not be moved into position.",
+      "note": "The nozzle may still be hot.",
+      "steps": [
+        {
+          "label": "Prepare",
+          "state": "complete"
+        },
+        {
+          "label": "Head 1",
+          "state": "complete"
+        },
+        {
+          "label": "Head 2",
+          "state": "complete"
+        },
+        {
+          "label": "Head 3",
+          "state": "complete"
+        },
+        {
+          "label": "Head 4",
+          "state": "failed"
+        },
+        {
+          "label": "Calibrate",
+          "state": "pending"
+        }
+      ],
+      "steps_width": 200,
+      "title": "Nozzle offset calibration",
+      "title_width": 540
+    },
+    "width": 800
+  },
+  {
+    "fit": true,
+    "height": 480,
+    "name": "scrub-state-10",
+    "scrub_options": false,
+    "view": {
+      "decisions": false,
+      "heading": "Head 4 of 4",
+      "instruction": "Measuring nozzle height...",
+      "note": "Keep the door closed.",
+      "steps": [
+        {
+          "label": "Prepare",
+          "state": "complete"
+        },
+        {
+          "label": "Head 1",
+          "state": "complete"
+        },
+        {
+          "label": "Head 2",
+          "state": "complete"
+        },
+        {
+          "label": "Head 3",
+          "state": "complete"
+        },
+        {
+          "label": "Head 4",
+          "state": "complete"
+        },
+        {
+          "label": "Calibrate",
+          "state": "running"
+        }
+      ],
+      "steps_width": 200,
+      "title": "Nozzle offset calibration",
+      "title_width": 540
+    },
+    "width": 800
+  },
+  {
+    "name": "filament-heat-680x320",
+    "width": 680,
+    "height": 320,
+    "fit": true,
+    "view": {
+      "steps": [
+        {
+          "label": "Position head",
+          "state": "complete"
+        },
+        {
+          "label": "Heat nozzle",
+          "state": "running"
+        },
+        {
+          "label": "Feed filament",
+          "state": "pending"
+        },
+        {
+          "label": "Finish and turn heater off",
+          "state": "pending"
+        }
+      ],
+      "instruction": "Insert filament when prompted.",
+      "value": "127 / 220 °C",
+      "note": "The nozzle is hot."
+    }
+  },
+  {
+    "name": "resume-four-heaters-680x320",
+    "width": 680,
+    "height": 320,
+    "fit": true,
+    "view": {
+      "title": "Resuming paused print",
+      "steps": [
+        {
+          "label": "Check printer",
+          "state": "complete"
+        },
+        {
+          "label": "Heat bed and nozzle",
+          "state": "running"
+        },
+        {
+          "label": "Return to print",
+          "state": "pending"
+        }
+      ],
+      "heading": "Heating bed and nozzles",
+      "value": "Head 1: 127 / 220 C\nHead 2: 220 / 220 C\nHead 3: 127 / 220 C\nHead 4: 220 / 220 C"
+    },
+    "consumer": "resume",
+    "status": {
+      "fresh": true,
+      "resume_progress": {
+        "phase": "heating"
+      },
+      "heads": [
+        {
+          "id": "h0",
+          "actual": 127,
+          "target": 220
+        },
+        {
+          "id": "h1",
+          "actual": 127,
+          "target": 220
+        },
+        {
+          "id": "h2",
+          "actual": 127,
+          "target": 220
+        },
+        {
+          "id": "h3",
+          "actual": 127,
+          "target": 220
+        }
+      ]
+    }
+  },
+  {
+    "name": "calibration-result-660x290",
+    "width": 660,
+    "height": 290,
+    "fit": true,
+    "view": {
+      "heading": "Calibration stopped.",
+      "instruction": "Head 4 did not mount. Inspect the head attachment, then retry.",
+      "note": "The nozzle may still be hot."
+    }
+  },
+  {
+    "name": "overflow-preserves-hot-caution",
+    "width": 660,
+    "height": 290,
+    "fit": false,
+    "view": {
+      "heading": "Inspect the printer",
+      "instruction": "Read these details before continuing. Read these details before continuing. Read these details before continuing. Read these details before continuing. Read these details before continuing. Read these details before continuing. Read these details before continuing. Read these details before continuing. Read these details before continuing. Read these details before continuing. Read these details before continuing. Read these details before continuing. Read these details before continuing. Read these details before continuing. Read these details before continuing. Read these details before continuing. Read these details before continuing. Read these details before continuing. Read these details before continuing. Read these details before continuing. Read these details before continuing. Read these details before continuing. Read these details before continuing. Read these details before continuing. Read these details before continuing. Read these details before continuing. Read these details before continuing. Read these details before continuing. Read these details before continuing. Read these details before continuing. Read these details before continuing. Read these details before continuing. Read these details before continuing. Read these details before continuing. Read these details before continuing. ",
+      "note": "The nozzle may still be hot."
+    }
+  },
+  {
+    "name": "actual-filament-heating-680x320",
+    "consumer": "filament",
+    "width": 680,
+    "height": 320,
+    "fit": true,
+    "view": {},
+    "status": {
+      "owner": "standalone",
+      "session": "fit-session",
+      "fresh": true,
+      "heads": [
+        {
+          "id": "h2",
+          "actual": 127,
+          "target": 220
+        }
+      ],
+      "filament_operation": {
+        "id": "fit-load",
+        "session": "fit-session",
+        "head": "h2",
+        "action": "load",
+        "state": "running",
+        "phase": "heating",
+        "message": "Insert filament when prompted.",
+        "steps": [
+          {
+            "phase": "preparing",
+            "label": "Position head"
+          },
+          {
+            "phase": "heating",
+            "label": "Heat nozzle"
+          },
+          {
+            "phase": "feeding",
+            "label": "Load filament"
+          },
+          {
+            "phase": "finishing",
+            "label": "Finish and turn heater off"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "actual-calibration-result-800x480",
+    "consumer": "calibration",
+    "width": 800,
+    "height": 480,
+    "fit": true,
+    "view": {},
+    "status": {
+      "fresh": true,
+      "calibration_session": "fit-session",
+      "calibration_attempt": {
+        "session": "fit-session",
+        "request": "fit-attempt",
+        "state": "failed",
+        "error": "Head 4 did not mount. Inspect the head attachment, then retry."
+      },
+      "calibration_failed": "Head 4 did not mount."
+    }
+  }
+]

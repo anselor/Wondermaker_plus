@@ -2,6 +2,7 @@
 #pragma once
 #include "button_caption.hpp"
 #include "stock_progress_panel.hpp"
+#include "stock_header_action.hpp"
 #include "stock_api.hpp"
 #include "stock_dialog_backdrop.hpp"
 #include "filament_procedure_review.hpp"
@@ -45,18 +46,6 @@ public:
  bool active()const{return stock_object_valid(root_);}
  bool has_result()const{return submitted_&&result_.is_object();}
  bool has_tool_result()const{return has_result()&&tool_recovery();}
- static Json retained_result(const Json&data,const std::string&head){
-  if(!data.value("fresh",false)||data.value("owner","")!="standalone"||data.value("session","").empty())return Json();
-  for(const auto*key:{"filament_operation","toolhead_operation"}){
-   const auto op=data.value(key,Json::object());const auto state=op.value("state","");const auto action=op.value("action","");
-   const bool tool=std::string(key)=="toolhead_operation";
-   if(op.value("id","").empty()||op.value("session","")!=data.value("session","")||op.value("head","")!=head)continue;
-   if(state!="complete"&&state!="failed"&&state!="refused")continue;
-   if(tool?(action!="take"&&action!="dock"):(action!="load"&&action!="unload"))continue;
-   return op;
-  }
-  return Json();
- }
  void close(){progress_.close();rendered_=false;steps_.clear();source_buttons_.clear();card_=body_=title_=rule_=nullptr;compact_=false;auto*p=root_;root_=description_=begin_=empty_=close_=nullptr;if(stock_object_valid(p))stock_function<void(*)(void*)>(lv_obj_del)(p);}
  static bool interrupted(const Json&data,bool tool=false){
   const auto op=data.value(tool?"toolhead_operation":"filament_operation",Json::object());const auto head=op.value("head","");
@@ -139,8 +128,13 @@ public:
   const bool result_action=submitted_&&!check_&&(result_state=="complete"||
     (result_state=="pending"&&can_cancel())||can_recover());
   header_enabled(begin_,ready||result_action);
+  const bool complete=submitted_&&result_state=="complete";
+  const bool actionable=!submitted_||(!check_&&(complete||(result_state=="pending"&&can_cancel())||can_recover()));
+  stock_function<void(*)(void*,unsigned)>(actionable?lv_obj_clear_flag:lv_obj_add_flag)(begin_,1);
+  stock_function<void(*)(void*,unsigned)>(complete&&!check_?lv_obj_add_flag:lv_obj_clear_flag)(close_,1);
+  if(empty_)stock_function<void(*)(void*,unsigned)>(submitted_?lv_obj_add_flag:lv_obj_clear_flag)(empty_,1);
   auto*close_caption=stock_function<void*(*)(void*,int)>(lv_obj_get_child)(close_,0);
-  stock_function<void(*)(void*,const char*)>(lv_label_set_text)(close_caption,!submitted_&&(compact_||review_.action()=="unload")?"CANCEL":"CLOSE");
+  stock_function<void(*)(void*,const char*)>(lv_label_set_text)(close_caption,complete&&check_?"DONE":!submitted_&&(compact_||review_.action()=="unload")?"CANCEL":"CLOSE");
   if(empty_)header_enabled(empty_,ready);
   for(auto*step:steps_)stock_function<void(*)(void*,unsigned)>(lv_obj_add_flag)(step,1);
   if(submitted_)stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(description_,reinterpret_cast<void*>(data.value("owner","")=="standalone"?MyriadPro_Regular_22:MyriadPro_Regular_16),0);
@@ -214,7 +208,10 @@ public:
    progress_view["instruction"]=text;
    const auto op=data.value("filament_operation",Json::object());
    if(op.value("phase","")=="heating")for(const auto&head:data.value("heads",Json::array()))if(head.value("id","")==review_.physical_head())
-    progress_view["instruction"]=text+"\n\n"+std::to_string(head.value("actual",0))+" / "+std::to_string(head.value("target",0))+" °C";
+    {
+     progress_view["value"]=std::to_string(head.value("actual",0))+" / "+std::to_string(head.value("target",0))+" °C";
+     if(head.value("actual",0)>=50)progress_view["note"]="The nozzle is hot.";
+    }
    if(!progress_.attached())progress_.attach(body_,0,description_y_,stock_function<int(*)(void*)>(lv_obj_get_content_width)(body_),stock_function<int(*)(void*)>(lv_obj_get_content_height)(body_)-description_y_);
    if(progress_.attached()){progress_.show(true);progress_.update(progress_view);stock_function<void(*)(void*,unsigned)>(lv_obj_add_flag)(description_,1);}
   }else progress_.show(false);
@@ -295,13 +292,11 @@ private:
   stock_function<void(*)(void*,std::uint32_t,unsigned)>(lv_obj_set_style_text_color)(caption,enabled?0xffeeeeeeU:0xff888888U,0);
  }
  void*header(const std::string&id,const std::string&text,int x,int w){
-  auto*b=stock_function<void*(*)(void*)>(lv_obj_create)(root_);if(!b)throw std::runtime_error("Procedure action allocation failed");
-  stock_dialog_backdrop(b);stock_object_place(b,x,0,w,34);auto*l=label(b,text,4,2,w-8,26);
-  stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(l,reinterpret_cast<void*>(MyriadPro_Bold_20),0);
-  stock_function<void(*)(void*,int,unsigned)>(lv_obj_set_style_text_align)(l,2,0);
+  auto*b=stock_header_action(root_,text,x,0,w,34,34);if(!b)throw std::runtime_error("Procedure action allocation failed");
   if(!bind(b,id))throw std::runtime_error("Procedure action binding failed");
   return b;
  }
+
  void*button(void*p,const std::string&id,const std::string&s,int x,int y,int w,int h){auto*b=stock_function<void*(*)(void*)>(lv_btn_create)(p);if(!b)throw std::runtime_error("Procedure button allocation failed");style(b,0x463c8e8);stock_object_place(b,x,y,w,h);auto*l=label(b,s,8,8,w-16,h-16);center_button_caption(b,l,s);if(!bind(b,id))throw std::runtime_error("Procedure button binding failed");return b;}
  static void event(void*e)noexcept{try{
   auto*b=static_cast<Binding*>(stock_function<void*(*)(void*)>(lv_event_get_user_data)(e));if(!b)return;auto*o=b->owner;

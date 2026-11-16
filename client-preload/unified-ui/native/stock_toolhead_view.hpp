@@ -113,10 +113,11 @@ public:
   for(const auto&id:{"retract","extrude","target","off"})enabled(id,!pending&&data.value("fresh",false));
   if(data.value("owner","")=="standalone")enabled("off",true);
   button("check-filament","Check filament",208,height-44,120,38);
-  const bool reviewable=busy.value("reviewable",pending&&(busy_action=="load"||busy_action=="unload"||busy_action=="confirm_filament"));
+  const bool interrupted=busy.value("interrupted",false);
+  const bool in_progress=pending&&this_head&&(busy_action=="load"||busy_action=="unload"||busy_action=="take"||busy_action=="dock"||busy_action=="confirm_filament");
   visible("check-filament",!ace_managed&&is_empty&&loaded.value("sensor_present",false)&&data.value("capabilities",Json::object()).value("confirm_filament",false));
   enabled("check-filament",!pending&&data.value("fresh",false));
-  button("view-operation",busy.value("interrupted",false)?"Recover":"Result",336,height-44,76,38);visible("view-operation",reviewable);
+  button("view-operation",interrupted?"Recover":"Progress",336,height-44,76,38);visible("view-operation",interrupted||in_progress);
   const auto mounting=mounting_for(data,head);
   button("take-dock",mounting=="Mounted"?"Dock":mounting=="Not mounted"||mounting=="No head mounted"?"Take":"Mount state unknown",12,height-44,180,38);
   const auto tool_state=data.value("toolhead_operation",Json::object()).value("state","");

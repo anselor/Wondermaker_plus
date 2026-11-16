@@ -1298,13 +1298,10 @@ private:
      tool_receipt_=tool.at("id");tool_busy_action_=tool.at("action");tool_busy_head_=tool.at("head");
      filament_procedure_.open_interrupted(stock_filament_.content(),data,true);
     }else{reject(standalone_.resume_refusal());return;}
-   }else if(filament_procedure_.has_result())filament_procedure_.reopen_result(stock_filament_.content(),data);
-   else{
-    const auto retained=StockFilamentProcedure::retained_result(data,"h"+std::to_string(tool_head_));
-    if(retained.is_object())filament_procedure_.open_tracking(stock_filament_.content(),data,retained.at("head"),retained.at("action"),
-     {retained.at("id"),retained.at("state"),retained.value("message","")});
-   }
-   if(!filament_procedure_.active())reject("No retained operation is available for this head; refresh and reopen its current result.");
+   }else if(!tool_receipt_.empty()&&filament_procedure_.has_result())filament_procedure_.reopen_result(stock_filament_.content(),data);
+   // A completed receipt is history. A late click on the former Progress
+   // shortcut must not reopen an already acknowledged result.
+   if(!filament_procedure_.active())return;
    stock_filament_.interaction_blocked(filament_procedure_.active());
    return;
   }
@@ -1363,7 +1360,7 @@ private:
   tool_receipt_=receipt.id;tool_busy_action_=action;tool_busy_head_="h"+std::to_string(tool_head_);stock_filament_.message(receipt.message);
  }
  void update_tool_view(){
-  auto data=stock_snapshot();reconcile_operation(data,channel_.latest(),stock_filament_.ace_controls().adoption_operation());stock_filament_.ace_controls().observe_adoption(data);const bool interrupted=StockFilamentProcedure::interrupted(data)||StockFilamentProcedure::interrupted(data,true);data["tool_ui_busy"]={{"pending",!tool_receipt_.empty()||(data.value("owner","")!="standalone"&&interrupted)},{"action",tool_busy_action_},{"head",tool_busy_head_},{"reviewable",filament_procedure_.has_result()||interrupted||StockFilamentProcedure::retained_result(data,"h"+std::to_string(tool_head_)).is_object()},{"interrupted",interrupted}};
+  auto data=stock_snapshot();reconcile_operation(data,channel_.latest(),stock_filament_.ace_controls().adoption_operation());stock_filament_.ace_controls().observe_adoption(data);const bool interrupted=StockFilamentProcedure::interrupted(data)||StockFilamentProcedure::interrupted(data,true);data["tool_ui_busy"]={{"pending",!tool_receipt_.empty()||(data.value("owner","")!="standalone"&&interrupted)},{"action",tool_busy_action_},{"head",tool_busy_head_},{"interrupted",interrupted}};
   filament_procedure_.update(data);nozzle_editor_.update(data);stock_filament_.interaction_blocked(filament_procedure_.active()||nozzle_editor_.active());
   stock_filament_.tool_data(data,tool_step_,tool_targets_[tool_head_]);
   if(tool_receipt_.empty()||!data.value("fresh",false))return;

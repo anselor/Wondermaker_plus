@@ -28,9 +28,9 @@ int async_success(void(*callback)(void*),void*data){async_data=data;async_callba
 int async_failure(void(*)(void*),void*){return 0;}
 struct Event;
 struct Callback {void(*fn)(void*);int code;void*data;};
-struct Node {std::string text,image,options;unsigned layout_updates=0;bool pending_layout=false,open=false,is_image=false,is_label=false;unsigned selected=0,state=0,zoom_factor=256,disable_writes=0;int text_alignment=0,label_long_mode=-1;std::uintptr_t font_address=0;std::uint32_t text_color=0,background_color=0;int opacity=255,background_opacity=255;std::vector<std::uintptr_t>styles;std::uint32_t tint[2]={0,0};unsigned tint_opa[2]={0,0};Node*parent=nullptr;std::vector<Node*>children;std::vector<Callback>callbacks;bool live=true;unsigned flags=0;int x=0,y=0,w=800,h=480,scroll=0,dir=0,inset_x=0,inset_y=0;};
+struct Node {std::string text,image,options;unsigned layout_updates=0;bool height_fixed=false;bool pending_layout=false,open=false,is_image=false,is_label=false;unsigned selected=0,state=0,zoom_factor=256,disable_writes=0;int text_alignment=0,label_long_mode=-1;std::uintptr_t font_address=0;std::uint32_t text_color=0,background_color=0;int opacity=255,background_opacity=255;std::vector<std::uintptr_t>styles;std::uint32_t tint[2]={0,0};unsigned tint_opa[2]={0,0};Node*parent=nullptr;std::vector<Node*>children;std::vector<Callback>callbacks;bool live=true;unsigned flags=0;int x=0,y=0,w=800,h=480,scroll=0,dir=0,inset_x=0,inset_y=0;};
 struct Event {Node*node;int code;void*data;};
-std::vector<std::unique_ptr<Node>>nodes;
+std::vector<std::unique_ptr<Node>>nodes;std::function<void(Node*)>layout_hook;
 Node* make(void*p){nodes.emplace_back(new Node);auto*n=nodes.back().get();n->parent=static_cast<Node*>(p);if(p)n->parent->children.push_back(n);return n;}
 void*make_label(void*p){auto*n=make(p);n->is_label=true;return n;}
 Node*screen=make(nullptr),*top=make(nullptr),*sys=make(nullptr);Node*scrolling=nullptr;
@@ -43,7 +43,7 @@ bool live(void*p){return p&&static_cast<Node*>(p)->live;}
 void flag(void*p,unsigned f){static_cast<Node*>(p)->flags|=f;}void unflag(void*p,unsigned f){static_cast<Node*>(p)->flags&=~f;}bool has(void*p,unsigned f){return (static_cast<Node*>(p)->flags&f)!=0;}
 bool defer_sizes=false;
 struct DeferredSizes {DeferredSizes(){defer_sizes=true;}~DeferredSizes(){defer_sizes=false;}};
-void pos(void*p,int x,int y){auto*n=static_cast<Node*>(p);n->x=x;n->y=y;}void size(void*p,int w,int h){auto*n=static_cast<Node*>(p);n->w=w;n->h=h;if(defer_sizes)n->pending_layout=true;}
+void pos(void*p,int x,int y){auto*n=static_cast<Node*>(p);n->x=x;n->y=y;}void size(void*p,int w,int h){auto*n=static_cast<Node*>(p);n->w=w;n->h=h;n->height_fixed=true;if(defer_sizes)n->pending_layout=true;}
 void align(void*p,int anchor,int x,int y){assert(anchor==1);pos(p,x,y);}
 int width(void*p){auto*n=static_cast<Node*>(p);return n->pending_layout?0:n->w-n->inset_x;}int height(void*p){auto*n=static_cast<Node*>(p);return n->pending_layout?0:n->h-n->inset_y;}
 void coords(void*p,void*out){auto*n=static_cast<Node*>(p);auto*a=static_cast<short*>(out);a[0]=n->x;a[1]=n->y;a[2]=n->x+n->w-1;a[3]=n->y+n->h-1;}
@@ -79,7 +79,7 @@ void background_colour(void*p,std::uint32_t v,int){static_cast<Node*>(p)->backgr
 void text_alignment(void*p,int v,unsigned){static_cast<Node*>(p)->text_alignment=v;}
 void text_colour(void*p,std::uint32_t v,int){static_cast<Node*>(p)->text_color=v;}
 unsigned text_writes=0;
-void remove_style(void*,void*,unsigned){}void style(void*,int,int){}void color(void*,std::uint32_t,int){}void one_int(void*,int){}void text(void*p,const char*value){++text_writes;static_cast<Node*>(p)->text=value;}void update(void*p){auto*n=static_cast<Node*>(p);++n->layout_updates;n->pending_layout=false;for(auto*c:n->children)update(c);}
+void remove_style(void*,void*,unsigned){}void style(void*,int,int){}void color(void*,std::uint32_t,int){}void one_int(void*,int){}void text(void*p,const char*value){++text_writes;static_cast<Node*>(p)->text=value;}void update(void*p){auto*n=static_cast<Node*>(p);++n->layout_updates;n->pending_layout=false;for(auto*c:n->children)update(c);if(layout_hook)layout_hook(n);}
 const void*image_source(void*p){return static_cast<Node*>(p)->image.c_str();}
 int image_type(const void*p){return p&&*static_cast<const char*>(p)?1:3;}
 bool decoder_fails=false;
@@ -249,7 +249,9 @@ struct Http : wmp_openace::HttpPort {
  }
  std::string post(const std::string&,const std::string&)override{assert(on_post);on_post();return "{\"result\":\"ok\"}";}
 };
+#include "progress_ui_contract.hpp"
 int main(int argc,char**argv){
+ if(argc==3&&std::string(argv[1])=="--progress-fit")return progress_ui_contract(argv[2]);
  {auto*button=fake::make(nullptr);auto*caption=fake::make(button);button->w=130;button->h=54;button->pending_layout=true;
  wmp_ui::native::center_button_caption(button,caption,"Choose source");
  assert(!button->pending_layout&&caption->w>0&&caption->h==MyriadPro_Bold_20_line_height);
@@ -2469,9 +2471,9 @@ int main(int argc,char**argv){
   auto*choices=static_cast<fake::Node*>(panel.choices_parent());auto*decision=fake::make(choices);
   Json view={{"steps",Json::array({{{"label","Prepare"},{"state","complete"}},{{"label","Head 3"},{"state","running"}},{{"label","Finish"},{"state","pending"}}})},{"instruction","Insert filament, then continue."},{"decisions",true}};
   panel.update(view);const auto count=fake::nodes.size();
-  assert(choices->parent->x>0&&decision->live&&!(choices->flags&1));
+  assert(choices->parent->parent->x>0&&decision->live&&!(choices->flags&1));
   panel.update(view);assert(fake::nodes.size()==count&&panel.choices_parent()==choices&&decision->live);
-  auto*root=choices->parent->parent;auto*steps=root->children[1];
+  auto*root=choices->parent->parent->parent;auto*steps=root->children[1];
   assert(steps->children[0]->text=="1. Prepare"&&steps->children[0]->text_color==0xff888888U);
   assert(steps->children[1]->text_color==0xffff6600U&&steps->children[2]->text_color==0xffeeeeeeU);
   const auto row_layouts=steps->children[0]->layout_updates;
@@ -2484,9 +2486,9 @@ int main(int argc,char**argv){
   auto malformed=view;malformed["steps"]=Json::object();panel.update(malformed);
   assert(steps->children[1]->text_color==0xffff6666U&&steps->w==520);
   view["instruction"]="";view["decisions"]=false;panel.update(view);
-  assert(steps->w==680&&(choices->parent->flags&1)&&decision->live);
+  assert(steps->w==680&&(choices->parent->parent->flags&1)&&decision->live);
   view["steps"]=Json::array();view["instruction"]="Print cancelled.";panel.update(view);
-  assert((steps->flags&1)&&choices->parent->x==0&&choices->parent->w==680);
+  assert((steps->flags&1)&&choices->parent->parent->x==0&&choices->parent->parent->w==680);
   fake::del(parent);assert(!panel.attached()&&!panel.choices_parent());panel.close();
  }
  // Resume uses shared progress and leaves removal to the stock popup.
@@ -3030,7 +3032,7 @@ int main(int argc,char**argv){
   fake::send(cancel,7);assert(!modal.active()&&submissions==0);
   assert(modal.open(parent,data,"h2",action));root=parent->children.back();card=root->children.front();begin=caption(check?"LOADED":unload?"UNLOAD":"LOAD");
   fake::send(begin,7);if(!check)fake::send(begin,7);assert(submissions==1);
-  assert(root->background_opacity==255&&(card->flags&1)&&begin->h==34&&caption("CLOSE"));
+  assert(root->background_opacity==255&&(card->flags&1)&&begin->h==34&&caption(check?"DONE":"CLOSE"));
   fake::del(parent);
  }
  {
@@ -3179,7 +3181,7 @@ int main(int argc,char**argv){
   assert(dialog.open(parent,procedure_data,"h2","confirm_filament"));assert(dialog.check_ready(procedure_data));
   auto changed_loaded=procedure_data;changed_loaded["heads"][0]["loaded"]["state"]="loaded";assert(!dialog.check_ready(changed_loaded));
   fake::send(find("LOADED"),7);fake::send(find("EMPTY"),7);assert(confirmations==1&&confirmed_state=="loaded");
-  dialog.result({{"state","complete"},{"message","Operator filament check recorded."}});fake::send(find("CLOSE"),7);
+  dialog.result({{"state","complete"},{"message","Operator filament check recorded."}});fake::send(find("DONE"),7);
   assert(dialog.open(parent,procedure_data,"h2","confirm_filament"));fake::send(find("EMPTY"),7);assert(confirmations==2&&confirmed_state=="empty");fake::send(find("CLOSE"),7);
   assert(dialog.open(parent,procedure_data,"h2","confirm_filament"));
   auto changed_check=procedure_data;changed_check["identity_revision"]=std::string(64,'c');dialog.update(changed_check);
@@ -3217,16 +3219,12 @@ int main(int argc,char**argv){
   fake::send(runtime_find("CLOSE"),7);assert(!RuntimeReceiptTest::procedure_active(procedure_runtime));
   auto pending=procedure_data;pending["receipts"]={{request_id,{{"state","unknown"},{"message","Inspect filament"}}}};
   RuntimeReceiptTest::adoption_status(procedure_runtime,pending,Json::object(),port.now);RuntimeReceiptTest::update_tool(procedure_runtime);
-  assert(RuntimeReceiptTest::tool_receipt(procedure_runtime).empty()); // Unknown history is reviewable, not a machine lock.
-  RuntimeReceiptTest::tool_action(procedure_runtime,"view-operation");assert(RuntimeReceiptTest::procedure_active(procedure_runtime));
-  auto*resolve=runtime_find("RECOVER");assert(resolve&&(resolve->state&128));fake::send(resolve,7);
-  assert(RuntimeReceiptTest::tool_receipt(procedure_runtime).empty());
-  fake::send(runtime_find("CLOSE"),7);assert(!RuntimeReceiptTest::procedure_active(procedure_runtime));
+  assert(RuntimeReceiptTest::tool_receipt(procedure_runtime).empty()); // Unconfirmed local history is not a machine lock.
+  RuntimeReceiptTest::tool_action(procedure_runtime,"view-operation");assert(!RuntimeReceiptTest::procedure_active(procedure_runtime));
   pending["receipts"][request_id]={{"state","failed"},{"message","Procedure stopped; inspect filament."}};
   RuntimeReceiptTest::adoption_status(procedure_runtime,pending,Json::object(),port.now);RuntimeReceiptTest::update_tool(procedure_runtime);
   assert(RuntimeReceiptTest::tool_receipt(procedure_runtime).empty());
-  RuntimeReceiptTest::tool_action(procedure_runtime,"view-operation");assert(RuntimeReceiptTest::procedure_active(procedure_runtime));
-  assert(runtime_find("STOPPED"));fake::send(runtime_find("CLOSE"),7);
+  RuntimeReceiptTest::tool_action(procedure_runtime,"view-operation");assert(!RuntimeReceiptTest::procedure_active(procedure_runtime));
   RuntimeReceiptTest::slot_load(procedure_runtime,"s");assert(RuntimeReceiptTest::procedure_active(procedure_runtime));
   auto*cancel_preflight=runtime_find("CANCEL");assert(cancel_preflight);
   fake::send(cancel_preflight,7);assert(!RuntimeReceiptTest::procedure_active(procedure_runtime));
@@ -3356,36 +3354,22 @@ int main(int argc,char**argv){
   auto changed=interrupted;changed["session"]="different-session";RuntimeReceiptTest::tool_context(restarted,changed,port.now);RuntimeReceiptTest::update_tool(restarted);
   assert(recover->state&128);fake::del(page);
  }
- // A fresh runtime can display terminal backend results without resubmitting.
- for(bool tool:{false,true})for(const auto*state:{"complete","failed"}){
-  wmp_openace::UiChannel channel;Runtime restarted(http,port,channel);
-  auto*page=fake::make(fake::screen);auto*content=fake::make(page);content->w=670;content->h=340;
-  StockFilamentWidgets widgets;widgets.content=content;widgets.count=4;
-  for(auto&slot:widgets.slots){slot.card=fake::make(content);slot.number=fake::make(slot.card);slot.colour=fake::make(slot.card);slot.material=fake::make(slot.card);slot.material_label=fake::make(slot.material);}
-  RuntimeReceiptTest::attach(restarted,widgets,page,fake::make(content),fake::make(content));
-  const auto key=tool?"toolhead_operation":"filament_operation";
-  Json snapshot={{"owner","standalone"},{"fresh",true},{"session","current"},{"revision","rev"},{"job",{{"state","idle"}}},
-   {"heads",Json::array({{{"id","h2"},{"loaded",{{"state","loaded"}}}}})},
-   {key,{{"id","retained-result"},{"head","h2"},{"session","current"},{"action",tool?"take":"unload"},{"state",state},{"message","Retained backend result"}}}};
-  assert(StockFilamentProcedure::retained_result(snapshot,"h2").is_object());
-  assert(StockFilamentProcedure::retained_result(snapshot,"h3").is_null());
-  for(const auto&change:std::vector<Json>{{{"fresh",false}},{{"session","different"}},{{"owner","openace"}}}){
-   auto invalid=snapshot;invalid.update(change);assert(StockFilamentProcedure::retained_result(invalid,"h2").is_null());
+ // Terminal results have exactly one visible exit and cannot be reopened
+ // through an old progress shortcut, including after a UI restart.
+ for(const auto*action:{"load","unload","take","dock","confirm_filament"})for(const auto*state:{"complete","failed","refused"}){
+  auto*parent=fake::make(fake::screen);parent->w=670;parent->h=340;
+  StockFilamentProcedure panel;unsigned submitted=0;
+  panel.submit=[&](FilamentProcedureReview&){++submitted;return Receipt{};};
+  Json snapshot={{"owner","standalone"},{"fresh",true},{"session","current"},{"job",{{"state","idle"}}}};
+  assert(panel.open_tracking(parent,snapshot,"h2",action,{"terminal",state,"Operation ended"}));
+  std::vector<fake::Node*>exits;
+  for(const auto&node:fake::nodes){auto*n=node.get();if(!n->live||n->children.empty()||!n->children[0]->is_label)continue;
+   const auto text=n->children[0]->text;if(text!="DONE"&&text!="CLOSE"&&text!="STOPPED"&&text!="LOAD"&&text!="UNLOAD"&&text!="LOADED"&&text!="EMPTY")continue;
+   bool shown=true,under=false;for(auto*p=n;p;p=p->parent){if(p->flags&1)shown=false;if(p==parent){under=true;break;}}
+   if(shown&&under)exits.push_back(n);
   }
-  auto running=snapshot;running[key]["state"]="running";assert(StockFilamentProcedure::retained_result(running,"h2").is_null());
-  RuntimeReceiptTest::tool_context(restarted,snapshot,port.now);RuntimeReceiptTest::update_tool(restarted);
-  RuntimeReceiptTest::tool_action(restarted,"view-operation");assert(RuntimeReceiptTest::procedure_active(restarted));
-  assert(RuntimeReceiptTest::tool_receipt(restarted).empty());
-  fake::Node*terminal=nullptr;bool message=false;
-  for(const auto&n:fake::nodes)if(n->live)for(auto*p=n->parent;p;p=p->parent)if(p==content){
-   if(n->text==(std::string(state)=="complete"?"DONE":"STOPPED"))terminal=n->parent;
-   if(n->text.find(std::string(state)=="complete"?(tool?"Head mounted.":"Filament unloaded. Remove it from the head."):"Retained backend result")!=std::string::npos)message=true;
-  }
-  assert(message&&terminal);
-  const bool completed=std::string(state)=="complete";
-  assert(bool(terminal->state&128)==!completed);fake::send(terminal,7);
-  assert(RuntimeReceiptTest::procedure_active(restarted)==!completed);
-  assert(RuntimeReceiptTest::tool_receipt(restarted).empty());fake::del(page);
+  assert(exits.size()==1&&exits[0]->children[0]->text==(std::string(state)=="complete"?"DONE":"CLOSE"));
+  fake::send(exits[0],7);assert(!panel.active()&&!submitted);fake::del(parent);
  }
  // Completion describes actual Take/Dock, while reconciliation claims only a check.
  for(const auto*action:{"take","dock"})for(bool recovered:{false,true}){
@@ -3676,12 +3660,17 @@ int main(int argc,char**argv){
  assert(tool_tips->text=="Toolhead management - Attachment unknown");
  stock_native.tick(false,false);assert(tool_tips->text=="Printer status unavailable");stock_native.tick(true,true);
 
- tool_state["tool_ui_busy"]["reviewable"]=true;stock_native.tool_data(tool_state,25,220);
+ tool_state["tool_ui_busy"]={{"pending",true},{"action","load"},{"head","h2"}};
+ stock_native.tool_data(tool_state,25,220);stock_native.tick(true,true);
+ assert(tool_button("Progress")&&!(tool_button("Progress")->flags&1));
+ tool_state["tool_ui_busy"]={{"interrupted",true}};stock_native.tool_data(tool_state,25,220);stock_native.tick(true,true);
+ assert(tool_button("Recover")&&!(tool_button("Recover")->flags&1));
+ tool_state["tool_ui_busy"]={{"reviewable",true}};stock_native.tool_data(tool_state,25,220);
  for(int content_width:{640,670})for(int content_height:{300,320,340}){
   tool_content->w=content_width;
   tool_content->h=content_height;stock_native.tick(true,true);auto*check=tool_button("Check filament");
   assert(check->y+check->h<=content_height);
-  auto*result=tool_button("Result");assert(!(result->flags&1)&&result->x+result->w<=content_width);
+  auto*result=tool_button("Progress");assert((result->flags&1)&&result->x+result->w<=content_width);
   for(const auto*caption:{"Mount state unknown","Filaments / slots","Check filament","X"}){
    auto*other=tool_button(caption);assert(result->x+result->w<=other->x||other->x+other->w<=result->x||result->y+result->h<=other->y||other->y+other->h<=result->y);
   }

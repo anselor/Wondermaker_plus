@@ -179,10 +179,15 @@ def test_real_status_projection(tmp_path):
     subprocess.run([str(executable), str(ROOT/'client-preload/openace-compat/screen1113/fixtures/management_structured1080.json')], check=True)
 
 
-def test_native_lvgl_lifetimes_and_scroll(tmp_path):
-    executable=tmp_path/'native-lifecycle'
+@pytest.fixture(scope='module')
+def native_lifecycle_binary(tmp_path_factory):
+    executable=tmp_path_factory.mktemp('native-lifecycle')/'native-lifecycle'
     compile_cpp(ROOT/'tests/unified_ui/native_lifecycle.cpp', executable, includes=(VENDOR.parent/'client',))
-    subprocess.run([str(executable), str(UI/'fixture.json'), str(ROOT/'client-preload/openace-compat/screen1113/fixtures/management_structured1080.json')], check=True)
+    return executable
+
+
+def test_native_lvgl_lifetimes_and_scroll(native_lifecycle_binary):
+    subprocess.run([str(native_lifecycle_binary), str(UI/'fixture.json'), str(ROOT/'client-preload/openace-compat/screen1113/fixtures/management_structured1080.json')], check=True)
 
 
 def test_standalone_heater_delivery_and_readback(tmp_path):
@@ -364,3 +369,59 @@ def test_completed_display_dismissal_and_next_job(tmp_path):
     executable = tmp_path/'completed-display'
     compile_cpp(ROOT/'tests/unified_ui/completed_display.cpp', executable)
     subprocess.run([str(executable)], check=True)
+
+
+def test_progress_panel_real_font_fit(native_lifecycle_binary):
+    if not (ROOT/'analysis/fw_1.1.13_payload/root/home/t13dp/TM_T1/bin/client').is_file():
+        pytest.skip('exact stock client required for font measurement')
+    pytest.importorskip('unicorn')
+    from native_font_measure import StockFontMeasure
+    import select
+    import os
+    measure = StockFontMeasure(ROOT)
+    process = subprocess.Popen([str(native_lifecycle_binary), '--progress-fit',
+                                str(ROOT/'tests/fixtures/progress_panel_views.json')],
+                               stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+    snapshots = []
+    pending = b''
+    try:
+        while True:
+            while b'\n' not in pending:
+                assert select.select([process.stdout], [], [], 30)[0], 'Native fit harness stalled'
+                chunk = os.read(process.stdout.fileno(), 65536)
+                if not chunk:
+                    break
+                pending += chunk
+            if b'\n' not in pending:
+                break
+            line, pending = pending.split(b'\n', 1)
+            record = json.loads(line)
+            if 'measure' in record:
+                width, height = measure.measure(record['font'], record['measure'], record['width'])
+                process.stdin.write((json.dumps({'width': width, 'height': height})+'\n').encode())
+                process.stdin.flush()
+                continue
+            snapshots.append(record)
+            if record['fits'] is not None:
+                assert record['fits'] == record['expected_fit'], record['snapshot']
+            for label in record['labels']:
+                text_width, text_height = measure.measure(label['font'], label['text'], label['w'])
+                if label['mode'] == 1:  # Explicit one-line name ellipsis.
+                    text_height = measure.measure(label['font'], 'Ag', label['w'])[1]
+                assert text_height <= label['h'], (record['snapshot'], label, text_height)
+                if record['expected_fit'] or label['text'] == record['note']:
+                    assert label['x'] >= 0 and label['y'] >= 0, (record['snapshot'], label)
+                    assert label['x']+label['w'] <= record['width'], (record['snapshot'], label)
+                    assert label['y']+label['h'] <= record['height'], (record['snapshot'], label)
+                    parent = label['parent']
+                    assert label['y'] >= parent['y'] and label['y']+label['h'] <= parent['y']+parent['h'], (record['snapshot'], label)
+            if record['note']:
+                assert any(label['text']==record['note'] for label in record['labels']), record
+            if not record['expected_fit']:
+                assert any(label['text']=='Scroll for more' for label in record['labels']), record
+        assert process.wait(timeout=30) == 0
+        assert len(snapshots) >= 12
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.wait()
