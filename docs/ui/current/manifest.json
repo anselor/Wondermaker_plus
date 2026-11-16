@@ -1,0 +1,44 @@
+[
+  {
+    "file": "home.jpg",
+    "sha256": "918cab3482fe8002b0c20d4bf530817cedcdba3427ca807c0ae1860e7f37ae10",
+    "capture": "2026-10-29",
+    "source": "analysis/ui-current-review-20261029/home.jpg",
+    "scope": "Current installed WM interface; WM+ remains installed. Not a clean-stock firmware test."
+  },
+  {
+    "file": "filament.jpg",
+    "sha256": "392e8c6ad1a9563e681f93f45462fc039d1dc698468f3ac05dd55f3e8a6e3ac1",
+    "capture": "2026-10-29",
+    "source": "analysis/ui-current-review-20261029/filament.jpg",
+    "scope": "Current installed WM interface; WM+ remains installed. Not a clean-stock firmware test."
+  },
+  {
+    "file": "material.jpg",
+    "sha256": "57b7dbe435b8880f3e4c2fb8a1e321fd215cbf5b191d83381d1f4da4ed89028b",
+    "capture": "2026-10-29",
+    "source": "analysis/ui-current-review-20261029/material-picker.jpg",
+    "scope": "Current installed WM interface; WM+ remains installed. Not a clean-stock firmware test."
+  },
+  {
+    "file": "xyz.jpg",
+    "sha256": "8771c54157b4b76fc2122a2a5af82b056592c016b662c77d2b5c6762dd78799a",
+    "capture": "2026-10-29",
+    "source": "analysis/ui-current-review-20261029/xyz.jpg",
+    "scope": "Current installed WM interface; WM+ remains installed. Not a clean-stock firmware test."
+  },
+  {
+    "file": "video.jpg",
+    "sha256": "0fa009d3f25b4dbdd0b80e143753bbdee7e8ce0b39d2714091b13006a98c0f7b",
+    "capture": "2026-10-29",
+    "source": "analysis/ui-current-review-20261029/video-verified.jpg",
+    "scope": "Current installed WM interface; WM+ remains installed. Not a clean-stock firmware test."
+  },
+  {
+    "file": "general.jpg",
+    "sha256": "5dc5150b0eb6bfa319ccb82bbb72200c6a3453b7cb4e6acbee93ed870019e43a",
+    "capture": "2026-10-29",
+    "source": "analysis/ui-current-review-20261029/general-verified.jpg",
+    "scope": "Current installed WM interface; WM+ remains installed. Not a clean-stock firmware test."
+  }
+]

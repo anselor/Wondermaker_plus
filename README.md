@@ -1,71 +1,90 @@
 # Wondermaker+
 
-Wondermaker+ (WM+) adds fixes and features to the Wondermaker U1 / ZR Ultra
-(`TM-T1`). It runs alongside the stock firmware and keeps your printer's saved
+Wondermaker+ (WM+) adds improved touchscreen controls, printing fixes and
+calibration tools to the Wondermaker U1 / ZR Ultra (`TM-T1`). It runs alongside
+the vendor firmware, preserving your printer's configuration files, saved
 calibration and hardware identifiers.
 
-## What WM+ changes
+## Features
 
-### Fixes to stock behavior
+### Toolhead and filament controls
 
-- **Tool changes:** returns the new head to the saved print position after wiping,
-  with a clearance lift. Restores the slicer's travel speed so later moves do not
-  crawl at the wipe speed.
-- **Pause and resume:** preserves the slicer-to-head mapping and restores nozzle
-  temperatures to the correct physical heads. Parks farther from the front limit.
-- **Print completion and cancellation:** lets SD prints reach EOF cleanly and
-  clears native pause flags after cancellation, so the next print can start.
-- **Duplicate filament loading:** removes the insertion sensor's extra load/purge
-  sequence. Filament is loaded when you press **Load** on the screen.
-- **Wi-Fi reconnection:** keeps retrying temporary connection failures instead of
-  giving up. Wrong-password handling remains intact.
-- **Filter-fan control:** stops repeated automatic On requests from overriding
-  manual fan choices during a print.
-- **Head-configuration loss:** blocks the screen app from erasing head identities
-  and reducing the printer to one head after a communication timeout. Klipper
-  stays stopped until the underlying fault is resolved.
-- **Power-loss recovery:** restores the print's mesh, probing head and tool mapping;
-  corrects saved coordinates so mesh/tool offsets are not applied twice; establishes
-  Z at the bottom before tool pickup.
+WM+ replaces the stock Filament page with dedicated Filaments and Toolheads
+screens:
 
-### Enhancements
+- Record each head's filament brand, material, colour and loaded state across
+  restarts.
+- Load and unload filament with automatic head pickup, heating, feeding,
+  tip shaping and wiping. Follow the current step or stop the procedure from
+  the screen.
+- Take or dock a head, set its temperature, and extrude or retract a chosen
+  distance.
+- Review filament colours, materials and head assignments before printing.
+- Replace filament during a pause or after runout, then resume the print.
 
-- **Touchscreen in Fluidd:** view the physical screen live and send taps/swipes
-  from your browser. Keeps timelapses pointed at the print camera.
-- **Case-light control:** a saved On/Off preference shared by the screen, Fluidd
-  and G-code. When enabled, the light stays on while the screen is awake, during
-  printing/pauses, and for the screen-sleep delay after a print ends.
-- **Print startup:** probes with the first printing head by default, avoiding
-  unnecessary T0 changes. Purges along the plate's left edge, away from the front
-  panel.
-- **Filament unloading:** shapes the tip using material-specific temperatures and
-  pull sequences to reduce blobs and strings. The optional material helper reads
-  the screen's material settings.
-- **Faster wiping:** adjustable wipe speed, defaulting to 200 mm/s versus the
-  stock 50 mm/s.
-- **Print end and cancel:** lowers the bed by up to 50 mm, limited by remaining
-  travel, and wipes the nozzle.
-- **Motion defaults:** caps acceleration at 5,000 mm/s² versus stock 20,000, and
-  adds clearance for idle tool changes, filament service and calibration.
-- **Vibration tools:** measure belt balance and resonance, compare input shapers,
-  and verify the results during movement.
+Load and Unload home X/Y when needed without homing Z. The same procedures are
+available from the console as `LOAD_FILAMENT HEAD=2` and
+`UNLOAD_FILAMENT HEAD=2`, where `HEAD` is the physical head counted from zero.
 
-See the [configuration guide](config/README.md),
-[screen-patch guide](client-preload/README.md), and
-[vibration-tool guide](utils/README.md) for settings and implementation details.
+### Printing and reliability
 
-## Compatibility
+- **Tool changes:** return to the saved print position after wiping with a
+  clearance lift, restore travel speed, and stop on failed docking or pickup.
+- **Print startup:** probe with the first printing head and purge along the
+  plate's left edge, away from the front panel.
+- **Pause and resume:** preserve tool-to-head assignments and restore nozzle
+  temperatures to the correct heads.
+- **Print end and cancel:** lower the bed by up to 50 mm within its remaining
+  travel, wipe the nozzle, and clear the state needed for the next print.
+- **Power-loss recovery:** restore the print's bed mesh and tool assignments,
+  correct recovery coordinates, and establish Z at the bottom before head pickup.
+- **Head-configuration protection:** prevent the screen app from erasing head
+  identities after a communication fault. Klipper stays stopped until the fault
+  is resolved.
+- **Homing and calibration:** use the mounted head for full homing, add motion
+  clearance, and stop failed screen calibration before saving results.
+- **Filament handling:** load on request instead of triggering a duplicate
+  insertion-sensor purge; use material-specific unloading recipes and an
+  adjustable wipe speed.
+- **Wi-Fi and ventilation:** retry temporary Wi-Fi failures and preserve manual
+  filter-fan choices during printing.
 
-**Requires vendor System 1.1.13.** See the
-[firmware notes](docs/firmware-1.1.13.md) and
-[release instructions](docs/releases.md) for firmware compatibility and older versions.
+### Screen, lighting and vibration tools
+
+- **Touchscreen in Fluidd:** view and control the printer's physical screen from
+  your browser while keeping timelapses on the print camera.
+- **Case light:** save an On/Off preference shared by the screen, Fluidd and
+  G-code. When enabled, the light follows screen activity and stays on during
+  printing and pauses.
+- **Door wake:** wake a sleeping screen when the door opens.
+- **Input shaping:** use newer upstream Klipper input-shaper and resonance-test
+  code, including sweeping tests and updated shaper recommendations through the
+  screen's Vibration Compensation.
+- **Vibration analysis:** measure belt balance and resonance, compare input
+  shapers, and verify results during movement.
+
+## Requirements
+
+The current WM+ version requires **vendor System 1.1.13**, installed separately.
+For older firmware, choose a matching release from the
+[release guide](docs/releases.md).
+
+Installation runs from your computer and requires
+[uv](https://docs.astral.sh/uv/getting-started/installation/), SSH access to the
+printer, and sudo for the screen patches, Moonraker fixes, browser screen bridge
+and input-shaper backport.
+
+The installer runs from Windows, Linux or macOS; Linux service commands and C
+compilation run on the printer over SSH. Keep repository files in their original
+UTF-8 encoding and LF line endings: the supplied `.gitattributes` preserves these
+for Git checkouts, and source verification intentionally rejects modified package
+inputs. Native screen development builds still require the documented Linux/Docker
+toolchain; installing the supplied screen package does not.
 
 ## Install or update
 
-Run these commands **on your computer**, from this checkout, with
-[uv installed](https://docs.astral.sh/uv/getting-started/installation/).
-
-Copy [.env.example](.env.example) to `.env` and set:
+From a local checkout of this repository, copy [.env.example](.env.example) to
+`.env` and set:
 
 - `WMP_PRINTER`: printer hostname or IP, without `http://`.
 - `WMP_USER`: printer SSH username.
@@ -74,7 +93,7 @@ Copy [.env.example](.env.example) to `.env` and set:
 Git ignores `.env`; exported environment values override it. SSH uses your
 known-hosts file. The example explains the optional first-connection trust setting.
 
-While the printer is idle, check prerequisites, install, then check status:
+With the printer idle, check prerequisites, install, then check status:
 
 ```bash
 uv run --with paramiko --with jinja2 python tools/deploy.py install all --preflight-only
@@ -82,58 +101,105 @@ uv run --with paramiko --with jinja2 python tools/deploy.py install all
 uv run --with paramiko python tools/deploy.py status
 ```
 
-All selected components must pass preflight before installation starts. The config
-component backs up files it replaces and preserves printer-owned identifiers,
-calibration and settings. A later installation failure can leave earlier changes applied.
-Installation refuses running or paused prints. When `preload` is selected, config
-and material uploads finish before the stock screen restarts. The installer
-verifies the active head guard before continuing and before the final Klipper
-restart. Screen-service restarts can also restart Klipper; `--no-restart` does
-not prevent those service restarts.
+The installer checks all selected components before applying changes. It refuses
+installation during a running or paused print, or when printer state cannot be
+determined. A failed prerequisite check installs nothing.
 
-Choose components instead of `all` if needed:
+Installation restarts the affected services, including the screen program and
+Klipper. `--no-restart` defers only the final configuration restart; component
+service restarts still occur.
+
+If installation fails, the tool attempts to restore changed components and
+reports anything it cannot confirm. Recovery journals are saved under
+`.wmp-install-journals/`. Follow the [recovery guide](docs/installation-recovery.md)
+if installation is interrupted or rollback is unconfirmed.
+
+### Components
+
+Use component names in place of `all` to select what to install:
 
 | Component | Provides |
 |---|---|
-| `config` | Printer macros, recovery helper and light controller |
-| `preload` | Screen-app fixes, head-configuration protection and light-click integration |
-| `material` | Screen material settings for the unload macros |
+| `config` | Printer macros and Klipper helpers, added through a separate configuration include |
+| `material` | Filament records and material settings for loading and unloading |
+| `preload` | Screen fixes, head-configuration protection, light control, and the Toolheads and Filaments screens |
+| `moonraker` | Moonraker fixes required by the new screens; included automatically with `preload` |
 | `touchscreen` | Interactive Fluidd screen panel and timelapse-camera selection |
+| `shaper` | Updated Klipper input shaping, calibration and resonance testing |
 
-Install `config preload` together for the core features. `material` and
-`touchscreen` are optional. Full installation needs SSH; `preload` and
-`touchscreen` also need sudo. Reapply WM+ after vendor firmware updates.
+Install `config material preload` together for the printing fixes and new screens.
+The Fluidd panel and input-shaper backport are optional; `all` includes both.
 
-For later config-only updates, with matching helpers already installed:
+The `shaper` component replaces six vendor Klipper files, keeps their originals
+on the printer, and builds Klipper's C helper there. **Run Vibration Compensation
+again after installing it:** the `ei`, `2hump_ei` and `3hump_ei` shapers change
+behaviour. See the [input-shaper guide](klipper_backport/input_shaper/README.md).
+
+Reapply WM+ after a vendor firmware update. The screen program may remain stopped
+until the `preload` component is reinstalled or removed. Before updating a printer
+with an interrupted print, read the
+[recovery checkpoint limits](client-preload/README.md#upgrading-with-an-interrupted-print).
+
+## Uninstall or return to an earlier release
+
+With no print running or paused, use the checkout that installed the current
+version to remove WM+:
 
 ```bash
-uv run --with jinja2 python tools/deploy.py install config --config-only
+uv run --with paramiko --with jinja2 python tools/deploy.py uninstall all
+uv run --with paramiko python tools/deploy.py status
 ```
 
-Use full installation when a helper changes. See the
-[configuration guide](config/README.md#install-and-compare) for partial updates,
-backups and restoring stock configuration, and the
-[touchscreen guide](docs/touchscreen.md) for opening or removing the Fluidd panel.
+Removal handles the screen before its backend dependencies and restarts affected
+services. If a component cannot be removed, it stops and retains later
+dependencies; resolve the reported error before continuing. Removing WM+ is not
+a factory reset. For an interrupted installation, use the printed installer
+journal and the [recovery guide](docs/installation-recovery.md) instead.
 
-## Development checks
+To downgrade, finish removal first, then choose a complete earlier release that
+supports the printer's installed vendor firmware, as described in the
+[release guide](docs/releases.md). Run that release's installation instructions.
+Do not mix its screen binary with newer macros or backend helpers. Keep the
+current checkout and its recovery journal until removal and the replacement
+installation are verified. Restoring an earlier WM+ release does not downgrade
+the vendor firmware or restore earlier calibration values.
+
+## Documentation
+
+| Guide | Covers |
+|---|---|
+| [Configuration](config/README.md) | Macro settings, configuration preservation, backups and restoration |
+| [Screen patches](client-preload/README.md) | Screen fixes, lighting and firmware compatibility |
+| [Touchscreen in Fluidd](docs/touchscreen.md) | Opening or removing the browser panel |
+| [Input shaping](klipper_backport/input_shaper/README.md) | Backport behaviour, compatibility and recalibration |
+| [Vibration tools](utils/README.md) | Measuring resonance and choosing shaper settings |
+| [OrcaSlicer options](docs/orca-print-dialog-integration.md) | Print-start bed leveling and timelapse |
+| [Troubleshooting](docs/troubleshooting.md) | Recovering from an MCU reset failure |
+| [Documentation index](docs/README.md) | Additional guides and technical records |
+
+## Development
+
+Run configuration validation and the local test suite:
 
 ```bash
 uv run --with jinja2 python tools/validate_klipper_config.py
-uv run --with pytest --with jinja2 --with unicorn python -m pytest -q tests
+uv run --with pytest --with jinja2 --with unicorn --with capstone python -m pytest -q tests
 ```
 
-Some tests require local vendor extracts and skip when those files are absent.
-Static validation cannot prove runtime-generated values or physical motion safe.
-See [validation scope](config/README.md#configuration-validation) and the
-[documentation index](docs/README.md) for the detailed guides and test records.
+Some tests need local vendor extracts or optional packages and skip without them.
+Static checks do not establish physical motion safety; see the
+[validation scope](config/README.md#configuration-validation).
+
+Prebuilt screen binaries are included in the checkout and verified against their
+source and installer files. Changes to those files require resealing the package
+or rebuilding the screens; see the [packaging guide](docs/native-screen-packaging.md).
 
 ## License and disclaimer
 
 Project-authored code and documentation use the
 [GNU General Public License version 3](LICENSE), matching Klipper.
 Files with their own license notices retain those terms. Vendor snapshots and
-other third-party material retain their owners' terms; the project license does not
-relicense that material.
+other third-party material retain their owners' terms.
 
-Read [DISCLAIMER.md](DISCLAIMER.md) for warranty, safety, affiliation, and
+Read [DISCLAIMER.md](DISCLAIMER.md) for warranty, safety, affiliation and
 third-party-material notices.

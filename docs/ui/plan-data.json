@@ -1,0 +1,902 @@
+{
+  "title": "Wondermaker+ unified screen plan",
+  "as_of": "2026-11-12",
+  "status": "Initial release is standalone WM+ only; openACE is deferred by user decision. Installed candidate r178 includes the procedure action refresh fix. The release is not fully qualified. Current R20\u2013R27 evidence is synchronized with standalone-completion.md; historical screen inventories are design context, not current deployment claims.",
+  "screens": [
+    {
+      "id": "S01",
+      "name": "Home / machine status",
+      "decision": "overlay",
+      "stock": "Status, four head temperatures, bed/chamber status, quick controls and a bottom-right four-colour filament mini-view button opening filament configuration (operator-confirmed route).",
+      "current": "Stock home retained. V14 enhancement entry is installed in the last supplied receipt, but its badge is not visually accepted.",
+      "target": "Keep the stock Home / Files / Settings shell. Head-temperature panel opens toolhead management; bottom-right filament mini-view opens filament/ACE slots. For ACE, one small outlined unit rectangle contains four coloured slot boxes; no ACE uses four manual-filament indicators.",
+      "standalone": "Physical head and spool status; no ACE setup.",
+      "openace": "Physical heads plus virtual tool/source labels and backend-owned recovery status.",
+      "unavailable": "Keep last-known status labelled stale; disable new material/recovery motion. Preserve cancellation access.",
+      "phase": "P1",
+      "controls": [
+        "Home screen",
+        "Filament entry",
+        "Status details"
+      ]
+    },
+    {
+      "id": "S02",
+      "name": "Files / USB / print history",
+      "decision": "keep",
+      "stock": "Local files, USB files and history pages exist. File selection leads to preview.",
+      "current": "No accepted replacement of the file browser.",
+      "target": "Keep browsing. Route selection and Re-print from completion/stopped dialogs through a fresh shared print-preview review; never replay a stored map directly.",
+      "standalone": "Retain supported vendor file sources.",
+      "openace": "Same browser; map sliced tools through the supported per-print openACE submission API.",
+      "unavailable": "Browsing may remain available; starting a print requires current capability and admission.",
+      "phase": "P5",
+      "controls": [
+        "Files",
+        "Preview"
+      ]
+    },
+    {
+      "id": "S03",
+      "name": "Print preview / filament mapping",
+      "decision": "replace",
+      "stock": "Thumbnail/estimate, four-entry filament mapping, bed-leveling and timelapse options; stock colour-match prompt.",
+      "current": "Full replacement exists only as historical demo mockups.",
+      "target": "Managed preview is the common entry for new prints and Re-print. Re-read file identity, usage, mappings and current loaded sources before an explicit PRINT submission.",
+      "standalone": "Support only the proven standalone mapping limits. More than four tools/material changes need a new validated backend contract.",
+      "openace": "Show virtual tools, physical destinations and sources; submit the exact per-print map for freezing by openACE.",
+      "unavailable": "Disable Start; show which metadata/capability could not be validated.",
+      "phase": "P5",
+      "controls": [
+        "Preview",
+        "Mapping",
+        "Print options"
+      ]
+    },
+    {
+      "id": "S04",
+      "name": "Active print / pause / resume / cancel",
+      "decision": "overlay",
+      "stock": "Progress, pause/resume and stop/cancel controls; stock recovery preparation can run around Resume.",
+      "current": "Released Resume hook delegates to openACE when detected. New dual automatic-worker guards are prepared, not activated by WM+.",
+      "target": "Keep global Pause/Resume/Cancel access. Recovery preparation belongs to the selected backend. Print cancellation and operation Stop have distinct outcomes; reconcile queued service work before allowing later motion.",
+      "standalone": "Keep stock behavior for now. Later shared guided recovery must have one owner before legacy callbacks are retired.",
+      "openace": "Public RESUME/CANCEL and backend state; no screen-originated extra preparation.",
+      "unavailable": "Disable new recovery/Resume requests when ownership is unknown. Do not cover or relabel Cancel as emergency shutdown.",
+      "phase": "P1",
+      "controls": [
+        "Pause",
+        "Resume",
+        "Cancel",
+        "Recovery status"
+      ]
+    },
+    {
+      "id": "S05",
+      "name": "XYZ / homing / physical-head actions",
+      "decision": "override",
+      "stock": "Movement page, jogging/homing and physical tool actions exist; exact visible menu states need a fresh inventory.",
+      "current": "No complete shared operation-review UI. Heater addressing is corrected separately by the released compatibility hook.",
+      "target": "Retain layout; put motion/head-selection commands through the selected owner with explicit consequences and state admission.",
+      "standalone": "Use reviewed physical-head and movement commands. Clearance is a prerequisite, not an implemented object-aware planner.",
+      "openace": "Only backend-supported physical actions; never reinterpret a physical head index as a virtual T number.",
+      "unavailable": "Withhold owned motion if current state or routing cannot be established.",
+      "phase": "P2",
+      "controls": [
+        "Jog",
+        "Home",
+        "Head actions"
+      ]
+    },
+    {
+      "id": "S06",
+      "name": "Filament / head cards and actions",
+      "decision": "replace",
+      "stock": "Four head cards and TAKE / RELEASE / UNLOAD / LOAD actions; stock material and colour selection. Preset loading is not a general extrude/retract workflow.",
+      "current": "August panel was a demo override. V14 owns separate management/manual panels but is not an accepted replacement of the stock page.",
+      "target": "Filament / ACE Slots shows grouped ACE units and an External slot per head lacking an ACE route. Discovery Adopt button lives near the top; no separate device-list page. No movement buttons. Unit details alone edits slot/head assignments; filament editor only edits identity. Keep the existing Settings top tabs visible. Toolhead loaded/empty identity card has a corner edit icon, not a separate Edit filament button. Extrude/Retract operates directly with busy feedback.",
+      "standalone": "Manual physical-head load/unload, explicit extrusion/retraction amounts, material/colour editing through WM+ standalone capabilities as implemented.",
+      "openace": "Same workspace plus sources, units, virtual tools and backend-owned load/recovery actions, including zero-ACE manual heads. Unit discovery/adoption, slot/head topology presets and per-slot brand/material/colour/PA configuration are explicit requirements; unsupported API actions remain TBD.",
+      "unavailable": "Read-only stale identity/context; disable physical actions and Apply. Never fall back into the stock loader after known openACE fails.",
+      "phase": "P2",
+      "controls": [
+        "Head cards",
+        "Take head",
+        "Dock head",
+        "Load filament",
+        "Unload filament",
+        "Extrude",
+        "Retract",
+        "Temperature",
+        "Edit slot filament"
+      ]
+    },
+    {
+      "id": "S07",
+      "name": "Colour and material pickers",
+      "decision": "replace",
+      "stock": "Vendor palette and fixed material list. Stock storage is limited and does not provide arbitrary material policy.",
+      "current": "Hex-colour and extended-family designs are historical demos. V14 has bounded text-based identity edits in software.",
+      "target": "Simple on-printer editor: brand with Generic always available, material and preset colour palette. Keep exact colours, profile details, temperature metadata and PA editing in remote/command interfaces. Future Orca integration should use an AFC-compatible protocol; exact contract TBD.",
+      "standalone": "WM+ standalone identity contract; compatibility projection into vendor settings must not silently discard meaning.",
+      "openace": "Backend owns identities, permitted fields and material compatibility. Edits may invalidate print approval.",
+      "unavailable": "Keep drafts if appropriate; no Apply or optimistic persistence.",
+      "phase": "P4",
+      "controls": [
+        "Brand / profile",
+        "Material",
+        "Colour",
+        "Pressure advance",
+        "Temperature",
+        "Review / Apply"
+      ]
+    },
+    {
+      "id": "S08",
+      "name": "Camera / video / timelapse",
+      "decision": "keep",
+      "stock": "Settings / Video is a timelapse-file thumbnail gallery with FORMAT / EDIT and page arrows (observed live). Print-preview timelapse options and top-bar camera controls are separate surfaces; their current behavior was not exercised.",
+      "current": "Remote touchscreen mirror and print-camera timelapse selection are released additions.",
+      "target": "Keep physical camera/settings pages. Explain touchscreen mirror versus print camera in documentation and setup.",
+      "standalone": "Same controls.",
+      "openace": "Same controls; no filament-owner dependency.",
+      "unavailable": "Unrelated camera settings may remain available when their own service is reachable.",
+      "phase": "P0",
+      "controls": [
+        "Camera",
+        "Timelapse"
+      ]
+    },
+    {
+      "id": "S09",
+      "name": "Wi-Fi / access point",
+      "decision": "keep",
+      "stock": "WLAN and AP setup pages and first-run Wi-Fi guidance.",
+      "current": "Released transient Wi-Fi reconnection fix preserves wrong-password handling.",
+      "target": "Keep vendor UI and corrected retry behavior.",
+      "standalone": "No openACE dependency.",
+      "openace": "No openACE dependency.",
+      "unavailable": "Network failure must not change recovery ownership.",
+      "phase": "P0",
+      "controls": [
+        "Wi-Fi",
+        "Access point"
+      ]
+    },
+    {
+      "id": "S10",
+      "name": "General / language / sleep / about / user / FAQ",
+      "decision": "keep",
+      "stock": "General/system, language, sleep, about, user and FAQ pages exist. Some are model/account gated; detailed controls are not all runtime-verified.",
+      "current": "No accepted broad visual redesign.",
+      "target": "Keep. Add a WM+ version/capability/diagnostics link rather than replacing unrelated settings.",
+      "standalone": "Show WM+ and firmware compatibility.",
+      "openace": "Also show openACE capability/status, not just installed files.",
+      "unavailable": "Explain backend unavailable/incompatible independently from general settings.",
+      "phase": "P0",
+      "controls": [
+        "Settings",
+        "Language",
+        "Sleep",
+        "About",
+        "Devices / slots",
+        "Profile library"
+      ]
+    },
+    {
+      "id": "S11",
+      "name": "Calibration / nozzle configuration / self-check",
+      "decision": "override",
+      "stock": "Probe calibration, nozzle type/flow/settings, calibration guide and self-check pages exist.",
+      "current": "WM+ macros add clearance/probe reference behavior; vendor 1.1.13 adds calibration collision monitoring. These are not new screen designs.",
+      "target": "Keep calibration screens with backend-owned physical-head preparation and session-bound editing. Admit before UI/motion mutation; acknowledge ACCEPT before SAVE_CONFIG and restart. Do not requalify unchanged measurement algorithms.",
+      "standalone": "Preserve vendor calibration with reviewed WM+ macros.",
+      "openace": "Use explicit physical-head calibration routing; do not assume virtual T handlers mean physical head numbers.",
+      "unavailable": "Block owner-dependent calibration, preserving useful status and error guidance.",
+      "phase": "P1",
+      "controls": [
+        "Nozzle settings",
+        "Probe",
+        "Calibration",
+        "Self-check"
+      ]
+    },
+    {
+      "id": "S12",
+      "name": "First-run / onboarding",
+      "decision": "override",
+      "stock": "Language, Wi-Fi, bed-unlock, filament/nozzle setup and calibration guidance.",
+      "current": "No unified WM+ onboarding delivered. Some stock guide workers independently heat, home and load.",
+      "target": "Keep language/network/hardware steps; route owned filament steps to the shared reviewed workflow before stock prefixes execute.",
+      "standalone": "Use standalone workflow when implemented; preserve legacy behavior until its replacement is qualified.",
+      "openace": "Use supported backend setup and physical preparation; no vendor T/heat/XY prefix around it.",
+      "unavailable": "Explain unavailable steps; do not bypass into a stock loader.",
+      "phase": "P3",
+      "controls": [
+        "Language",
+        "Network",
+        "Filament preparation",
+        "Calibration"
+      ]
+    },
+    {
+      "id": "S13",
+      "name": "Runout / tangle / material-change prompts",
+      "decision": "replace",
+      "stock": "Fault warnings, replacement popup and automatic resume worker; stock may substitute a matching head and purge 100 mm.",
+      "current": "Standalone managed pause/replacement and both stock worker guards are installed. r191–r193 exercised genuine H1 runout; r195 accepted paused service, exact XYZ/logical-E restoration, and one Resume. r196 installed tested path-sensor callback admission and uncleared-tangle Resume refusal. F01/G01 are accepted for standalone using the recorded physical and execution-test evidence.",
+      "target": "Replace owned filament recovery dialogs with an explicit shared flow. Preserve unrelated vendor warnings; no broad popup suppression.",
+      "standalone": "WM+ owns the guided Load/Unload and Resume handoff. Runout/tangle notifications require active printing with the affected mounted head; deliberate paused removal does not raise a runout error. A tripped enabled path sensor on the paused head blocks Resume. Legacy replacement preparation must not home, purge, or substitute a head.",
+      "openace": "Backend-required tool/material/source and receipts are authoritative; do not offer stock automatic substitution.",
+      "unavailable": "Hold paused state, show stale/unavailable reason; no automatic motion, approval or Resume.",
+      "phase": "P1",
+      "controls": [
+        "Recovery reason",
+        "Prepare",
+        "Insert",
+        "Prime",
+        "Confirm",
+        "Resume"
+      ]
+    },
+    {
+      "id": "S14",
+      "name": "Power-loss recovery",
+      "decision": "override",
+      "stock": "Vendor recovery prompt and native recovery startup sequence.",
+      "current": "Released checkpoint coordinate/mesh/reference guards affect recovery behavior; they do not qualify every interrupted motion.",
+      "target": "Keep the recovery entry point. Admit current filament/source readiness, operation journals, owner and checkpoint context before any stock preparation. Retain verified mesh/offset/file safeguards; a richer replacement PLR UI remains separate work.",
+      "standalone": "Use only reviewed WM+ recovery constraints; do not promise arbitrary interrupted-file recovery.",
+      "openace": "Also require backend job/material/recovery admission. Missing position cannot be repaired by an approval click.",
+      "unavailable": "No recovery start when required state is unknown.",
+      "phase": "P6",
+      "controls": [
+        "Recovery assessment",
+        "Saved job",
+        "Blocking reasons"
+      ]
+    },
+    {
+      "id": "S15",
+      "name": "Factory / hardware topology / service screens",
+      "decision": "override",
+      "stock": "Factory/service and nozzle/head setup functions exist; some are hidden or maintenance-only.",
+      "current": "Released head-configuration guard blocks one destructive timeout reset; it does not protect every discovery/installer write.",
+      "target": "Keep controlled service access, but override conflicting factory preparation, jog/save, topology/reset and restart actions. Preserve calibration transactionally and revalidate installed contracts before enabling managed controls.",
+      "standalone": "Explicit hardware reconfiguration remains separate from filament operation.",
+      "openace": "Backend unit/source setup does not silently rewrite printer MCU/head topology.",
+      "unavailable": "No topology reset to resolve uncertain communication.",
+      "phase": "P6",
+      "controls": [
+        "Hardware setup",
+        "Service diagnostics"
+      ]
+    }
+  ],
+  "features": [
+    {
+      "id": "F01",
+      "name": "Remote touchscreen in Fluidd",
+      "status": "released",
+      "current": "Framebuffer mirror, remote touch, 5 fps cap, changed-row stream and decode fix.",
+      "target": "Keep; the browser mirrors the same physical UI, not a second feature implementation.",
+      "phase": "P0"
+    },
+    {
+      "id": "F02",
+      "name": "Wi-Fi / fan / recovery / Resume command fixes",
+      "status": "released",
+      "current": "Behavior patches and macro changes; broad stock visual layout remains.",
+      "target": "Retain targeted fixes as shared firmware-profile adapters.",
+      "phase": "P0"
+    },
+    {
+      "id": "F03",
+      "name": "Native material alert and bound confirmation",
+      "status": "installed-unaccepted",
+      "current": "V14 software exists and the SO was installed in the supplied receipt. Entry badge/physical interaction remain unaccepted.",
+      "target": "Confirm only the current backend context; Resume stays separate.",
+      "phase": "P1"
+    },
+    {
+      "id": "F04",
+      "name": "Native openACE setup pages",
+      "status": "installed-unaccepted",
+      "current": "Devices, tools, sources, heads and basic identity edits exist in software; not visually accepted.",
+      "target": "Use the same settings hierarchy, with ACE sections enabled only by backend capability.",
+      "phase": "P4"
+    },
+    {
+      "id": "F05",
+      "name": "Paused manual reload panel",
+      "status": "installed-unaccepted",
+      "current": "V14 implements reviewed prepare / declare procedure / inserted-prime requests, with bounded integer amounts. Physical acceptance remains open.",
+      "target": "Integrate into the common filament/recovery workspace, including ordinary pauses and zero-ACE openACE.",
+      "phase": "P3"
+    },
+    {
+      "id": "F06",
+      "name": "Both automatic recovery-worker guards",
+      "status": "candidate",
+      "current": "Both stock automatic recovery workers are intercepted. Same-head physical runout/replacement/Resume accepted through r195; cross-head return, no-Z-motion and refusal branches have execution-test coverage. No physical cross-head qualification is claimed.",
+      "target": "Suppress stock replacement motion for the supported standalone managed flow. Resume only after the original head, loaded state, path sensor, job context and return state pass admission. openACE support is deferred to the subsequent release.",
+      "phase": "P1"
+    },
+    {
+      "id": "F07",
+      "name": "Standalone explicit load / unload workspace",
+      "status": "proposed",
+      "current": "Stock preset LOAD/UNLOAD exists; a new shared WM+ workflow does not.",
+      "target": "Physical-head selection, explicit preparation/review, insertion, target procedure and completion.",
+      "phase": "P2"
+    },
+    {
+      "id": "F08",
+      "name": "Standalone measured-request extrude / retract controls",
+      "status": "proposed",
+      "current": "No accepted general amount/speed/manual-progress interface is established by this inventory.",
+      "target": "Explicit amount/temperature/direction within backend limits; distinguish commanded distance from measured feeder travel.",
+      "phase": "P2"
+    },
+    {
+      "id": "F09",
+      "name": "Rich identity / colour / material editor",
+      "status": "historical",
+      "current": "Hex palette, material/hardware constraints and true-colour head cards were demoed. V14 basic text edits are narrower.",
+      "target": "Shared rich editor with backend policy and explicit Apply; no hardcoded name-equivalence guesses.",
+      "phase": "P4"
+    },
+    {
+      "id": "F10",
+      "name": "Print-start replacement and all-filament mapping",
+      "status": "historical",
+      "current": "Earlier replacement showed demo metadata and logged Start/Confirm. Not integrated with current mapping authority.",
+      "target": "Real file metadata, real thumbnail, immutable per-print submission, explain incompatibility, preserve leveling/timelapse.",
+      "phase": "P5"
+    },
+    {
+      "id": "F11",
+      "name": "Operation Review / progress / unknown outcome",
+      "status": "proposed",
+      "current": "V14 has context/review and delivery states for selected actions, not one universal standalone+openACE workflow.",
+      "target": "One shared review/status component; refresh/reconcile unknown outcomes without replaying motion.",
+      "phase": "P2"
+    },
+    {
+      "id": "F12",
+      "name": "Scoped correction / receipt reconciliation screen",
+      "status": "proposed",
+      "current": "Backend console workflows exist. V14 manual panel has no generic recovery/REMOVED action.",
+      "target": "Show exact named paths/holds and only backend-advertised assessment actions; no generic “fixed” or physical retry button.",
+      "phase": "P3"
+    },
+    {
+      "id": "F13",
+      "name": "Capability and ownership status",
+      "status": "proposed",
+      "current": "Existing native model detects sessions/capabilities; no accepted unified user-facing status page.",
+      "target": "Standalone, openACE-ready, incompatible, and unavailable states; keep one implementation.",
+      "phase": "P0"
+    },
+    {
+      "id": "F14",
+      "name": "ACE device / tool / source management integration",
+      "status": "installed-unaccepted",
+      "current": "Bounded native management commands exist in V14 software. Backend acceptance and screen acceptance are separate.",
+      "target": "Progressively reveal device discovery/registration, mappings, source/head settings; do not duplicate persistence.",
+      "phase": "P4"
+    },
+    {
+      "id": "F15",
+      "name": "Explicit guided standalone paused recovery",
+      "status": "candidate",
+      "current": "Managed standalone paused service and guarded Resume are implemented/deployed. Attended cross-head recovery remains open; legacy macros and PLR are separate audited gaps.",
+      "target": "Before enabling guided recovery, prevent competing legacy preparation and preserve pause/Resume semantics.",
+      "phase": "P3"
+    },
+    {
+      "id": "F16",
+      "name": "Object-aware travel planning",
+      "status": "deferred",
+      "current": "Clearance moves exist; no general object/order-aware planner is established.",
+      "target": "Keep as a separate motion-planning project; UI must not claim collision-free paths.",
+      "phase": "P6"
+    },
+    {
+      "id": "F17",
+      "name": "New-unit notifications and registration lifecycle",
+      "status": "proposed",
+      "current": "Discovery/registration/removal/replacement acceptance interfaces exist; the shared notification lifecycle is not delivered.",
+      "target": "Discovery alert on home mini-view; Adopt on Filament / ACE Slots. Unit details provides confirmed idle-only Remove with deletion of associated tools and renumbering through an agreed backend transaction. No separate ACE devices page.",
+      "phase": "P4"
+    },
+    {
+      "id": "F18",
+      "name": "Slot/head quick assignment and editable grid",
+      "status": "proposed",
+      "current": "Individual tool-route mapping exists; no atomic preset contract is established here.",
+      "target": "Two quick-fill actions: all slots to a chosen physical head, or distribute across Heads 1–4. Both fill one editable draft; custom row changes can follow before explicit Review/Apply.",
+      "phase": "P4"
+    },
+    {
+      "id": "F19",
+      "name": "Per-slot brand/material/PA selectors",
+      "status": "proposed",
+      "current": "Basic identity fields exist; PA persistence/application and profile catalogue APIs are TBD.",
+      "target": "Brand/profile/material list, colour picker and calibrated PA picker, with applicable head/nozzle and field provenance.",
+      "phase": "P4"
+    },
+    {
+      "id": "F20",
+      "name": "Orca / Spoolman profile library",
+      "status": "deferred",
+      "current": "Orca lane field edits and optional spool_id exist; full profile transfer, synchronization and enumeration do not follow from them.",
+      "target": "USB JSON/ZIP import or upload command with a known versioned schema TBD. Orca source-format support undecided; retain supported-field preview and conflict review.",
+      "phase": "P6"
+    },
+    {
+      "id": "F21",
+      "name": "Per-tool temperature and operation stop",
+      "status": "proposed",
+      "current": "Physical heater endpoints exist; unified owner-aware policy and stop/cancel capabilities are not fully specified.",
+      "target": "Actual/target temperature, preset/custom Heat/Off and backend-permitted operation cancellation; keep print cancellation distinct.",
+      "phase": "P2"
+    },
+    {
+      "id": "F22",
+      "name": "Optional ACE telemetry / drying UI",
+      "status": "deferred",
+      "current": "Not established as a supported UI or public backend contract by this inventory.",
+      "target": "Capability-gated later device status and explicit drying controls, separately specified.",
+      "phase": "P6"
+    }
+  ],
+  "new_screens": [
+    {
+      "id": "N01",
+      "name": "Filament operation review",
+      "content": "Review load/unload or preparation consequences. Manual Extrude/Retract dispatches directly from the toolhead screen with busy feedback on the pressed button; no separate review.",
+      "boundary": "Reviewing must not execute preparation.",
+      "features": "F07/F08/F11"
+    },
+    {
+      "id": "N02",
+      "name": "Prepare / insert / load and prime",
+      "content": "Current head and retained/selected identity; explicit Prepare and Inserted/Prime steps.",
+      "boundary": "No sensor-edge auto-prime; no automatic Resume.",
+      "features": "F05/F07/F15"
+    },
+    {
+      "id": "N03",
+      "name": "Operation progress and result",
+      "content": "Heating/selection/preparation/priming, current backend progress, completion or uncertainty.",
+      "boundary": "A delivered request or drawn progress bar is not physical completion.",
+      "features": "F11"
+    },
+    {
+      "id": "N04",
+      "name": "Material and colour editor",
+      "content": "Simple on-printer brand (including Generic), material and colour palette; advanced settings available through remote/command interfaces. AFC-compatible Orca integration is future work with protocol TBD.",
+      "boundary": "Editing settings is not proof that filament was physically changed.",
+      "features": "F09"
+    },
+    {
+      "id": "N05",
+      "name": "Material-change confirmation",
+      "content": "Required tool/head/source; old/new identity, declared purge obligations and current approval.",
+      "boundary": "Only backend-permitted current-context confirmation; Resume is separate.",
+      "features": "F03"
+    },
+    {
+      "id": "N06",
+      "name": "Recovery / correction details",
+      "content": "Exact reason, named path, known/unknown action outcome and advertised reconciliation actions.",
+      "boundary": "No automatic replay or generic clear-error/removed-all action.",
+      "features": "F12"
+    },
+    {
+      "id": "N07",
+      "name": "Toolhead and filament/source management",
+      "content": "Two destinations: loaded-aware physical toolhead controls, and Filament / ACE Slots with unit groups and External filaments. No separate ACE devices or Slot Assignments page. Unit details owns all head assignment edits.",
+      "boundary": "Configuration changes use backend admission; setup alone does not trigger physical movement.",
+      "features": "F04/F14"
+    },
+    {
+      "id": "N08",
+      "name": "WM+ capability / diagnostics",
+      "content": "Firmware, WM+ version, active owner, freshness, unsupported capabilities and log/export guidance.",
+      "boundary": "Installed SO / files do not prove active UI hooks or hardware acceptance.",
+      "features": "F13"
+    },
+    {
+      "id": "N09",
+      "name": "New ACE adoption and unit details",
+      "content": "Adopt notification on Filament / ACE Slots; unit details shows ID, name, slot head assignment, quick-fill, Save & exit and idle-only confirmed Remove.",
+      "boundary": "Removal deletes associated tools and renumbers only through the agreed backend transaction. Does not unload filament; active or paused print blocks removal.",
+      "features": "F17"
+    },
+    {
+      "id": "N10",
+      "name": "Slot/head assignment editor",
+      "content": "One editable per-slot grid; quick-fill all slots to a chosen head or distribute across Heads 1–4, then freely modify individual rows. Review the resulting routes before explicit Apply.",
+      "boundary": "Quick assignment edits a draft, not live configuration. Custom is not a separate mutually exclusive mode. Physical wiring and backend batch validation/apply remain required; API TBD.",
+      "features": "F18"
+    },
+    {
+      "id": "N11",
+      "name": "USB / upload import review",
+      "content": "No standalone touchscreen Filament Library. USB or command import populates brand/material choices used by the simple identity editor. Known JSON/ZIP format and command TBD.",
+      "boundary": "Profile definitions and spool records are distinct; no executable slicer macros imported as automatic printer actions. APIs TBD.",
+      "features": "F19/F20"
+    }
+  ],
+  "flows": [
+    {
+      "id": "standalone",
+      "title": "Standalone manual filament operation",
+      "steps": [
+        "Select physical head and operation",
+        "Review heating, parking and amount",
+        "Explicit Prepare if required",
+        "Operator inserts / removes as instructed",
+        "Explicit load / extrude / retract request",
+        "Read current result; do not infer flow",
+        "Return to workspace; Resume separate if paused"
+      ],
+      "note": "Target design. Existing stock actions remain until this workflow and its standalone contract are qualified."
+    },
+    {
+      "id": "openace",
+      "title": "Paused openACE replacement",
+      "steps": [
+        "Pause / fault; retain required tool and frozen destination",
+        "Show backend recovery reason and retained identity",
+        "Review and explicitly request preparation",
+        "Operator inserts replacement",
+        "Review backend-approved procedure / remaining amount",
+        "Explicit prime request; reconcile outcome",
+        "Confirm current material context if required",
+        "Separate public Resume after backend admission"
+      ],
+      "note": "Zero ACE units still uses the openACE owner. No stock heat/tool/purge prefix is appended."
+    },
+    {
+      "id": "unavailable",
+      "title": "Lost / incompatible backend",
+      "steps": [
+        "Mark displayed state stale or unsupported",
+        "Withhold new physical / approval requests",
+        "Keep visible cancellation access",
+        "Read fresh backend state",
+        "Show completion, remaining work, or scoped correction",
+        "Require a new explicit action when backend permits it"
+      ],
+      "note": "Do not replay a timed-out physical request or silently switch ownership to the stock workflow."
+    },
+    {
+      "id": "discovery",
+      "title": "New ACE unit → explicit registration",
+      "steps": [
+        "Backend reports a new candidate",
+        "Notify once; show Devices entry",
+        "Operator reviews identity and connection",
+        "Explicit adopt/register request if permitted",
+        "Read registered / connected / unavailable result",
+        "Configure slots/routes separately; do not load automatically"
+      ],
+      "note": "Known reconnects are not new adoption. Replacement identity acceptance is distinct. User-facing verbs are TBD."
+    },
+    {
+      "id": "topology",
+      "title": "Quick assignment → optional per-slot edits",
+      "steps": [
+        "Open selected unit’s editable slot/head draft",
+        "Optionally fill all slots to chosen head OR distribute across Heads 1–4",
+        "Edit any individual slot assignments (Custom)",
+        "Review final slot, tool and physical-head routes",
+        "Validate actual wiring, conflicts and backend admission",
+        "Explicit Apply; display actual result"
+      ],
+      "note": "Both shortcuts fill the same editable draft. They do not save, move filament or lock assignments. Four slots distribute 1→1, 2→2, 3→3, 4→4; additional slots repeat head order. Backend batch/apply API is TBD."
+    },
+    {
+      "id": "profile",
+      "title": "Future profile import → slot assignment",
+      "steps": [
+        "Select Orca upload or configured Spoolman source",
+        "Review profiles versus spool records",
+        "Preview supported fields, inheritance and conflicts",
+        "Explicitly import and enumerate in the library",
+        "Select a slot and profile / brand / material",
+        "Review colour, PA applicability and overrides",
+        "Apply saved identity; physical load remains separate"
+      ],
+      "note": "Future design; transport/catalogue/PA contracts remain TBD. No imported script or macro executes automatically."
+    },
+    {
+      "id": "reprint",
+      "title": "Managed Re-print",
+      "steps": [
+        "Re-print from completed/stopped dialog",
+        "Open current file in shared preview; no stock preparation",
+        "Refresh file, owner, loaded identities and candidate mappings",
+        "Review and explicitly press PRINT",
+        "Backend validates and starts once; unknown result is not replayed"
+      ],
+      "note": "R20 / C01: completed-popup Re-print enters managed preview on the real device (r134); metadata-free fixture refuses PRINT and CANCEL closes without starting. Firmware char[80] page-name ABI corrected. Fresh terminal-job fallback for an empty stopped-popup filename is host-tested and installed in r137; its native stopped-popup acceptance remains open."
+    }
+  ],
+  "phases": [
+    {
+      "id": "P0",
+      "name": "Reconcile status and define shared contracts",
+      "exit": "One evidence/status register; confirmed-absent vs unavailable behavior; consistent owner/capability view; no UI acceptance inferred from installation."
+    },
+    {
+      "id": "P1",
+      "name": "Contain competing recovery and qualify the current renderer",
+      "exit": "Independent dual-worker guard review, approved activation only when the paused-test constraint is resolved; visible badges and real screen/touch/modal/Cancel footprint acceptance. Include R26 restart admission; audit findings are not implementation or live acceptance."
+    },
+    {
+      "id": "P2",
+      "name": "Deliver the shared idle filament workspace",
+      "exit": "Standalone operation contract and public backend adapter; guided Load and confirmed Unload; immediate admitted manual Extrude/Retract; limits, wrong-head, unavailable and unknown-result checks. Include selectable distance steps, per-tool actual/target temperature entry and target-zero Off, pickup/docking and operation-stop policy. Any missing command is explicitly TBD. R21: retire competing legacy filament entry points before claiming single-owner service."
+    },
+    {
+      "id": "P3",
+      "name": "Integrate paused replacement and correction",
+      "exit": "Same required tool/file/context preserved; no duplicate priming; ordinary pause adds no purge; standalone legacy ownership resolved before guided recovery becomes default. R22/R25/R27: pre-preparation PLR admission, failure-specific retry ownership and Cancel/service ordering. Richer PLR presentation remains P6."
+    },
+    {
+      "id": "P4",
+      "name": "Integrate identity and setup management",
+      "exit": "Rich editor uses backend policy and explicit Apply; current basic native management ported to one settings hierarchy; no duplicate vendor/openACE truth. Include unit lifecycle notifications, topology presets, per-slot brand/material/colour/PA and an agreed profile precedence model; PA/batch APIs TBD."
+    },
+    {
+      "id": "P5",
+      "name": "Replace print preview and mapping",
+      "exit": "Real metadata/thumbnail/options, complete tool list, valid backend map and frozen submission; standalone unsupported cases visibly blocked; no demo action handlers. R20: completion/stopped Re-print must enter the same fresh preview and backend admission."
+    },
+    {
+      "id": "P6",
+      "name": "Later recovery / service / motion work",
+      "exit": "Separate design and acceptance for power-loss UI, physical topology changes, richer calibration and object-aware travel; no implied safety qualification. Orca/Spoolman profile import and UI enumeration require a separate backend/API design. R23/R24 reset/topology and factory/editor ownership are explicit required contracts for those supported routes; they are distinct from optional richer service UI."
+    }
+  ],
+  "history": [
+    {
+      "file": "history/mock-mapping.png",
+      "title": "Scrollable mapping — August demo"
+    },
+    {
+      "file": "history/mock-printstart-warn.png",
+      "title": "Early print-start warnings — contains superseded PCTG mapping"
+    },
+    {
+      "file": "history/mock-printstart-abrasive.png",
+      "title": "Later material / hardware constraints — August demo"
+    },
+    {
+      "file": "history/mock-filament-panel-hex.png",
+      "title": "Filament panel / true hex colour — August demo"
+    }
+  ],
+  "requirements": [
+    {
+      "id": "R01",
+      "name": "Notify when a new ACE unit is detected",
+      "behavior": "New unit discovery adds Adopt near the top of Filament / ACE Slots and an alert icon on the home mini-view. No separate device-list view. Discovery does not adopt, map or load automatically.",
+      "scope": "openACE",
+      "backend": "Discovery/status and explicit scan exist; notification UI and deduplication are planned.",
+      "phase": "P4"
+    },
+    {
+      "id": "R02",
+      "name": "Adopt / register an ACE unit",
+      "behavior": "Review the selected hardware, assign a friendly name and explicitly register it. Adoption wording is provisional. Reconnecting a known unit is not a new adoption.",
+      "scope": "openACE",
+      "backend": "OPENACE_UNIT_ADD exists; exact discovery/identity context must remain current.",
+      "phase": "P4"
+    },
+    {
+      "id": "R03",
+      "name": "Remove ACE unit and renumber tools",
+      "behavior": "Unit details has Remove with confirmation. Disable for active or paused prints. Remove associated T entries and renumber remaining tools as one backend-owned operation; show old/new mapping and invalidate stale preview assignments. Do not unload or discard physical recovery evidence.",
+      "scope": "openACE",
+      "backend": "Existing removal interfaces do not establish this transaction contract. Atomic deletion, renumbering, active-job admission, failure handling and readback are TBD with openACE.",
+      "phase": "P4"
+    },
+    {
+      "id": "R04",
+      "name": "Assign slots to physical heads",
+      "behavior": "One editable slot-to-physical-head assignment grid. Edit any row directly, including after quick assignment. Show the corresponding virtual tool route; one slot cannot fork to multiple heads.",
+      "scope": "openACE",
+      "backend": "OPENACE_MAP_TOOL / UNMAP_TOOL exist; the backend derives routes from tool definitions, not a second UI wiring map.",
+      "phase": "P4"
+    },
+    {
+      "id": "R05",
+      "name": "Quick assign: all slots to chosen head",
+      "behavior": "Choose one physical head and fill every slot in the selected unit draft with that head. Every row remains editable; change one or two assignments before Review/Apply. No immediate backend write or movement.",
+      "scope": "openACE",
+      "backend": "Existing individual route commands exist; shared draft UI and validated batch/apply semantics are TBD.",
+      "phase": "P4"
+    },
+    {
+      "id": "R06",
+      "name": "Quick assign: distribute across four heads",
+      "behavior": "Fill the same draft by distributing slots in order across physical Heads 1–4. Four slots start one per head; additional slots repeat the order. Custom edits may adjust any rows afterward. Preserve unrelated units/routes.",
+      "scope": "openACE",
+      "backend": "Draft distribution is UI behavior; backend validation/batch apply is TBD. Do not invent missing configured heads.",
+      "phase": "P4"
+    },
+    {
+      "id": "R07",
+      "name": "Per-slot Brand and material selection",
+      "behavior": "Select Brand, product line/profile and material from a catalogue, with an explicit custom entry when needed. Keep source identity distinct from a physically verified load.",
+      "scope": "shared",
+      "backend": "Standalone implementation exists: built-in catalogue, retained brand/material selectors, revision-bound atomic metadata edits and remote AFC-compatible publication. B02 live Save/Cancel/stale-draft and B06 remote round trips are accepted in docs/ui/standalone-completion.md. openACE slot qualification and profile importing are deferred; do not interpret the older TBD as missing standalone persistence.",
+      "phase": "P4"
+    },
+    {
+      "id": "R08",
+      "name": "Per-slot colour picker",
+      "behavior": "On-screen preset colour palette; always offer Generic brand and material choices. Advanced exact colour/profile editing remains remote or command-based.",
+      "scope": "shared",
+      "backend": "Standalone swatch/hex picker and metadata persistence implemented; B02 records accepted live color round trips and stale-draft refusal. Preserve custom existing values. openACE slot qualification is deferred.",
+      "phase": "P4"
+    },
+    {
+      "id": "R09",
+      "name": "Remote pressure-advance configuration",
+      "behavior": "Advanced PA settings belong to remote/command interfaces, with applicability and provenance. No PA picker required on the printer touchscreen; backend contract remains TBD.",
+      "scope": "shared",
+      "backend": "TBD: no pressure-advance identity/profile command identified in the reviewed openACE API. Persistence, validation and application timing need a contract.",
+      "phase": "P4"
+    },
+    {
+      "id": "R10",
+      "name": "Filament profile import via USB or command upload",
+      "behavior": "USB selection or upload command accepts a single JSON file or ZIP with a known, versioned format TBD. Preview supported declarative fields and conflicts before importing. Direct Orca format support remains an option with upstream-change risk, not the committed format.",
+      "scope": "shared",
+      "backend": "TBD: import transport/schema, inheritance resolution, enumeration and backend ownership. Existing Orca lane edits are not full profile upload.",
+      "phase": "P6"
+    },
+    {
+      "id": "R11",
+      "name": "Future Spoolman profile / spool integration",
+      "behavior": "Browse a configured source, distinguish reusable material profiles from individual spool records, select explicitly and retain IDs/provenance.",
+      "scope": "shared",
+      "backend": "TBD: connection/import/enumeration and supported field mapping. Existing spool_id metadata is not Spoolman synchronization.",
+      "phase": "P6"
+    },
+    {
+      "id": "R12",
+      "name": "Per-tool Load / Unload",
+      "behavior": "Use the selected virtual tool/source and physical head under openACE; a physical head under standalone WM+. Review preparation, then show current result/holds.",
+      "scope": "shared",
+      "backend": "Standalone managed Load/Unload implemented, with metadata draft, XY-only preparation, mounting, heating, insertion/removal, separate loaded flag, purge/wipe and numbered progress. D02/D03/D04 contain accepted baseline evidence; later R21/R27 track adapters and interruption handling. Reconcile remaining original A\u2013G items with later results before claiming complete release acceptance. openACE qualification deferred.",
+      "phase": "P2"
+    },
+    {
+      "id": "R13",
+      "name": "Per-tool Extrude / Retract with selectable steps",
+      "behavior": "Select distance step, direction and applicable speed/temperature. Each explicit press requests one admitted action; show amount and operation status. Manual Extrude/Retract has no review dialog: submit the selected step and show button busy state from backend progress; preserve owner/temperature admission.",
+      "scope": "shared",
+      "backend": "Standalone WMP_EXTRUDER_STEP and selectable native controls implemented. C03 records H3 step/readback and modal-state preservation evidence; physical distance and native-dispatch limitations must be reconciled against later evidence, not assumed complete. openACE qualification deferred.",
+      "phase": "P2"
+    },
+    {
+      "id": "R14",
+      "name": "Per-tool temperature controls",
+      "behavior": "Show actual/target temperature. Tapping opens numeric target entry; confirming a target applies heating directly, without a separate Heat button. Setting target zero turns heating off; an X shortcut may do the same. Identify the physical heater; distinguish temporary target changes from saved filament metadata.",
+      "scope": "shared",
+      "backend": "Standalone physical heater target/readback implemented. C01 records all-four-head target, numeric-zero, X-off and Home agreement acceptance, including replacement of initial keypad zero. This is idle target-control evidence, not qualification of every material recipe or active-print override.",
+      "phase": "P2"
+    },
+    {
+      "id": "R15",
+      "name": "Unit disconnect, reconnect and replacement status",
+      "behavior": "Distinguish saved registration from current connection and identity acceptance. Show the unit/slots affected; do not erase routes or re-adopt automatically.",
+      "scope": "openACE",
+      "backend": "Backend status/identity acceptance exists; consolidated notification and operator workflow are planned.",
+      "phase": "P4"
+    },
+    {
+      "id": "R16",
+      "name": "Stop current operation and inspect its result",
+      "behavior": "Separate operation stop/cancel from print cancellation and from emergency shutdown. Show backend-permitted stop, partial result and any recovery hold.",
+      "scope": "shared",
+      "backend": "Exact per-operation stop/cancel capabilities are TBD where not advertised; do not invent a universal successful abort.",
+      "phase": "P2"
+    },
+    {
+      "id": "R17",
+      "name": "Profile selection, overrides and applicability",
+      "behavior": "Show whether each value came from imported profile, slot override, head/nozzle calibration, active print or a temporary manual override. Explicit reset-to-profile and conflict review. Distinguish RFID/reported values from manual overrides and resolve incoming changes explicitly.",
+      "scope": "shared",
+      "backend": "TBD: common profile schema and precedence; backend/slicer application rules must be agreed before applying PA/temperature automatically.",
+      "phase": "P4"
+    },
+    {
+      "id": "R18",
+      "name": "Head pickup / docking controls",
+      "behavior": "Provide explicit Take head / Dock head separately from filament Load / Unload; show mounted/docked state and the selected destination.",
+      "scope": "shared",
+      "backend": "Standalone physical-head Take/Dock implemented with managed receipts, state admission and retained coupling faults. C02 records all-head cold cycles and cross-head selection; current R25 accounts for changed retry guards and accepted camera-observed Take/Dock. Generic mechanical qualification is outside release scope.",
+      "phase": "P2"
+    },
+    {
+      "id": "R19",
+      "name": "Optional later: ACE telemetry / drying controls",
+      "behavior": "Where hardware/backend capabilities exist, show unit health, temperature/humidity or drying state, and explicit drying start/stop/settings. This is later scope, not a prerequisite for the core filament UI.",
+      "scope": "openACE",
+      "backend": "TBD capability and command contracts; do not imply present backend or screen support.",
+      "phase": "P6"
+    },
+    {
+      "id": "R20",
+      "name": "Managed Re-print entry",
+      "behavior": "Re-print opens a fresh managed preview for the same file. Explicit PRINT uses current source identities and mapping; old selections are drafts, never authority.",
+      "scope": "Initial release: standalone WM+ only. openACE support and qualification are deferred to a subsequent release.",
+      "backend": "Current standalone evidence (12 November, installed r178): Real completed-popup handoff to managed preview accepted r134; metadata-free PRINT refusal and CANCEL verified; stopped-filename fallback host-tested and installed Still required / qualification limits: None for the supported standalone routes: both known direct stop-worker callers are intercepted; last-object exclusion accepted r169. Other-owner stopped-popup qualification is deferred Authoritative detailed queue and historical evidence: docs/ui/standalone-completion.md.",
+      "phase": "P5"
+    },
+    {
+      "id": "R21",
+      "name": "One filament operation API",
+      "behavior": "Supported legacy Load/Unload and related service entry points use the managed operation contract or refuse before side effects with a clear route to it. Keep explicit physical-head addressing and owner-specific adapters.",
+      "scope": "Initial release: standalone WM+ only. openACE support and qualification are deferred to a subsequent release.",
+      "backend": "Current standalone evidence (12 November, installed r178): Standalone managed service and ACE-source owner adapters installed; direct external Load exercised with the owner offline; unsupported owner external Unload refuses before dispatch Still required / qualification limits: None for the standalone legacy adapters. External Unload under openACE and native/live openACE qualification move to the subsequent release; standalone service-interruption validation remains tracked under R27 Authoritative detailed queue and historical evidence: docs/ui/standalone-completion.md.",
+      "phase": "P2"
+    },
+    {
+      "id": "R22",
+      "name": "Managed power-loss recovery admission",
+      "behavior": "Before heating, tool selection or motion, validate checkpoint/file, calibration/mesh/map, current filament readiness, operation uncertainty and owner. Offer only recovery actions supported by that owner.",
+      "scope": "Initial release: standalone WM+ only. openACE support and qualification are deferred to a subsequent release.",
+      "backend": "Current standalone evidence (12 November, installed r178): Local durable execution/attempt handling, preparation through purge/wipe/return/parser restore; optional private continuation through exact-file/routes/accounting and durable worker activation; local runtime outcome handling, job-bound pre-enqueue deposition recording, clearance admission guards, resumed observer restoration, immutable-request Continue command, reactor STOP endpoint and native early selection hook; native receiver, independent transports, numbered progress/STOP panel and explicit resolution review/confirmation connected locally; post-restart recovery API coverage; r149 native Continue, visible stages/temperatures, clearance/home/heat and DISCARD\u2192CONFIRM accepted; exact original bytes verified in archive; r151 native Continue through all stages and actual resumed print completion accepted; r153 native STOP\u2192DISCARD\u2192CONFIRM\u2192restart accepted; r156 original-prompt Cancel\u2192REVIEW\u2192CANCEL and Cancel\u2192REVIEW\u2192DISCARD\u2192restart accepted with exact nine-record archive and no discard motion Still required / qualification limits: r167 native interrupted-resume REVIEW\u2192CONFIRM accepted, recording newer completed position 4924 without motion, heating or print resumption. Both implemented resolution actions have native acceptance: failed-attempt abandon r149 and interrupted-continuation reconcile r167. Remaining: native incompatible-record retirement presentation/confirmation. Persistence-failure and lost-response branches have host/native-worker coverage, not physical fault injection. openACE owner qualification is deferred. Historical formats cannot safely auto-migrate; their public discard/archive path is host-verified. Do not repeat accepted continuation or discard flows without a relevant change Authoritative detailed queue and historical evidence: docs/ui/standalone-completion.md.",
+      "phase": "P3"
+    },
+    {
+      "id": "R23",
+      "name": "Transactional reset and topology changes",
+      "behavior": "Factory reset / clean return-to-stock support is deferred from this release; retain the installed reset guard. In-scope discovery/topology changes must preserve calibration and managed records and refuse unsupported transitions before publication.",
+      "scope": "Initial release: standalone WM+ only. openACE support and qualification are deferred to a subsequent release.",
+      "backend": "Current standalone evidence (12 November, installed r178): Joint candidate/journal/rollback and stale-session guards tested; changed mapping refuses without calibration provenance. Reset Confirm refusal, opaque notice and CLOSE accepted r124; r143 reconfirmed refusal with 19 unchanged tracked files Still required / qualification limits: Changed identification and intercepted discovery/config-save contracts reviewed against existing assertions and accepted results (evidence map below); no uncovered functional case identified for the supported unchanged-mapping route and changed-mapping refusal. Factory reset remains deferred with its accepted guard. Hardware remapping without independent calibration provenance remains unsupported; no new physical topology support, model-change qualification, or arbitrary external-shell validation is required for this UI release. Authoritative detailed queue and historical evidence: docs/ui/standalone-completion.md.",
+      "phase": "P6"
+    },
+    {
+      "id": "R24",
+      "name": "Session-bound calibration editors",
+      "behavior": "Admit factory preparation/jog before mutating display or moving. Bind edits to the backend session; save only after accepted calibration result. Keep Close/cancellation responsive and wait off the GUI thread. Separate pre-action refusal from uncertain execution. Provide bounded failed-preparation cleanup and explicit snapshot-bound review of concurrent offset edits; never overwrite newer configuration or infer save success from inactive status.",
+      "scope": "Initial release: standalone WM+ only. openACE support and qualification are deferred to a subsequent release.",
+      "backend": "Current standalone evidence (12 November, installed r178): Managed editor installed. Native preparation START\u2192STOP accepted r143 after fixing the actual HTTP route allowlist; terminal aborted, no active helper/pending save or config change. Native ABORT accepted r142. Factory/knife/password-success guards installed r142 and retained; native START\u2192JOG\u2192ACCEPT\u2192DISCARD accepted r155 with unchanged config and no pending save Still required / qualification limits: Changed save/restart and REVIEW/ACK/RETAIN functional coverage reviewed and accounted for (evidence map below); no uncovered functional case identified. Native pixel-layout inspection of save-review controls remains separate; host/native tests establish rendering properties and dispatch, not a live screenshot. Fresh physical calibration and Factory/Service password access are not prerequisites. No repeat of accepted START/STOP or ACCEPT/DISCARD. Authoritative detailed queue and historical evidence: docs/ui/standalone-completion.md.",
+      "phase": "P6"
+    },
+    {
+      "id": "R25",
+      "name": "Managed failure retries",
+      "behavior": "Retain fault evidence and determine physical attachment before offering a scoped retry. Propagate coupling homing errors before zeroing/post-stroke motion. Check session/generation ownership at each actuator boundary; never clear/home/retry uncertain coupling automatically. Confirm fault persistence or shut down. Preserve successful Take/Dock travel and configured speeds.",
+      "scope": "Initial release: standalone WM+ only. openACE support and qualification are deferred to a subsequent release.",
+      "backend": "Current standalone evidence (12 November, installed r178): Single-attempt coupling guards installed; stale-session refusal verified; direct nonzero-fault action guards deployed r140. Camera-observed H4 Dock and Take both accepted on 12 November Still required / qualification limits: No general mechanical qualification or deliberate physical failure test is required. Changed single-attempt/error-propagation and durable-fault behavior have actuator/macro tests; successful Take/Dock is already accepted. Raw vendor-console bypass is a documented boundary, not a new sandbox requirement. Reopen only for an identified gap in the changed guard or a new failure. Authoritative detailed queue and historical evidence: docs/ui/standalone-completion.md.",
+      "phase": "P3"
+    },
+    {
+      "id": "R26",
+      "name": "Restart ownership and consequences",
+      "behavior": "Treat screen/service restart as a machine-state operation. Admit using fresh job and managed operation state, preserve durable evidence, and require explicit recovery after an interrupted operation.",
+      "scope": "Initial release: standalone WM+ only. openACE support and qualification are deferred to a subsequent release.",
+      "backend": "Current standalone evidence (12 November, installed r178): Installed r121 Ready-state guard and unresolved-result hold; exact startup shell restart suppressed and built wrapper tested; installer explicitly restarts the Klipper process and verifies changed PID, loaded protocols and stable readiness; r121 idle activation and preservation passed; r174 controlled OS reboot preserved all six tracked files, identities and loaded flags, with successful defaults migration before Klipper and screen startup Still required / qualification limits: No further generic restart or stock-warning interaction test is required. The changed guard is covered by the joined ARM warning/retained-dispatcher tests; actual restart preservation passed r174 and interrupted Load recovery passed r177. Any remaining gap must name the changed ownership/persistence branch. Configuration-writer coverage is tracked under R23, not another reboot campaign. Authoritative detailed queue and historical evidence: docs/ui/standalone-completion.md.",
+      "phase": "P1"
+    },
+    {
+      "id": "R27",
+      "name": "Print Cancel during managed service",
+      "behavior": "Keep print cancellation available; reconcile the in-flight filament/tool operation, queued commands, heater cleanup and durable partial outcome before any later action. Never describe print Cancel as an instantaneous emergency stop.",
+      "scope": "Initial release: standalone WM+ only. openACE support and qualification are deferred to a subsequent release.",
+      "backend": "Current standalone evidence (12 November, installed r178): Native and remote Cancel accepted with six completed stages; numbered colors, summary and CLOSE accepted through r139. All five active 40 C heater targets cleared by Cancel. r141 remote-start cancellation accepted without backup-write/stale-generation notifications. Native harness verifies disconnect/stale-click, retained widgets, Close/reopen and single confirmed cleanup. r169 genuine pending cancellation interrupted by service stop restored unknown; native REVIEW \u2192 CONFIRM acknowledged verified completion without commands, preserving filament state Still required / qualification limits: Changed procedure STOP accepted with one 80 ms native injected tap in r179 on installed r178; interrupted Load RECOVER accepted r177, and interrupted cancellation REVIEW/CONFIRM accepted r169/r170. Physical quick-finger-tap feedback remains relevant to the changed input/refresh code. No unnamed additional interruption matrix or repetition of ordinary Cancel/load/unload is required. Authoritative detailed queue and historical evidence: docs/ui/standalone-completion.md.",
+      "phase": "P3"
+    }
+  ]
+}

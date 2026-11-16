@@ -34,6 +34,11 @@ uv run --with paramiko --with numpy python utils/resonance.py analysis --offline
 The tool downloads Klipper's analysis modules from the printer into ignored
 `utils/.klippy_cache/`. Delete that cache to fetch them again.
 
+The fits come from the printer's own Klipper code. With the
+[`shaper` component](../klipper_backport/input_shaper/README.md) installed, the
+sweeps use the sweeping resonance test and the fits use the upstream shaper
+definitions. Installing or removing that component clears the cache.
+
 ## Preview and apply settings
 
 ```bash

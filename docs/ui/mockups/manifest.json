@@ -1,0 +1,203 @@
+{
+  "status": "Proposed design, fictional data, no printer connection",
+  "screenshots": [
+    {
+      "file": "01-home.png",
+      "title": "Home \u00b7 ACE mini-view",
+      "screen": "home",
+      "owner": "openace",
+      "dimensions": [
+        800,
+        480
+      ],
+      "sha256": "deb1f208fb11b015de4bf489f9a83da7b3e51fb805f3f2901233f3380c566d20"
+    },
+    {
+      "file": "02-tools.png",
+      "title": "Toolhead manager \u00b7 four tabs and arrows",
+      "screen": "tools",
+      "owner": "openace",
+      "dimensions": [
+        800,
+        480
+      ],
+      "sha256": "1477a5f6e6ccef0ce7b9f6c810d6ca94c7fb800c5a6531617c3f60ce7bdb78f2"
+    },
+    {
+      "file": "03-filament.png",
+      "title": "ACE filaments \u00b7 head 1 selected",
+      "screen": "filament",
+      "owner": "openace",
+      "dimensions": [
+        800,
+        480
+      ],
+      "sha256": "ddec45f23244974c7394ca98f482af3c4956a453af588e7c66d69e53a001f65e"
+    },
+    {
+      "file": "04-filament.png",
+      "title": "Manual filaments \u00b7 heads 1 to 4",
+      "screen": "filament",
+      "owner": "standalone",
+      "dimensions": [
+        800,
+        480
+      ],
+      "sha256": "920d11ed8fef6c89d83caf8b9e1e299d2027cf67097a0865c579cf7eb85f2f6e"
+    },
+    {
+      "file": "05-unit.png",
+      "title": "ACE unit \u00b7 ID, name, slots and assignments",
+      "screen": "unit",
+      "owner": "openace",
+      "dimensions": [
+        800,
+        480
+      ],
+      "sha256": "f671d900169e0a68204319ca44cfdab557a9ada4db54376a018e653bc8e1af9f"
+    },
+    {
+      "file": "06-slot.png",
+      "title": "Simple filament editor",
+      "screen": "slot",
+      "owner": "openace",
+      "dimensions": [
+        800,
+        480
+      ],
+      "sha256": "f56097798dcaddd96f550089d271dabe66f4a4cedaf0c55a550171abf239589c"
+    },
+    {
+      "file": "07-new-unit.png",
+      "title": "New ACE discovery",
+      "screen": "new-unit",
+      "owner": "openace",
+      "dimensions": [
+        800,
+        480
+      ],
+      "sha256": "24fe81e51b304b2dbaac22fcb6651368184cb2fc4b3085969620ea9f58690696"
+    },
+    {
+      "file": "08-operation.png",
+      "title": "Explicit operation review",
+      "screen": "operation",
+      "owner": "openace",
+      "dimensions": [
+        800,
+        480
+      ],
+      "sha256": "e7bffcbc46723ae287eec196f1838246133e3a06e40c998b97e6d36269899bdb"
+    },
+    {
+      "file": "09-progress.png",
+      "title": "Operation progress",
+      "screen": "progress",
+      "owner": "openace",
+      "dimensions": [
+        800,
+        480
+      ],
+      "sha256": "2e6719726921e105f031907eea50484e063b08db408126cca46570a59e7ab6b4"
+    },
+    {
+      "file": "10-recovery.png",
+      "title": "Paused recovery",
+      "screen": "recovery",
+      "owner": "openace",
+      "dimensions": [
+        800,
+        480
+      ],
+      "sha256": "434169e9c3afd6433577c16e0d47a5c692ee4037afb56985060f974993391126"
+    },
+    {
+      "file": "11-preview.png",
+      "title": "Print preview",
+      "screen": "preview",
+      "owner": "openace",
+      "dimensions": [
+        800,
+        480
+      ],
+      "sha256": "51d5f3c9dea7ed690f920100dc9a7200d8e37ead26f112cc3401e7cfe86510a6"
+    },
+    {
+      "file": "12-import.png",
+      "title": "Future remote profile import concept",
+      "screen": "import",
+      "owner": "openace",
+      "dimensions": [
+        800,
+        480
+      ],
+      "sha256": "b72c53c40321f6e4454d07cdacb5f74e323b549d3b6058c4aedb56ff6cd2c46f"
+    },
+    {
+      "file": "14-tools-empty.png",
+      "title": "Empty head \u00b7 Load and edit filament",
+      "screen": "tools",
+      "owner": "openace",
+      "dimensions": [
+        800,
+        480
+      ],
+      "sha256": "cb12e8cc724338b85d7472654d6c1448bab36f6bafcf88784f345ab419c4827c"
+    },
+    {
+      "file": "19-retract-busy.png",
+      "title": "Retract \u00b7 direct action with button busy feedback",
+      "screen": "tools",
+      "owner": "openace",
+      "dimensions": [
+        800,
+        480
+      ],
+      "sha256": "767aaa1dc3254ebe69b1f6eac81de4ef553ca6351732def4de26aba0434440a3"
+    },
+    {
+      "file": "15-ace-scrolled.png",
+      "title": "ACE list \u00b7 External source for unmapped head",
+      "screen": "filament",
+      "owner": "openace",
+      "dimensions": [
+        800,
+        480
+      ],
+      "sha256": "c502643506e979e88ddb4d3470c21eb59201e726b8570c8774d05714c767b16e"
+    },
+    {
+      "file": "16-remove-confirmation.png",
+      "title": "Remove ACE \u00b7 explicit renumbering confirmation",
+      "screen": "unit",
+      "owner": "openace",
+      "dimensions": [
+        800,
+        480
+      ],
+      "sha256": "d8a520a5770edcde3ec952f3f3b583069900fc0429fa728c5007ee7f480d43f0"
+    },
+    {
+      "file": "17-preview-picker.png",
+      "title": "Print preview \u00b7 source picker",
+      "screen": "preview",
+      "owner": "openace",
+      "dimensions": [
+        800,
+        480
+      ],
+      "sha256": "04bf974ea523bf9e49c5073dde94e892706c05d0eb8f59c5f1553be9dc98f008"
+    },
+    {
+      "file": "18-preview-expanded.png",
+      "title": "Print thumbnail \u00b7 expanded image",
+      "screen": "preview",
+      "owner": "openace",
+      "dimensions": [
+        800,
+        480
+      ],
+      "sha256": "e5b41deaf677ae46ec9506d9d507afaccb0047a7a25946224b312ad55f9f0074"
+    }
+  ]
+}

@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wondermaker+ · Unified screen review</title>
+<style>
+:root{color-scheme:dark;--bg:#101317;--panel:#1b2026;--line:#343b44;--ink:#edf1f5;--muted:#adb7c2;--orange:#ff8a3c;--accent:#a9d9c4}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,sans-serif}a{color:#b6d9ff}button,input,select{font:inherit}button,select,input{background:#242c35;color:var(--ink);border:1px solid #48515d;border-radius:8px;padding:9px 12px}button{cursor:pointer}button:hover{border-color:var(--orange)}button:focus-visible,a:focus-visible,select:focus-visible,input:focus-visible{outline:3px solid #b6d9ff;outline-offset:3px}button[disabled]{opacity:.45;cursor:not-allowed}header{max-width:1400px;margin:auto;padding:35px 26px 18px}h1{font-size:clamp(26px,4vw,43px);line-height:1.15;margin:8px 0 16px;letter-spacing:-.04em}h2{font-size:24px;margin:8px 0 16px}h3{font-size:18px;margin:0 0 8px}p{margin:0 0 14px}.eyebrow{color:var(--orange);font-size:13px;font-weight:700;letter-spacing:.08em;text-transform:uppercase}.muted{color:var(--muted)}.note{border-left:3px solid var(--orange);padding:12px 16px;background:#231e19}.cards{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:22px 0}.card{padding:16px;background:var(--panel);border:1px solid var(--line);border-radius:12px}.card strong{display:block;font-size:15px;margin-bottom:6px}.card span{font-size:13px;color:var(--muted)}nav{display:flex;flex-wrap:wrap;gap:8px;margin:24px 0 6px}nav button[aria-selected=true]{border-color:var(--orange);color:var(--orange);background:#31251c}main{max-width:1400px;margin:auto;padding:0 26px 40px}.toolbar{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin:14px 0 20px}.toolbar label{font-size:14px;color:var(--muted)}label select,label input{margin-left:5px}.layout{display:grid;grid-template-columns:300px minmax(0,1fr);gap:20px}.screen-list{display:flex;flex-direction:column;gap:7px;max-height:980px;overflow:auto;padding:3px}.screen-list button{text-align:left;font-size:14px}.screen-list button[aria-current=true]{border-color:var(--orange);background:#33251b}.badge{display:inline-block;padding:3px 8px;border:1px solid var(--line);border-radius:30px;color:var(--accent);font-size:12px;margin-right:7px}.details{padding:22px}.details section{margin-top:19px}.details section h3{color:var(--muted);font-size:13px;letter-spacing:.05em;text-transform:uppercase}.wireframe{background:#171a1f;border:1px solid #5e6570;border-radius:13px;margin:22px 0 10px;padding:16px;max-width:800px}.wireframe .demo{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;color:var(--orange);font-size:12px;padding-bottom:12px;border-bottom:1px solid #41464d}.wireframe .screen-name{font-size:22px;margin:15px 0}.wireframe .head-row{padding:16px;background:#2e333a;border-radius:10px;border-left:4px solid var(--orange);margin:16px 0}.wireframe .action-row{display:flex;gap:9px;flex-wrap:wrap}.wireframe .footer{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:22px;padding-top:12px;border-top:1px solid #41464d}.stop{border-color:#d47878;color:#ffc1c1}.prototype-result{font-size:14px;margin-top:14px;color:#d4e1ec}.feature-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:15px}.feature-grid p{font-size:14px}.flow{display:grid;grid-template-columns:repeat(auto-fit,minmax(175px,1fr));gap:14px;margin:20px 0}.step{padding:16px;background:var(--panel);border:1px solid var(--line);border-radius:10px}.step b{display:block;color:var(--orange);font-size:13px;margin-bottom:10px}.gallery{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px}.gallery figure{margin:0;background:var(--panel);padding:12px;border-radius:12px;border:1px solid var(--line)}.gallery img{display:block;width:100%;height:auto}.gallery figcaption{font-size:14px;color:var(--muted);padding:12px 3px}.phase{display:grid;grid-template-columns:60px 1fr;gap:18px;padding:20px 0;border-bottom:1px solid var(--line)}.phase b{color:var(--orange)}.new-view{margin-bottom:14px}footer.site{max-width:1400px;margin:auto;padding:20px 26px 40px;color:var(--muted);font-size:13px}[hidden]{display:none!important}@media(max-width:900px){.cards{grid-template-columns:repeat(2,1fr)}.layout{grid-template-columns:1fr}.screen-list{max-height:260px}.feature-grid,.gallery{grid-template-columns:1fr}}@media(max-width:500px){header,main{padding-left:16px;padding-right:16px}.cards{grid-template-columns:1fr}.toolbar{align-items:flex-start;flex-direction:column}.details{padding:16px}}
+</style>
+</head>
+<body>
+<header>
+<div class="eyebrow">WM+ / openACE · design review · 29 October 2026</div>
+<h1>One screen system.<br>Capabilities added progressively.</h1>
+<p class="muted">Review what stock provides, what WM+ has changed, and what we propose to keep, overlay, override or replace.</p>
+<p><a href="../ui-plan.md">Complete plan and ownership rules</a> · <a href="current-screens.html">Observed screens and comparisons</a> · <a href="mockups.html">Clickable screen mockups</a> · <a href="mockups/index.html">Screen image gallery</a> · <a href="history/README.md">Historical mockup notes</a></p>
+<div class="note"><strong>Offline design document.</strong> No printer connection, commands or activation. All interactive screen controls below are illustrative. Proposed layouts are not acceptance evidence.</div>
+<div class="cards">
+<div class="card"><strong>Released · 1.1.13-r2</strong><span>Stock visual shell, behavior patches and remote touchscreen bridge.</span></div>
+<div class="card"><strong>Installed V14 · unaccepted</strong><span>Native software exists; the latest readiness record still reports its badge absent.</span></div>
+<div class="card"><strong>Recovery guard · candidate</strong><span>Both competing workers guarded in revision 2; review and activation remain separate.</span></div>
+<div class="card"><strong>Historical mocks · demos</strong><span>Good visual ideas; demo metadata and old policy are not the production contract.</span></div>
+</div>
+<nav aria-label="Review sections" role="tablist">
+<button type="button" role="tab" data-tab="screens" aria-selected="true">Screen inventory</button>
+<button type="button" role="tab" data-tab="requirements" aria-selected="false">Requirements &amp; API gaps</button>
+<button type="button" role="tab" data-tab="features" aria-selected="false">Features &amp; status</button>
+<button type="button" role="tab" data-tab="new" aria-selected="false">New views</button>
+<button type="button" role="tab" data-tab="flows" aria-selected="false">Flows</button>
+<button type="button" role="tab" data-tab="history" aria-selected="false">Earlier mockups</button>
+<button type="button" role="tab" data-tab="phases" aria-selected="false">Delivery phases</button>
+</nav>
+</header>
+<main>
+<section id="screens" role="tabpanel">
+<div class="toolbar">
+<label>Mode <select id="mode"><option value="standalone">Standalone WM+</option><option value="openace">openACE present</option><option value="unavailable">Backend unavailable</option></select></label>
+<label>Disposition <select id="decision"><option value="all">All</option><option value="keep">Keep</option><option value="overlay">Overlay</option><option value="override">Override</option><option value="replace">Replace</option></select></label>
+<label>Find <input id="query" type="search" placeholder="Screen or feature" size="20"></label>
+</div>
+<p class="muted">A disposition is the proposed target. The current implementation is listed separately. Stock LOAD/UNLOAD exists; a shared guided manual operation system is new work.</p>
+<div class="layout"><aside class="screen-list" id="screen-list" aria-label="Screens"></aside><article class="card details" id="detail" aria-live="polite"></article></div>
+</section>
+<section id="requirements" role="tabpanel" hidden><h2>Required operations and backend gaps</h2><p class="muted">These are product requirements. A missing openACE or standalone command is marked TBD; it does not remove the requirement or authorize a stock/raw-command fallback.</p><div id="requirement-grid" class="feature-grid"></div></section>
+<section id="features" role="tabpanel" hidden><h2>What is available, implemented, or planned?</h2><p class="muted">Installed-but-unaccepted features must not be described as usable physical controls. See the complete plan for evidence limits.</p><div id="feature-grid" class="feature-grid"></div></section>
+<section id="new" role="tabpanel" hidden><h2>Reusable owned views</h2><p class="muted">Pages and dialog steps in one system, not eight new top-level tabs. Some already exist in narrower openACE software.</p><div id="new-views"></div></section>
+<section id="flows" role="tabpanel" hidden><h2>Explicit operations; one recovery owner</h2><label>Workflow <select id="flow-select"></select></label><div id="flow-content"></div><p class="note">Prepare, physical completion, material confirmation and Resume are separate. A timed-out physical request is not permission to replay it.</p></section>
+<section id="history" role="tabpanel" hidden><h2>August design history</h2><p class="muted">These unchanged captures used demo data. The early PCTG→PETG assignment was superseded. None proves present firmware compatibility or qualified physical actions.</p><div id="gallery" class="gallery"></div></section>
+<section id="phases" role="tabpanel" hidden><h2>Delivery and acceptance gates</h2><p class="note">The stock client restarts Klipper during startup. Updating its preload is not UI-only. Current paused-print constraints and explicit restart approval remain in force.</p><div id="phase-list"></div></section>
+<noscript><p>Please enable JavaScript for the review controls, or read <a href="../ui-plan.md">the complete Markdown plan</a>.</p></noscript>
+</main>
+<footer class="site">Source: <a href="plan-data.json">structured planning data</a>. Regenerate with <code>python3 docs/ui/build_review.py</code>. This is a review companion, not a deployed touchscreen application.</footer>
+<script>window.WMP_UI_PLAN = __PLAN_DATA__;</script>
+<script src="review.js"></script>
+</body></html>

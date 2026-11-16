@@ -19,8 +19,34 @@ uv run --with paramiko --with jinja2 python tools/deploy.py install config prelo
 uv run --with paramiko --with jinja2 python tools/deploy.py install config preload
 ```
 
-Full installation copies the required `klipper_extras/wmp_recovery.py` and
-`klipper_extras/wmp_case_light.py` helpers into Klipper's extras directory, backs
+For the **unified screen delivery package**, installation preserves the original
+configuration files and adds `wmp-screen-runtime.cfg` as a managed behavior layer.
+Preflight reviews the actual include tree; publication checks that its files and
+wildcard matches have not changed. It installs all required backend helpers
+before enabling their configuration, including when only `config` is selected.
+Configuration writes retain backups and a journal. A confirmed configuration
+rollback also restores the helper versions; an unknown publication outcome keeps
+the matching new helpers and stops without restarting. Inspect the reported
+backups before restarting after an interrupted installation.
+
+New configuration journals retain both `.before` and `.after` bytes. Internal
+recovery tooling can explicitly request
+`reconcile_screen_config.remote_script(..., action='recover', backup=...)`
+without reconstructing a plan from the current checkout. This route accepts only
+interrupted journals, validates their retained evidence and refuses concurrent
+configuration edits. It restores only the two configuration files; it does not
+restore helpers, restart services or approve printer operation. Coordinate those
+steps with the installation journal. Older backups without candidate bytes still
+require the original reviewed installation plan. This is not factory-reset or
+topology-change recovery.
+
+The unified package requires SSH and does not accept `--config-only` or `--files`.
+Its release qualification is tracked in
+[the standalone checklist](../docs/ui/standalone-completion.md); a
+packaging-control-only export is not a released screen installer.
+
+For the **historical configuration installer**, full installation copies the required `klipper_extras/wmp_identification.py`,
+`klipper_extras/wmp_recovery.py`, and `klipper_extras/wmp_case_light.py` helpers into Klipper's extras directory, backs
 up and uploads changed configuration, and restarts Klipper. The recovery helper
 establishes Z at the bottom before unreferenced tool pickup; the light helper
 exposes the stock case light to G-code.
@@ -87,10 +113,15 @@ are safe. Normal Klipper startup validation and motion/heating tests still apply
 | Filament settings in `tmt1.ini` | Runtime file is excluded |
 | Backups and recovery state | Runtime files and existing WM+ backups are excluded |
 
-The repository owns the body of `printer.cfg`, above `SAVE_CONFIG`.
+The historical installer treats the body of `printer.cfg`, above `SAVE_CONFIG`, as repository-owned.
 Comparison ignores the printer-owned block. Upload joins the new body with the
 printer's existing block. Set input-shaper values using
 [the resonance tools](../utils/README.md), not a reference copy of `printer.cfg`.
+
+The unified package does not replace that body. It adds one marked include before
+`SAVE_CONFIG`; custom hardware settings, tuning, and custom macros remain in their
+original files. Managed behavior overrides only its named commands and sensor
+callbacks. Existing filament metadata and loaded-state files are preserved.
 
 Earlier Git history contains one machine's calibration and identifiers. If creating
 a sanitized public history, start from the current tree rather than assuming that
@@ -159,14 +190,34 @@ Firmware 1.1.13's collision monitor remains enabled around tool-alignment probin
 Use **Load** on the screen to feed inserted filament. The insertion sensor reports
 that filament is present rather than starting a second automatic load/purge cycle.
 
-Load and unload moves require homed X, Y, and Z. During a running print, pause
-first. The service move raises clearance by up to 5 mm within Z travel, exits
-along X, and travels along the left side to X-13 Y80. Paused runout changes remain
-supported.
+Managed load/unload homes only X/Y when needed and mounts the selected head
+before moving to the purge position. It does not home or move Z. During a running
+print, pause first; paused service retains the captured print/recovery context.
 
-Unloading shapes the filament tip to reduce blobs and strings, then turns off the
-heater, runs the part fan, waits five seconds, and wipes. Material determines the
-sequence and temperature:
+For external filament, console callers can use `LOAD_FILAMENT HEAD=2` or
+`UNLOAD_FILAMENT HEAD=2` (Head 3 on the screen). `HEAD` is zero-based and physical;
+it never follows the print's logical tool mapping. `T` and omitted head arguments
+are rejected. Configure filament identity in Filaments before loading. Optional
+`ID=your-request-id` makes a repeated request detectable within the backend
+session. These aliases call `WMP_FILAMENT_SERVICE ACTION=load|unload HEAD=0..3`,
+which uses the same planning, receipt, progress, Stop and completion handling as
+the screen. It returns before long operations finish: observe
+`wm_material.filament_operation` for completion. Do not put these asynchronous
+commands in print G-code; guided in-print swaps are a separate feature.
+
+With openACE, an external head uses its owning adapter. Loading an ACE-attached
+head requires selecting its slot in Filaments; a head-only command never guesses
+which slot to use. Unload uses the current owner's verified destination.
+`EXTRUDE_FILAMENT`, `RETRACT_FILAMENT`, `filament_insert` and
+`filament_insert_gcode` no longer run independent heating/motion sequences. They
+report the managed alternative. For a prepared standalone head, use
+`WMP_EXTRUDER_STEP HEAD=2 MM=10` (negative MM retracts) for manual movement.
+Install the matching `config` and `material` components together.
+
+Managed unloading shapes the tip, turns the heater off and prompts removal.
+Managed loading feeds, purges and wipes. The following table describes the
+internal `_TIP_SHAPE_RETRACT` compatibility recipe, not the managed transition
+temperature policy:
 
 | Class | Materials | Temperature (°C) | Sequence source |
 |---|---|---|---|
@@ -177,8 +228,13 @@ sequence and temperature:
 
 PLA/ABS sequences alternate fast pulls, slower pulls, and reinsertion. Soft
 filament uses a shorter sequence. PETG uses a push, fast pull, three cooling
-moves, reinsertion, and extraction. Net retraction is 57 mm, or 67 mm for PETG.
-The PETG push skipped some extruder steps on the test machine; its extra extraction
+moves, reinsertion, and extraction. Net retraction is 110 mm for PLA, 27 mm for
+PETG, and 57 mm for ABS and soft filament. PLA's final extraction is 100 mm to clear
+the extruder gears; the existing openACE rollback assist spans this pull when
+openACE is present and handling the unload.
+PETG withdraws 67 mm after its initial 40 mm forward ram; the cooling and stamping
+cycles each return to their starting E position. Earlier comments incorrectly
+called that 67 mm net retraction. The PETG push skipped some extruder steps on the test machine; its extra extraction
 length accounted for that observation.
 
 Install `material` to read the screen's slot materials:
@@ -187,7 +243,7 @@ Install `material` to read the screen's slot materials:
 uv run --with paramiko --with jinja2 python tools/deploy.py install material
 ```
 
-`WM_MATERIAL_STATUS` reports them. Without that helper, unload guesses from the
+`WM_MATERIAL_STATUS` reports them. Without that helper, the internal recipe guesses from the
 hotend target: 225–235°C selects `soft`, at least 255°C selects `abs`, and other
 targets select `pla`. PETG and ABS can both arrive at 250°C, so temperature alone
 cannot distinguish them. Use the helper or an explicit `MATERIAL=PETG`.
@@ -199,6 +255,18 @@ adjustment. `_TIP_SHAPE_RETRACT DRY_RUN=1` reports its choice without movement.
 and temperature selection; use it only with the head prepared at temperature.
 PETG movement controls are `cooling_moves`, `cooling_len`, `cooling_speed_list`,
 and `stamp_len` in `_TIP_SHAPE_MOVES`.
+
+During openACE unload, WM+ enables rollback assist just before the fast withdrawal
+so the ACE takes up filament rather than pushing it against the head cover.
+It turns assist off after the last pull, before cooling: an ACE 2 was observed
+to error about one second after pulling stopped while assist remained active.
+The hooks do nothing outside an openACE unload.
+
+An optional `REPORT_ID` preserves openACE's invocation-bound tip-shaping phase
+reports. Reports describe commanded extruder distances completed before an
+`M400` barrier, not measured ACE travel or proof that filament cleared the head.
+Without `REPORT_ID`, the recipe emits no phase reports. The report helper updates
+only the macro's in-memory status; it adds no movement or recovery action.
 
 ### Case light preference, screen sleep, and printing
 
@@ -441,3 +509,37 @@ print-end clearance/wipe improvement described above.
 The community WonderSync filament-sync module remains separate and experimental;
 it was not imported. Historical proposals and decisions are in
 [the design record](../docs/design-ideas.md).
+
+### Failed docking and release
+
+WM+ stops a tool change when docking or release fails (`fail_flag = -3`).
+It preserves the failed head and refuses automatic retry homing and subsequent
+Home/Take/Park commands until the physical situation has been checked and
+reconciled. The dock settling dwell is drained before reading its switch;
+release is checked while stationary before carriage retreat. This prevents
+a failed release from turning into an X/Y homing attempt with a constrained
+carriage. It does not replace mechanical inspection or dock calibration.
+
+### Standalone tool-change failure retries
+
+In the local standalone candidate, any nonzero tool-change fault stops the outer
+change/park retry before it clears the fault or rehomes. Direct LOCK and its
+nested checks also refuse an existing fault. A new coupling failure records -2
+and stops before another stroke; failed pickup stops before the stock UNLOCK
+recovery action. Successful travel and feedrates remain unchanged. These guards
+apply with wm_material loaded and neither openACE nor AFC present; they do not
+replace either other owner's recovery policy. The existing -3 trapped-dock guard
+continues to apply to all owners. Standalone LOCK/UNLOCK also use the WM+ actuator helper, which propagates homing
+failures before a post-stroke and verifies fault persistence. The installer requires
+that helper command. Mechanical and installed qualification remain tracked in the
+UI completion checklist.
+
+### Normal homing with a mounted head
+
+Ordinary full G28 uses the sensor-confirmed mounted head as its Z reference,
+avoiding a tool change just to home. With an empty carriage it uses the existing
+probe reference (normally Head 1). START_PRINT sends an explicit physical
+P parameter to G28 so its configured first-print-tool selection takes priority.
+The saved probe_tool tracks the chosen datum for later relative tool offsets;
+ambiguous attachment stops homing before motion. Print recovery retains its
+separate bottom-Z and restored-mesh path.

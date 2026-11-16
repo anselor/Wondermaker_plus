@@ -1,0 +1,26 @@
+[
+  {
+    "file": "mock-mapping.png",
+    "source": ".claude/worktrees/screen-mods/screen/inject/mock-mapping.png",
+    "sha256": "da2edeef8e1a0412b92b3a359fa4a688cff6ae81b3065ca847116b6998f45a6b",
+    "status": "August 2026 demo mockup; historical, not shipped or accepted functionality"
+  },
+  {
+    "file": "mock-printstart-warn.png",
+    "source": ".claude/worktrees/screen-mods/screen/inject/mock-printstart-warn.png",
+    "sha256": "a998a9058af5d0852047c12284c417308ef5208841e0f9da1e066cf490b7723b",
+    "status": "August 2026 demo mockup; historical, not shipped or accepted functionality"
+  },
+  {
+    "file": "mock-printstart-abrasive.png",
+    "source": ".claude/worktrees/screen-mods/screen/inject/mock-printstart-abrasive.png",
+    "sha256": "5a91769e5516d5b24aed00fa15ae678c7ed3fea1f7de1dde6da672d6668cd25c",
+    "status": "August 2026 demo mockup; historical, not shipped or accepted functionality"
+  },
+  {
+    "file": "mock-filament-panel-hex.png",
+    "source": ".claude/worktrees/screen-mods/screen/inject/mock-filament-panel-hex.png",
+    "sha256": "f3cc83e54faaf57925193d0eb7c0bc7fe03869db03eb508724be68d7062f0e01",
+    "status": "August 2026 demo mockup; historical, not shipped or accepted functionality"
+  }
+]

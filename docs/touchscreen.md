@@ -3,6 +3,10 @@
 WM+ shows the physical touchscreen as a live panel in Fluidd. Clicking or dragging
 in the panel sends a tap or swipe to the printer, just as touching its screen would.
 
+For proposed changes to the physical screens themselves, see the
+[unified screen plan](ui-plan.md) and [interactive review](ui/review.html).
+This guide describes remote viewing/control, rather than the native UI redesign.
+
 ## Install
 
 Set your connection details as described in the [project README](../README.md).

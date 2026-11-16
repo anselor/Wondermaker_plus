@@ -70,9 +70,18 @@ Logs and optional disable switches:
 | Patch | Log | Environment variable |
 |---|---|---|
 | Case light | `/tmp/wmp_case-light.log` | `WMP_CASE_LIGHT_DISABLE` |
+| Door wake (part of the case-light patch) | `/tmp/wmp_case-light.log` | `WMP_DOOR_WAKE_DISABLE` |
 | Wi-Fi | `/tmp/wmp_wififix.log` | `WMP_WIFIFIX_DISABLE` |
 | Fan | `/tmp/wmp_fanfix.log` | `WMP_FANFIX_DISABLE` |
 | Recovery | `/tmp/wmp_recoveryfix.log` | `WMP_RECOVERYFIX_DISABLE` |
+
+Door wake reads the two vendor door switches (`gcode_button Door_button1` and
+`Door_button2`) from Moonraker twice a second. When a door changes from closed
+to open while the screen is asleep, it sends one touch to the top-left corner of
+the panel. A sleeping screen is covered by the screen program's own wake layer,
+so the touch wakes the screen and reaches no control. Nothing is sent while the
+door stays open or when it closes, and the screen sleeps again after its usual
+delay. Disabling the case-light patch also disables door wake.
 
 Setting a disable variable in the screen service's environment takes effect on its
 next restart. The code checks whether the variable exists, so remove it to re-enable
@@ -174,6 +183,35 @@ The vendor's checkpoint sampling and 3 mm recovery-return clearance remain limit
 The patch does not synchronize file position with motion, fix every interrupted
 tool change, or make a detached part recoverable.
 
+## openACE compatibility
+
+Resume and heater routing change when Moonraker reports a running Klipper object
+named `openace`. Installed files alone do not activate that routing. Detection
+for those existing hooks is cached for two seconds; a failed query currently
+falls back to their stock path.
+
+With openACE active, screen Resume goes directly to Klipper so openACE can handle
+or reject it. Without openACE, the vendor's normal resume preparation runs.
+
+The screen addresses heater T0–T3 as physical heads; openACE uses virtual tool
+numbers. WM+ converts simple screen-generated `M104/M109` commands containing
+both `S` and `T` to an explicit physical heater command. M109 also waits within
+±2.5°C. Commands with unknown parameters or out-of-range heads pass through.
+Sliced-file commands do not use this screen dispatcher and keep openACE routing.
+
+The separate stock runout auto-purge callback heats the paused head, homes X/Y,
+travels to the purge position, and feeds 100 mm. It does not itself send RESUME.
+WM+ suppresses this callback when openACE is present, because openACE owns recovery
+preparation. A fresh, complete object-list response confirming openACE is absent
+preserves stock behavior. An unavailable or malformed response withholds this
+automatic sequence; suppression does not send RESUME or record completed purge.
+The separately queued `filament_check_for_resume` worker is guarded by the same
+present/unknown/confirmed-absent policy. With openACE present, this intentionally
+removes its stock replacement prompts, automatic alternate-head selection,
+mapping writes, purge and automatic RESUME. The separate runout/tangle pause
+checker and sensor producers remain untouched. Manual standalone filament
+controls are a planned GUI feature, not part of these guards.
+
 ## Maintainer reference
 
 Adding a patch requires one C file in `client-preload/<name>/`. Installation finds
@@ -197,9 +235,19 @@ in the source profiles and firmware comparison notes.
 Run local policy, compatibility, marker, and ARM-emulation tests with:
 
 ```bash
-uv run --with pytest --with jinja2 --with unicorn python -m pytest -q tests
+uv run --with pytest --with jinja2 --with unicorn --with capstone python -m pytest -q tests
 ```
 
 Vendor-binary checks need locally extracted files and skip without them. Earlier
 libraries built and loaded on the printer's ARM CPU, and the recovery marker tests
 also ran there. These results do not replace hardware checks for a new firmware.
+
+## Native openACE screen source
+
+The exact1.1.13 optional native bundle includes readable C++ source, its pinned
+build recipe, source archive and portable tests under
+[`openace-compat/screen1113/`](openace-compat/screen1113/README.md). It reuses the
+existing compat C hooks; older C-only profiles need no native archive or compiler.
+Cross-repository backend tests are explicit developer gates and never operator
+configuration. Native screen installation/touch/Stop acceptance remains separate
+from offline tests and from the current backend deployment.
