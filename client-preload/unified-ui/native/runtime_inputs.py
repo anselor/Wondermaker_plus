@@ -45,6 +45,7 @@ RUNTIME_INPUTS = (
     'klipper_extras/wmp_filament_profiles.py',
     'klipper_extras/wmp_persistence.py',
     'klipper_extras/wmp_print_cancel.py',
+    'klipper_extras/wmp_stop_points.py',
     'klipper_extras/wmp_recovery.py',
     'klipper_extras/wmp_xy_homing.py',
     'klipper_extras/wmp_identification.py',

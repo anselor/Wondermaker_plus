@@ -49,6 +49,7 @@ try:
     from .wmp_material_owners import MaterialOwners
     from .wmp_print_cancel import PrintCancellation
     from .wmp_print_preparation import PrintPreparation
+    from .wmp_stop_points import StopPoints
     from .wmp_component import component_state, component_method, component_accessor
     from .wmp_persistence import atomic_write
     from . import wmp_filament_profiles
@@ -83,6 +84,7 @@ except ImportError:
     from wmp_material_owners import MaterialOwners
     from wmp_print_cancel import PrintCancellation
     from wmp_print_preparation import PrintPreparation
+    from wmp_stop_points import StopPoints
     from wmp_component import component_state, component_method, component_accessor
     from wmp_persistence import atomic_write
     import wmp_filament_profiles
@@ -189,6 +191,7 @@ class WMMaterial:
         self.printer.register_event_handler("klippy:disconnect", self._afc_stop)
         self.printer.register_event_handler("klippy:shutdown", self._afc_stop)
         self.printer.register_event_handler("virtual_sdcard:reset_file", self._clear_filament_checks)
+        self.printer.register_event_handler("virtual_sdcard:reset_file", self._close_stop_waits)
         self.printer.lookup_object("webhooks").register_endpoint(
             "wmp/filament/cancel", self._handle_filament_cancel)
         self.printer.lookup_object("webhooks").register_endpoint(
@@ -281,6 +284,21 @@ class WMMaterial:
                                desc="Save physical nozzle settings without restarting or moving")
         gcode.register_command("WM_MATERIAL_STATUS", self.cmd_STATUS,
                                desc=self.cmd_STATUS_help)
+
+    _stop_points = component_accessor(StopPoints, '_stop_points_component')
+    _stop_waits = component_state("_stop_points", "_stop_waits")
+    _wait_wrappers_installed = component_state("_stop_points", "_wait_wrappers_installed")
+    _STOP_POINTS = StopPoints.STOP_POINTS
+    _STOP_ERROR_PREFIX = StopPoints.STOP_ERROR_PREFIX
+    stop_requested = component_method("_stop_points", "stop_requested")
+    stop_waits_open = component_method("_stop_points", "stop_waits_open")
+    check_stop_point = component_method("_stop_points", "check_stop_point")
+    cmd_STOP_POINT = component_method("_stop_points", "cmd_STOP_POINT")
+    cmd_STOP_WAITS = component_method("_stop_points", "cmd_STOP_WAITS")
+    _close_stop_waits = component_method("_stop_points", "_close_stop_waits")
+    _record_stop_point = component_method("_stop_points", "_record_stop_point")
+    _install_wait_wrappers = component_method("_stop_points", "_install_wait_wrappers")
+    _install_stop_note_error = component_method("_stop_points", "_install_stop_note_error")
 
     _cancellation = component_accessor(PrintCancellation, '_print_cancellation')
     _print_cancel = component_state("_cancellation", "_print_cancel")

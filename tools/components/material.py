@@ -27,6 +27,7 @@ HELPERS = (
     'wmp_filament_profiles.py',
     'wmp_persistence.py',
     'wmp_print_cancel.py',
+    'wmp_stop_points.py',
     'wmp_component.py',
     'wmp_toolhead_service.py',
     'wmp_plr_execution.py',

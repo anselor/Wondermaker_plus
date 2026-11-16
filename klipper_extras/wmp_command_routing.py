@@ -138,6 +138,7 @@ class CommandRouting:
         original_cancel = gcode.register_command("CANCEL_PRINT", None)
         if original_cancel is None:
             raise self.material.printer.config_error("Managed cancellation requires CANCEL_PRINT")
+        self.material._stop_points().install()
         def other_owner():
             return (self.material.printer.lookup_object("openace", None) is not None
                     or self.material.printer.lookup_object("AFC", None) is not None)

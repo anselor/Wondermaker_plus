@@ -154,6 +154,10 @@ class RecoveryModel:
                 # Python light/timer endpoints are covered in test_case_light;
                 # they do not change this model's motion or recovery state.
                 pass
+            elif command in ('_WMP_STOP_POINT', '_WMP_STOP_WAITS'):
+                # Stop points and wait regions act only on a pending cancel
+                # (klipper_extras/test_stop_points.py); no motion or recovery state.
+                pass
             elif command in ('Z_HOMING', 'Z_RISE', '_RAISE_Z', '_DESCEND_Z', '_OFFSET_SET', 'BED_MESH_PROFILE', 'M24') or command.startswith('_WMP_'):
                 self.run(command, **args)
             # Other commands perform hardware work outside this model.

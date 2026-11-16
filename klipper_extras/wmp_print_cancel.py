@@ -303,7 +303,8 @@ class PrintCancellation:
     def _print_cancel_stage(self, name, state="running"):
         record = self._print_cancel
         if "stages" not in record:
-            record.update(version=2, stages=[{"name": n, "state": "pending"} for n in self._CANCEL_STAGES])
+            record.update(version=max(2, record.get("version", 2)),
+                          stages=[{"name": n, "state": "pending"} for n in self._CANCEL_STAGES])
         record["phase"] = name
         for stage in record["stages"]:
             if stage["name"] == name:
@@ -323,16 +324,27 @@ class PrintCancellation:
         self._print_cancel = {}
         try:
             record = json.loads(self.material._recovery_read_bytes(self._print_cancel_path(), 65536))
-            if (not isinstance(record, dict) or set(record) != ({"version", "id", "session", "file", "state", "phase", "message"}
-                        | ({"stages"} if record.get("version") == 2 else set()))
-                    or type(record["version"]) is not int or record["version"] not in (1, 2)
+            version = record.get("version") if isinstance(record, dict) else None
+            keys = {"version", "id", "session", "file", "state", "phase", "message"}
+            if version in (2, 3):
+                keys.add("stages")
+            # Version 3 adds an optional stop_point written by wmp_stop_points.
+            if (type(version) is not int or version not in (1, 2, 3)
+                    or not (set(record) == keys or (version == 3 and set(record) == keys | {"stop_point"}))
                     or not isinstance(record["id"], str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,96}", record["id"])
                     or not isinstance(record["session"], str) or not record["session"]
                     or not isinstance(record["file"], str) or not record["file"]
                     or record["state"] not in ("pending", "unknown", "complete")
                     or not isinstance(record["phase"], str) or not isinstance(record["message"], str)):
                 raise ValueError("Invalid print cancellation record")
-            if record["version"] == 2:
+            if "stop_point" in record:
+                stop = record["stop_point"]
+                if (not isinstance(stop, dict) or set(stop) != {"phase", "label", "state"}
+                        or any(not isinstance(value, str) for value in stop.values())
+                        or not re.fullmatch(r"[a-z0-9_]{1,48}", stop["phase"])
+                        or len(stop["label"]) > 160 or len(stop["state"]) > 160):
+                    raise ValueError("Invalid cancellation stop point")
+            if record["version"] >= 2:
                 stages = record["stages"]
                 if (not isinstance(stages, list) or len(stages) != len(self._CANCEL_STAGES)
                         or any(not isinstance(stage, dict) or set(stage) != {"name", "state"}
@@ -482,6 +494,7 @@ class PrintCancellation:
         acquire the G-code mutex before calling. The caller journals any partial
         outcome; an exception never authorizes replay of the old cleanup.
         """
+        self.material._close_stop_waits()
         sd = self.material.printer.lookup_object("virtual_sdcard")
         stats = self.material.printer.lookup_object("print_stats")
         gcode = self.material.printer.lookup_object("gcode")
