@@ -119,7 +119,7 @@
   "client-preload/unified-ui/standalone_backend.hpp": "a76fc3ee415078974d019ab77fafe047c7495c7c201f33207206f242759bdf88",
   "client-preload/unified-ui/typed_management.hpp": "a6f680d403b9dbf789135415e27b10fb4b337c225e842865b82e11cd07a240b0",
   "client-preload/wifi-fix/wmp_wififix.c": "2db4ce213a1b3d60929ae49ea0a41ab512ca18fc931115731ef18a1cc9f920b2",
-  "config/README.md": "0f8999132fd02f23e6baa841885023809d7504a894809a47756829465f941729",
+  "config/README.md": "b708b8aa58c3973c418a31940ef007239ab0bb137e315ba74aee4ccbc8d215da",
   "config/live/case_light.cfg": "4ec275f7d835e770a74822e4b4252cf7820c200198fd61896a16c2cebde9da1f",
   "config/live/change_extruder.cfg": "1c2cd6f2fb0e04314035806aeec84e69d5fa159b34a411013586af76eff1b5aa",
   "config/live/change_macros.cfg": "c8c9eae1fb7c0b9eefa432222ac27a78d0f83df11f10fa47b5a858bf8c700390",

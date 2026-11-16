@@ -19,6 +19,8 @@ screens:
   the screen.
 - Take or dock a head, set its temperature, and extrude or retract a chosen
   distance.
+- Edit nozzle material and diameter for each head. Diameter changes take effect
+  after restarting Klipper.
 - Review filament colours, materials and head assignments before printing.
 - Replace filament during a pause or after runout, then resume the print.
 
@@ -29,14 +31,18 @@ available from the console as `LOAD_FILAMENT HEAD=2` and
 ### Printing and reliability
 
 - **Tool changes:** return to the saved print position after wiping with a
-  clearance lift, restore travel speed, and stop on failed docking or pickup.
+  clearance lift, restore travel speed, and pause recoverable docking or pickup
+  failures for inspection, repair and Resume.
 - **Print startup:** probe with the first printing head and purge along the
   plate's left edge, away from the front panel.
 - **Pause and resume:** preserve tool-to-head assignments and restore nozzle
-  temperatures to the correct heads.
-- **Print end and cancel:** lower the bed by up to 50 mm within its remaining
-  travel, wipe the nozzle, and clear the state needed for the next print.
-- **Power-loss recovery:** restore the print's bed mesh and tool assignments,
+  temperatures to the correct heads. Runout and tangle pauses allow manual
+  movement and filament service before resuming.
+- **Print end:** lower the bed by up to 50 mm within its remaining travel and
+  wipe the nozzle.
+- **Cancel:** stop queued print work, turn off heaters, and clear the state needed
+  for the next print.
+- **Power Loss Recovery (PLR):** restore the print's bed mesh and tool assignments,
   correct recovery coordinates, and establish Z at the bottom before head pickup.
 - **Head-configuration protection:** prevent the screen app from erasing head
   identities after a communication fault. Klipper stays stopped until the fault

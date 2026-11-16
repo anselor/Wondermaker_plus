@@ -3,7 +3,6 @@
 `config/live/` contains the WM+ configuration you can install.
 `config/stock/` contains the vendor baseline used to compare it. The current
 baseline is **System 1.1.13** and requires that firmware's calibration modules.
-It has passed local checks; printer testing for 1.1.13 is still pending.
 
 Your printer's calibration and hardware identifiers stay on your printer.
 The repository contains sanitized reference files, not another machine's
@@ -348,16 +347,6 @@ Stock 1.1.13 binary inspection identifies GPIO2_B4 at
 `set_GPIO2_B4_high` / `set_GPIO2_B4_low`. `update_common_status` reads the GPIO
 every 50 updates, changes `led_on`, and refreshes the icon, so the icon should
 follow physical illumination on its next poll.
-
-On 2026-11-08, printer checks verified screen/G-code preference changes,
-persistence across Klipper restart, screen-off/wake behavior, active and paused
-print state, timer replacement by a new print, and actual shutoff after 300.2
-seconds with the GUI set to five minutes. A screen Off click saved within 0.904
-seconds during a 30-second G-code dwell. The original 30-minute sleep setting was
-then restored through the GUI. Light-only SD jobs also verified `PRINT_END` reaches
-EOF and cancellation clears native pause state. Axes stayed unhomed, positions
-unchanged, and heater targets zero. The stock unhomed guard refused pause parking;
-physical parking, clearance, wipe, and filament-runout acceptance remain pending.
 
 #### Attention signal
 

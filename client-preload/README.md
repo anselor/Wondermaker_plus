@@ -22,11 +22,6 @@ the head guard a requirement for stock-screen startup: if that guard cannot appl
 the screen program exits before running vendor startup code. Other patches skip
 unknown or unexpectedly modified clients. A loaded library alone does not prove
 its patch was applied.
-On 2026-10-10, the 1.1.13 configuration and reviewed patches were installed
-and verified with Klipper Ready and four heads. Printing and calibration acceptance
-remain pending. `head-config-guard` was subsequently deployed on the same date;
-its current-process log and live callback jump were verified. Its behavior during
-a real communication fault has not yet been observed.
 See [head communication recovery](../docs/head-communication-recovery.md) for its
 limits; it preserves configuration while retaining Klipper shutdown and manual recovery.
 
