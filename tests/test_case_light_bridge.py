@@ -21,7 +21,7 @@ def harness(tmp_path_factory):
 static int low_calls, high_calls, sent, destroyed;
 static int wake_calls, brightness_calls, next_preference;
 static unsigned char led;
-static int raw_value(void) { return 0; }
+static int raw_value(void) { assert(!"factory getter must not run"); return 0; }
 static int wake(void) { wake_calls++; return next_preference; }
 static void brightness(unsigned int value) {
     // The button preference must be ready before the backlight is enabled.
@@ -68,7 +68,7 @@ int main(int argc, char **argv) {
     original_get = raw_value; original_brightness = brightness;
     screen_led_on = &led; wake_policy = wake;
     atomic_store(&cached_preference, -1);
-    assert(light_value() == 0); // Fallback before the controller is ready.
+    (void)light_value(); // Fallback must never invoke the mutating factory getter.
     atomic_store(&cached_preference, 1);
     assert(light_value() == 1); // Saved ON, even with physical LED asleep.
     atomic_store(&cached_preference, 0);
@@ -97,6 +97,7 @@ int main(int argc, char **argv) {
     char path[] = "/tmp/wmp-light-permissions-XXXXXX";
     int fd = mkstemp(path); assert(fd >= 0);
     assert(write(fd, "1\n", 2) == 2); assert(!fchmod(fd, 0440)); close(fd);
+    assert(read_light_value(path) == 1);
     assert(!grant_gpio(path, getuid()));
     struct stat metadata; assert(!stat(path, &metadata));
     assert((metadata.st_mode & 0777) == 0640);
@@ -104,8 +105,80 @@ int main(int argc, char **argv) {
     char link[128]; snprintf(link, sizeof link, "%s-link", path);
     assert(!symlink(path, link)); assert(!chmod(path, 0440));
     assert(grant_gpio(link, getuid()) == -1);
+    assert(read_light_value(link) == 0); // Never follow an unexpected link.
     assert(!stat(path, &metadata) && (metadata.st_mode & 0777) == 0440);
     unlink(link); unlink(path);
+    assert(read_light_value(path) == 0);
+    assert(access(path, F_OK) == -1); // A missing GPIO is not created/exported.
+    int saved_calls = direct_calls, saved_sent = sent, saved_low = low_calls;
+    assert(initialize_gpio_output(path) == 17);
+    assert(low_calls == saved_low + 1); // Missing GPIO uses vendor initializer.
+    FILE *direction = fopen(path, "w"); assert(direction);
+    fputs("in\n", direction); fclose(direction);
+    assert(initialize_gpio_output(path) == 17);
+    assert(low_calls == saved_low + 2); // Recover a partial input-only export.
+    direction = fopen(path, "w"); assert(direction);
+    fputs("out\n", direction); fclose(direction);
+    assert(initialize_gpio_output(path) == 0);
+    assert(low_calls == saved_low + 2); // Existing ON/OFF output is untouched.
+    direction = fopen(path, "w"); assert(direction);
+    fputs("invalid\n", direction); fclose(direction);
+    assert(initialize_gpio_output(path) == -1);
+    assert(!symlink(path, link));
+    assert(initialize_gpio_output(link) == -1);
+    assert(low_calls == saved_low + 2);
+    assert(direct_calls == saved_calls && sent == saved_sent); // No saved OFF.
+    unlink(link); unlink(path);
+    // Door wake. Bit n: switch n+1 open. Only closed-to-open is an opening.
+    #define DOORS(a, b) "HTTP/1.1 200 OK\r\n\r\n{\"result\": {\"eventtime\": 1.5, \"status\": {" \
+        "\"gcode_button Door_button1\": {\"state\": \"" a "\"}, " \
+        "\"gcode_button Door_button2\": {\"state\": \"" b "\"}}}}"
+    assert(parse_doors(DOORS("PRESSED", "PRESSED")) == 0);
+    assert(parse_doors(DOORS("RELEASED", "PRESSED")) == 1);
+    assert(parse_doors(DOORS("PRESSED", "RELEASED")) == 2);
+    assert(parse_doors(DOORS("RELEASED", "RELEASED")) == 3);
+    assert(parse_doors(DOORS("OTHER", "OTHER")) == -1);
+    assert(parse_doors("{\"result\": {\"status\": {}}}") == -1); // No door switches.
+    assert(parse_doors("{\"result\": {\"status\": {\"gcode_button Door_button2\": "
+                       "{\"state\": \"RELEASED\"}}}}") == 2);
+    int last = -1;
+    assert(!door_opened(3, &last) && last == 3); // Open at startup: baseline only.
+    assert(!door_opened(3, &last));              // Still open: nothing further.
+    assert(!door_opened(0, &last));              // Closing is not an opening.
+    assert(door_opened(3, &last));               // Both switches together: once.
+    assert(!door_opened(3, &last));
+    assert(!door_opened(1, &last));              // One switch closes.
+    assert(door_opened(3, &last));               // It opens again.
+    assert(!door_opened(-1, &last) && last == -1); // Klipper unavailable.
+    assert(!door_opened(3, &last));              // First reading afterwards.
+    assert(!door_opened(0, &last) && door_opened(2, &last));
+    char light[] = "/tmp/wmp-backlight-XXXXXX";
+    fd = mkstemp(light); assert(fd >= 0);
+    assert(write(fd, "0\n", 2) == 2); close(fd);
+    assert(backlight_off(light) == 1);
+    FILE *lit = fopen(light, "w"); assert(lit); fputs("255\n", lit); fclose(lit);
+    assert(backlight_off(light) == 0);
+    lit = fopen(light, "w"); assert(lit); fputs("0", lit); fclose(lit);
+    assert(backlight_off(light) == 1);
+    unlink(light);
+    assert(backlight_off(light) == 0); // Unknown brightness never sends a touch.
+    char device[] = "/tmp/wmp-touch-XXXXXX";
+    fd = mkstemp(device); assert(fd >= 0); close(fd);
+    assert(!touch_corner(device));
+    struct input_event events[16];
+    fd = open(device, O_RDONLY); assert(fd >= 0);
+    assert(read(fd, events, sizeof events) == (ssize_t)sizeof events);
+    char extra; assert(read(fd, &extra, 1) == 0); close(fd);
+    assert(events[2].type == EV_SYN && events[11].type == EV_SYN && events[15].type == EV_SYN);
+    assert(events[5].code == ABS_MT_POSITION_X && events[5].value == WAKE_X);
+    assert(events[6].code == ABS_MT_POSITION_Y && events[6].value == WAKE_Y);
+    assert(events[8].type == EV_KEY && events[8].code == BTN_TOUCH && events[8].value == 1);
+    assert(events[13].code == ABS_MT_TRACKING_ID && events[13].value == -1);
+    assert(events[14].code == BTN_TOUCH && events[14].value == 0); // Always released.
+    unlink(device);
+    assert(touch_corner(device) == -1); // A missing device is never created.
+    assert(access(device, F_OK) == -1);
+    door_wake_enabled = 0; door_wake_poll(); // Disabled: no request, no touch.
     return 0;
 }
 ''')

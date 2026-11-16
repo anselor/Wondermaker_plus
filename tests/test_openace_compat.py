@@ -84,3 +84,45 @@ def test_reviewed_client_guard_and_position_independent_prologues(
         f.seek(-1, 1)
         f.write(bytes([byte[0] ^ 1]))
     assert subprocess.run([str(harness), str(changed)]).returncode == 3
+
+
+@pytest.mark.parametrize('unified', [False, True])
+def test_resume_and_automatic_recovery_ownership(tmp_path, unified):
+    source = tmp_path / 'resume.c'
+    source.write_text('#define WMP_OPENACE_TEST\n' +
+        ('#define WMP_UNIFIED_FILAMENT\n' if unified else '') +
+        '#include "' + str(SOURCE) + '"\n' + r'''#include <assert.h>
+static int stock_calls, sent;
+static void stock(void) { ++stock_calls; }
+static void send_command(const char *command) {
+    assert(!strcmp(command, "RESUME")); ++sent;
+}
+int main(void) {
+    for (int presence = -1; presence <= 1; ++presence) {
+        stock_calls = sent = 0;
+        dispatch_resume_prepare(presence, stock, send_command);
+#ifdef WMP_UNIFIED_FILAMENT
+        assert(sent == 1 && stock_calls == 0);
+#else
+        assert(sent == (presence > 0) && stock_calls == (presence <= 0));
+#endif
+        stock_calls = sent = 0;
+        wmp_dispatch_runout_purge(presence, stock);
+        wmp_dispatch_resume_check(presence, stock);
+#ifdef WMP_UNIFIED_FILAMENT
+        assert(stock_calls == 0 && sent == 0);
+#else
+        assert(stock_calls == (presence == 0 ? 2 : 0) && sent == 0);
+#endif
+    }
+    return 0;
+}
+''')
+    binary = tmp_path / 'resume'
+    subprocess.run(['gcc', '-std=c11', '-O2', '-Wall', '-Wextra', '-Werror',
+                    '-Wno-unused-function', str(source), '-o', str(binary)], check=True)
+    subprocess.run([str(binary)], check=True)
+    # Compile the actual non-test callback bodies too, for both build modes.
+    subprocess.run(['gcc', '-shared', '-fPIC', '-pthread', '-O2', '-Wall', '-Wextra', '-Werror',
+                    *(['-DWMP_UNIFIED_FILAMENT'] if unified else []), str(SOURCE),
+                    '-ldl', '-o', str(tmp_path / 'callbacks.so')], check=True)

@@ -94,13 +94,13 @@ class MotionModel:
                 **{f'box_modify_t{i}': i for i in range(4)}}},
             'wmp_recovery': {'z_reference_valid': True},
             'toolhead': {'homed_axes': 'xyz', 'position': {'z': z+.3},
-                         'axis_maximum': {'z': 330}, 'extruder': 'extruder'},
+                         'axis_maximum': {'z': 330}, 'extruder': 'extruder', 'max_accel': 500.},
             'gcode_move': {'gcode_position': {'x': 100., 'y': 150., 'z': z},
                 'position': {'x': 101., 'y': 152., 'z': z+.3},
                 'homing_origin': {'x': 1., 'y': 2., 'z': .3}, 'speed': 3600.,
                 'speed_factor': override, 'extrude_factor': 1.2,
                 'absolute_coordinates': absolute, 'absolute_extrude': False},
-            'configfile': {'settings': {'stepper_z': {'position_endstop': 330}}},
+            'configfile': {'settings': {'stepper_z': {'position_endstop': 330}, 'printer': {'max_accel': 5000.}}},
             'print_stats': {'state': state}, 'pause_resume': {'is_paused': False},
             'gcode_macro START_PRINT': {'print_body_ready': True}}
         for name, values in self.defaults.items(): self.p['gcode_macro ' + name] = values.copy()
@@ -152,7 +152,7 @@ class MotionModel:
                     gm['gcode_position'][axis] = v - gm['homing_origin'][axis]
             if 'F' in args: gm['speed'] = args['F']
             self.p['toolhead']['position']['z'] = gm['position']['z']
-            self.events.append(('MOVE', copy.deepcopy(gm)))
+            self.events.append(('MOVE', {**copy.deepcopy(gm), 'max_accel': self.p['toolhead']['max_accel'], 'has_axis_move': any(a in args for a in 'XYZE')}))
         elif name == 'SET_GCODE_OFFSET':
             for axis in 'xyz':
                 if axis.upper() not in args: continue
@@ -161,6 +161,8 @@ class MotionModel:
                 if args.get('MOVE') == '1': gm['position'][axis] += delta
                 gm['gcode_position'][axis] = gm['position'][axis] - v
             self.p['toolhead']['position']['z'] = gm['position']['z']
+        elif name == 'SET_VELOCITY_LIMIT':
+            if 'ACCEL' in args: self.p['toolhead']['max_accel'] = float(args['ACCEL'])
         elif name == 'M220': gm['speed_factor'] = args['S'] / 100
         elif name == 'M221': gm['extrude_factor'] = args['S'] / 100
         elif name in ('G90', 'G91'): gm['absolute_coordinates'] = name == 'G90'
@@ -281,3 +283,111 @@ def test_startup_toolchange_does_not_return_to_last_mesh_point():
     assert m.p['gcode_move']['gcode_position']['x'] == -13
     assert m.p['gcode_move']['gcode_position']['z'] == 12
     assert not m.p['gcode_macro _WMP_TOOL_RETURN_BEGIN']['pending']
+
+
+@pytest.mark.parametrize('printer_state', ['standby', 'printing'])
+def test_calibrated_head_switch_clearance_is_bounded_and_print_returns_exactly(printer_state):
+    """Explain the observed 0.178125 mm idle lift without accepting Z drift."""
+    m = MotionModel(outcomes=(0,) * 20, state=printer_state, current=2, z=7)
+    sv = m.p['save_variables']['variables']
+    offsets = [[0., 0., 0.], [-.215625, .059375, -.179687],
+               [.078125, -.267187, -.045937], [-.71875, .720313, -.224062]]
+    sv['probe_tool'] = 2
+    for tool, offset in enumerate(offsets):
+        sv[f't{tool}_offset'] = offset
+        sv[f't{tool}_flow_extruder'] = 100
+    gm = m.p['gcode_move']
+    gm['homing_origin'] = dict(x=0., y=0., z=0.)
+    gm['position'] = gm['gcode_position'].copy()
+    m.p['toolhead']['position']['z'] = 7.
+    m.p['toolhead']['extruder'] = 'extruder2'
+    extra_clearance = offsets[2][2] - offsets[3][2]
+    final_heights = []
+    for cycle in range(3):
+        for tool in (3, 2, 0, 1, 2):
+            m.run('_CHANGE_TOOL', T=tool)
+            assert m.p['toolhead']['extruder'] == ('extruder' if tool == 0 else f'extruder{tool}')
+            if printer_state == 'printing':
+                assert gm['gcode_position'] == pytest.approx(dict(x=100., y=150., z=7.))
+            else:
+                assert gm['position']['z'] >= 7. - 1e-9
+        final_heights.append(gm['position']['z'])
+    assert final_heights == pytest.approx([7. + extra_clearance if printer_state == 'standby' else 7.] * 3)
+
+
+@pytest.mark.parametrize('axes', ['xy', 'xyz'])
+@pytest.mark.parametrize('job', ['standby', 'paused'])
+def test_filament_service_wipe_keeps_existing_z_and_restores_feedrate(axes, job):
+    m = MotionModel(state=job, z=2)
+    m.p['toolhead']['homed_axes'] = axes
+    before = m.p['gcode_move'].copy()
+    m.run('WIPE_NOZZLE', XY_ONLY='1')
+    moves = [v for n, v in m.events if n == 'MOVE']
+    assert moves
+    assert all(v['gcode_position']['z'] == 2 for v in moves)
+    assert not any(n in ('G28', '_WMP_CALIBRATION_CLEARANCE') for n, _ in m.events)
+    assert m.p['gcode_move']['speed'] == before['speed']
+
+
+@pytest.mark.parametrize('accel', [500., 1000., 8000.])
+@pytest.mark.parametrize('outcomes', [(0,), (-2, 0), (-2, -2), (-5,)])
+def test_service_acceleration_does_not_inherit_or_leak_into_sliced_moves(accel, outcomes):
+    m = MotionModel(outcomes, override=.4)
+    m.p['toolhead']['max_accel'] = accel
+    m.run('T1')
+    moves = [v for n, v in m.events if n == 'MOVE' and v['has_axis_move']]
+    assert moves
+    assert all(v['max_accel'] == 5000. for v in moves)
+    assert m.p['toolhead']['max_accel'] == accel
+    assert m.p['gcode_move']['speed_factor'] == .4
+    # The next sliced move retains its own acceleration and speed override.
+    m.command('G1 X120 F3000')
+    assert m.events[-1][1]['max_accel'] == accel
+    assert m.events[-1][1]['speed_factor'] == .4
+
+
+@pytest.mark.parametrize('axes', ['xy', 'xyz'])
+@pytest.mark.parametrize('job', ['printing', 'paused', 'standby'])
+def test_standalone_wipe_restores_acceleration_and_override(axes, job):
+    m = MotionModel(state=job, override=.4)
+    m.p['toolhead']['homed_axes'] = axes
+    m.p['configfile']['settings']['printer']['max_accel'] = 3000.
+    m.run('WIPE_NOZZLE', XY_ONLY='1')
+    moves = [v for n, v in m.events if n == 'MOVE']
+    assert len(moves) == 10
+    assert all(v['max_accel'] == 3000. and v['speed_factor'] == 1 for v in moves)
+    assert all(v['speed'] == 12000 for v in moves)
+    assert m.p['toolhead']['max_accel'] == 500.
+    assert m.p['gcode_move']['speed_factor'] == .4
+    assert m.p['gcode_move']['speed'] == 3600.
+
+
+@pytest.mark.parametrize('absolute,override', [(True, 1.5), (False, .6)])
+def test_explicit_paused_tool_retry_returns_to_saved_model_with_new_offsets(absolute, override):
+    m = MotionModel(absolute=absolute, override=override)
+    m.run('_WMP_TOOL_RETURN_BEGIN', T='1')
+    original = copy.deepcopy(m.p['gcode_macro _WMP_TOOL_RETURN_BEGIN'])
+    m.p['print_stats']['state'] = 'paused'
+    m.p['pause_resume']['is_paused'] = True
+    m.command('G90')
+    m.command('G1 X250 Y270 Z20 F1000')
+    m.command('SET_GCODE_OFFSET X=3 Y=4 Z=-0.2 MOVE=1')
+    m.p['gcode_macro _WMP_TOOL_RETURN_BEGIN']['success'] = 1
+    m.run('_WMP_TOOL_RETURN_FINISH', RESUMING='1')
+    assert m.p['gcode_move']['gcode_position'] == pytest.approx(dict(x=100, y=150, z=12))
+    assert m.p['gcode_move']['absolute_coordinates'] == absolute
+    assert m.p['gcode_move']['speed_factor'] == override
+    assert m.p['gcode_move']['speed'] == original['feedrate']
+    assert m.p['pause_resume']['is_paused']  # Worker release belongs to backend readback.
+    assert not m.p['gcode_macro _WMP_TOOL_RETURN_BEGIN']['pending']
+
+
+def test_paused_already_attached_target_still_runs_success_suffix_before_explicit_wipe():
+    m = MotionModel(state='paused', current=1)
+    m.run('_CHECK_CHANGE_TOOL', T='1', SKIP_WIPE='1')
+    names = [name for name, _ in m.events]
+    assert '_OFFSET_SET' in names and '_WAIT_TOOL_TEMPERATURE' in names
+    assert m.p['toolhead']['extruder'] == 'extruder1'
+    assert 'WIPE_NOZZLE' not in names
+    m.run('WIPE_NOZZLE')
+    assert sum(name == 'WIPE_NOZZLE' for name, _ in m.events) == 1

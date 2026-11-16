@@ -37,6 +37,9 @@ class BlobModel(MotionModel):
             self.p[args['HEATER']]['target'] = float(args['TARGET'])
         elif name == 'TEMPERATURE_WAIT':
             self.events.append(('WAIT_POSITION',copy.deepcopy(self.p['gcode_move']['gcode_position'])))
+            args = dict(w.split('=', 1) for w in line.split()[1:])
+            if 'MAXIMUM' in args and 'MINIMUM' not in args:
+                self.events.append(('COOLDOWN_POSITION',copy.deepcopy(self.p['gcode_move']['gcode_position'])))
         elif name == 'PROBE':
             self.events.append(('PROBE_POSITION',copy.deepcopy(self.p['gcode_move']['gcode_position'])))
             gm = self.p['gcode_move']
@@ -49,10 +52,12 @@ class BlobModel(MotionModel):
 def test_blob_cools_at_original_front_position_then_only_lifts(macro,lift):
     m = BlobModel()
     m.run(macro,T='0')
-    position = next(value for name,value in m.events if name == 'WAIT_POSITION')
+    # Preparation also has an explicit heating wait. The movement restriction
+    # starts at the cooling-only wait, not at that earlier heating stage.
+    position = next(value for name,value in m.events if name == 'COOLDOWN_POSITION')
     expected = dict(x=150,y=1,z=1) if macro == 'NOZZLE_PREPARE' else dict(x=100,y=2,z=2)
     assert position == pytest.approx(expected)
-    wait = next(i for i,(name,_) in enumerate(m.events) if name == 'WAIT_POSITION')
+    wait = next(i for i,(name,_) in enumerate(m.events) if name == 'COOLDOWN_POSITION')
     moves = [value for name,value in m.events[wait:] if name == 'MOVE']
     assert len(moves) == 1
     assert moves[0]['gcode_position'] == pytest.approx(dict(position,z=lift))

@@ -31,7 +31,8 @@ def test_project_declares_klipper_compatible_license():
     assert 'GNU GENERAL PUBLIC LICENSE' in license_text
     assert 'Version 3, 29 June 2007' in license_text
     assert '[GNU General Public License version 3](LICENSE)' in readme
-    assert 'does not\nrelicense that material' in readme
+    assert "Files with their own license notices retain those terms." in readme
+    assert "other third-party material retain their owners' terms." in readme
 
 
 def test_tracked_host_tools_have_no_private_address_or_stock_password():

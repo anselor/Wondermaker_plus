@@ -23,6 +23,7 @@ class RecoveryModel:
     def __init__(self):
         env = jinja2.Environment('{%', '%}', '{', '}', undefined=jinja2.StrictUndefined)
         self.templates, self.defaults = {}, {}
+        self.probe_prepare_check = lambda: None
         for name in ('macros.cfg', 'printer.cfg', 'change_macros.cfg'):
             for section in re.split(r'(?m)^\[', (ROOT / 'config/live' / name).read_text())[1:]:
                 heading, body = section.split(']', 1)
@@ -51,6 +52,10 @@ class RecoveryModel:
             'query_endstops': {'last_query': {'z': 0}},
             'bed_mesh': {'profiles': {'default': {'points': [[0, .1], [.2, .3]]}}, 'profile_name': ''},
         }
+        self.p['custom_hall'] = {'Raw': 4000}
+        self.p['filament_switch_sensor sensor_b'] = {'filament_detected': True}
+        for i in range(4):
+            self.p['filament_switch_sensor docked%d' % i] = {'filament_detected': i != 0}
         self.events, self.in_home, self.shutdown = [], False, False
         self.mesh = None
         self.disk_profiles = copy.deepcopy(self.p['bed_mesh']['profiles'])
@@ -105,7 +110,7 @@ class RecoveryModel:
             elif command == 'BED_MESH_CLEAR':
                 self.mesh = None
                 self.p['bed_mesh']['profile_name'] = ''
-            elif command == 'SAVE_CONFIG_NO_RESTART':
+            elif command in ('SAVE_CONFIG_NO_RESTART', '_WMP_SAVE_PRINT_MESH'):
                 self.disk_profiles = copy.deepcopy(self.p['bed_mesh']['profiles'])
             elif command == 'G28':
                 if self.in_home:
@@ -118,7 +123,8 @@ class RecoveryModel:
                 else:
                     self.in_home = True
                     try:
-                        self.run('HOMING_OVERRIDE', **{axis: '' for axis in words[1:]})
+                        parts = re.split('([A-Z_]+|[A-Z*/])', line.upper())
+                        self.run('HOMING_OVERRIDE', **{parts[i]: parts[i+1].strip() for i in range(3, len(parts), 2)})
                     finally:
                         self.in_home = False
             elif command == '_WMP_HOME_Z_BOTTOM':
@@ -131,7 +137,12 @@ class RecoveryModel:
             elif command == '_CHANGE_TOOL' or re.fullmatch(r'T[0-3]', command):
                 tool = int(args['T']) if command == '_CHANGE_TOOL' else self.sv['box_modify_t' + command[1:]]
                 self.sv['current_extruder'] = tool
+                for i in range(4): self.p['filament_switch_sensor docked%d' % i]['filament_detected'] = i != tool
                 self.events.append(('PHYSICAL_TOOL', {'tool': tool, 'reference': self.sv['probe_tool']}))
+            elif command in ('_WMP_RECOVERY_JOB_BEGIN', '_WMP_RECOVERY_JOB_COMMIT', '_WMP_RECOVERY_JOB_CLEAR'):
+                self.material_handlers[command]()
+            elif command == '_WMP_PROBE_PREPARE_CHECK':
+                self.probe_prepare_check()
             elif command in ('_WMP_CASE_LIGHT_PRINT_START', '_WMP_CASE_LIGHT_PRINT_END'):
                 # Python light/timer endpoints are covered in test_case_light;
                 # they do not change this model's motion or recovery state.
@@ -403,14 +414,16 @@ def test_tool_guard_homes_bottom_before_xy_even_for_mounted_tool(same_tool, fake
     assert not any(c == 'SET_KINEMATIC_POSITION' for c in names)
 
 
-def test_manual_xy_home_establishes_real_z_instead_of_fabricating_it():
+def test_manual_xy_home_leaves_unknown_z_untouched():
     m = RecoveryModel(); m.p['print_stats']['state'] = 'standby'
     m.in_home = True
     m.run('HOMING_OVERRIDE', X='', Y='')
     names = [c for c, _ in m.events]
-    assert names.index('BOTTOM_HOME') < names.index('NATIVE_HOME')
+    assert 'BOTTOM_HOME' not in names
     assert 'SET_KINEMATIC_POSITION' not in names
-    assert m.p['wmp_recovery']['z_reference_valid']
+    assert not m.p['wmp_recovery']['z_reference_valid']
+    assert m.p['toolhead']['homed_axes'] == 'xy'
+    assert m.p['toolhead']['position']['z'] == 20
 
 
 def test_real_commit_preserves_native_tuple_offsets_through_recovery():
@@ -427,3 +440,257 @@ def test_real_commit_preserves_native_tuple_offsets_through_recovery():
     m.p['print_stats']['filename'] = filename
     m.run('M24')
     assert m.events[-1][0] == 'M9924'
+
+
+@pytest.mark.parametrize('mounted', range(4))
+def test_normal_full_home_keeps_sensor_confirmed_head_and_sets_datum(mounted):
+    m = RecoveryModel()
+    m.p['print_stats']['state'] = 'standby'
+    m.sv['current_extruder'] = 0  # Stale selection cannot override sensors.
+    m.sv['probe_tool'] = 0
+    for i in range(4): m.p['filament_switch_sensor docked%d' % i]['filament_detected'] = i != mounted
+    m.run('HOMING_OVERRIDE')
+    assert m.sv['current_extruder'] == mounted
+    assert m.sv['probe_tool'] == mounted
+    changes = [args['tool'] for cmd, args in m.events if cmd == 'PHYSICAL_TOOL']
+    assert changes == [mounted]
+    # Subsequent tool offsets must be relative to the head that actually homed.
+    m.sv['current_extruder'] = (mounted + 1) % 4
+    m.run('_OFFSET_SET')
+    offsets = [args for cmd, args in m.events if cmd == 'SET_GCODE_OFFSET'][-1]
+    reference = m.sv['t%d_offset' % mounted]
+    target = m.sv['t%d_offset' % ((mounted + 1) % 4)]
+    for axis, index in zip('XYZ', range(3)):
+        assert float(offsets[axis]) == pytest.approx(target[index] - reference[index])
+
+
+def test_idle_start_print_still_uses_explicit_first_tool():
+    m = RecoveryModel()
+    m.p['print_stats']['state'] = 'standby'
+    m.start(INITIAL_TOOL='0')  # Mapping T0 -> physical Head 3.
+    assert m.sv['probe_tool'] == 2
+    assert any(cmd == 'PHYSICAL_TOOL' and args['tool'] == 2 for cmd, args in m.events)
+
+
+@pytest.mark.parametrize('fault', ['locked_in_dock', 'two_missing', 'hall', 'saved_fault'])
+def test_normal_home_refuses_ambiguous_attachment_before_motion(fault):
+    m = RecoveryModel()
+    m.p['print_stats']['state'] = 'standby'
+    if fault == 'locked_in_dock': m.p['filament_switch_sensor docked0']['filament_detected'] = True
+    elif fault == 'two_missing': m.p['filament_switch_sensor docked1']['filament_detected'] = False
+    elif fault == 'hall': m.p['custom_hall']['Raw'] = 0
+    else: m.sv['fail_flag'] = -3
+    with pytest.raises(ValueError, match='sensors disagree|failure remains unresolved'): m.run('HOMING_OVERRIDE')
+    assert not any(cmd in ('NATIVE_HOME', 'BOTTOM_HOME', 'PHYSICAL_TOOL') for cmd, _ in m.events)
+
+
+def test_normal_home_empty_carriage_uses_existing_default_reference():
+    m = RecoveryModel()
+    m.p['print_stats']['state'] = 'standby'
+    m.p['custom_hall']['Raw'] = 4900
+    m.p['filament_switch_sensor sensor_b']['filament_detected'] = False
+    for i in range(4): m.p['filament_switch_sensor docked%d' % i]['filament_detected'] = True
+    m.run('HOMING_OVERRIDE')
+    assert m.sv['probe_tool'] == 0
+    assert any(cmd == 'PHYSICAL_TOOL' and args['tool'] == 0 for cmd, args in m.events)
+
+
+@pytest.mark.parametrize('reference', [False, True])
+@pytest.mark.parametrize('paused', [False, True])
+def test_explicit_xy_homing_never_invokes_z_or_tool_selection(reference, paused):
+    model = RecoveryModel()
+    model.p['wmp_recovery']['z_reference_valid'] = reference
+    model.p['print_stats']['state'] = 'paused' if paused else 'standby'
+    script = model.templates['HOMING_OVERRIDE'].render(
+        printer=model.p, params={'X': '', 'Y': ''}, action_raise_error=model.stop)
+    lines = [line.strip() for line in script.splitlines() if line.strip()]
+    assert 'G28  Y' in lines and 'G28  X' in lines
+    assert not any('z_rise' in line or 'Z_HOMING' in line or 'HOME_Z' in line
+                   or '_WMP_SELECT_HOME_TOOL' in line or re.search(r'G[0128]+\s+Z', line)
+                   for line in lines)
+
+
+def test_normal_full_homing_keeps_z_preparation():
+    model = RecoveryModel()
+    model.p['gcode_macro Z_HOMING']['z_raise'] = 1
+    script = model.templates['HOMING_OVERRIDE'].render(
+        printer=model.p, params={}, action_raise_error=model.stop)
+    assert 'z_rise' in script and 'Z_HOMING' in script
+
+
+@pytest.mark.parametrize('mounted', range(4))
+def test_stock_probe_calibration_uses_physical_reference_despite_mapping(mounted):
+    m = RecoveryModel()
+    m.p['print_stats']['state'] = 'standby'
+    # The fixture remaps logical T0 to physical Head 3.
+    assert m.sv['box_modify_t0'] == 2
+    m.sv['current_extruder'] = mounted
+    for i in range(4):
+        m.p['filament_switch_sensor docked%d' % i]['filament_detected'] = i != mounted
+    m.run('_WMP_PROBE_CALIBRATE')
+    assert m.sv['probe_tool'] == 0
+    assert m.sv['current_extruder'] == 0
+    changes = [args['tool'] for cmd, args in m.events if cmd == 'PHYSICAL_TOOL']
+    assert changes and all(head == 0 for head in changes)
+    commands = [cmd for cmd, _ in m.events]
+    assert 'T0' not in commands
+    # The hardware/manual probe command is an opaque endpoint in this model.
+    assert commands.index('Z_HOMING') < commands.index('PROBE_CALIBRATE')
+    assert m.p['toolhead']['homed_axes'] == 'xyz'
+
+
+@pytest.mark.parametrize('state,fault', [('printing', 0), ('paused', 0), ('standby', -3), ('standby', 1)])
+def test_stock_probe_calibration_rejects_before_preparation(state, fault):
+    m = RecoveryModel()
+    m.p['print_stats']['state'] = state
+    m.sv['fail_flag'] = fault
+    with pytest.raises(ValueError, match='idle maintenance|toolhead fault'):
+        m.run('_WMP_PROBE_CALIBRATE')
+    assert not m.events
+
+
+def test_stock_probe_calibration_cannot_enter_power_recovery_homing_branch():
+    m = RecoveryModel()
+    m.p['print_stats']['state'] = 'standby'
+    m.p['gcode_macro Z_HOMING']['z_raise'] = 0
+    with pytest.raises(ValueError, match='Resolve print recovery'):
+        m.run('_WMP_PROBE_CALIBRATE')
+    assert not m.events
+
+
+@pytest.mark.parametrize('mounted', range(4))
+@pytest.mark.parametrize('axes', ['', 'xy', 'z', 'xyz'])
+def test_bed_calibration_establishes_physical_reference_before_heating_and_mesh(mounted, axes):
+    m = RecoveryModel()
+    m.p['print_stats']['state'] = 'standby'
+    m.p['toolhead']['homed_axes'] = axes
+    m.sv['current_extruder'] = mounted
+    m.sv['probe_tool'] = mounted
+    for i in range(4):
+        m.p[f'filament_switch_sensor docked{i}']['filament_detected'] = i != mounted
+    m.run('G29')
+    assert m.sv['current_extruder'] == m.sv['probe_tool'] == 0
+    assert m.p['toolhead']['homed_axes'] == 'xyz'
+    assert m.p['wmp_recovery']['z_reference_valid']
+    commands = [cmd for cmd, _ in m.events]
+    assert commands.index('Z_HOMING') < commands.index('M140') < commands.index('BED_MESH_CALIBRATE')
+    assert 'T0' not in commands  # logical T0 is mapped to physical Head 3
+    heaters = [args for cmd, args in m.events if cmd == 'SET_HEATER_TEMPERATURE']
+    assert heaters == [{'HEATER': 'extruder', 'TARGET': '140'},
+                       {'HEATER': 'extruder', 'TARGET': '0'}]
+    assert ('TEMPERATURE_WAIT', {'SENSOR': 'extruder', 'MINIMUM': '140', 'MAXIMUM': '143'}) in m.events
+    assert m.mesh['points'][0][0] == 0
+    assert m.p['gcode_macro G29']['bed_leveling'] is False
+
+
+@pytest.mark.parametrize('state,fault,recovering', [
+    ('printing', 0, False), ('paused', 0, False),
+    ('standby', -3, False), ('standby', 1, False),
+    ('standby', 0, True),
+])
+def test_bed_calibration_rejects_unsafe_entry_before_any_side_effect(state, fault, recovering):
+    m = RecoveryModel()
+    m.p['print_stats']['state'] = state
+    m.sv['fail_flag'] = fault
+    if recovering:
+        m.p['gcode_macro Z_HOMING']['z_raise'] = 0
+    before = copy.deepcopy(m.sv)
+    with pytest.raises(ValueError, match='idle maintenance|toolhead fault|print recovery'):
+        m.run('G29')
+    assert not m.events
+    assert m.sv == before
+
+
+@pytest.mark.parametrize('head', range(4))
+@pytest.mark.parametrize('identification,mapping', [(False, [2, 1, 0, 3]), (True, [3, 3, 0, 0])])
+def test_maintenance_physical_selection_bypasses_logical_mapping(head, identification, mapping):
+    m = RecoveryModel()
+    m.p['print_stats']['state'] = 'standby'
+    m.sv['is_nozzle_setting'] = int(identification)
+    m.sv.update({f'box_modify_t{i}': target for i, target in enumerate(mapping)})
+    m.run('_WMP_CALIBRATION_TOOL', T=head)
+    assert m.sv['current_extruder'] == head
+    assert [args['tool'] for cmd, args in m.events if cmd == 'PHYSICAL_TOOL'] == [head]
+    assert not any(cmd in ('T0', 'T1', 'T2', 'T3', 'G28', 'SET_HEATER_TEMPERATURE') for cmd, _ in m.events)
+
+
+@pytest.mark.parametrize('head', ['', '-1', '4', '0.5', '00', 'bad'])
+def test_maintenance_pid_selection_rejects_invalid_head_before_motion(head):
+    m = RecoveryModel()
+    m.p['print_stats']['state'] = 'standby'
+    with pytest.raises(ValueError, match='physical head index'):
+        m.run('_WMP_CALIBRATION_TOOL', T=head)
+    assert not m.events
+
+
+@pytest.mark.parametrize('state,fault,recovering', [
+    ('printing', 0, False), ('paused', 0, False),
+    ('standby', -3, False), ('standby', 1, False), ('standby', 0, True),
+])
+def test_maintenance_pid_selection_rejects_unsafe_context(state, fault, recovering):
+    m = RecoveryModel()
+    m.p['print_stats']['state'] = state
+    m.sv['fail_flag'] = fault
+    if recovering:
+        m.p['gcode_macro Z_HOMING']['z_raise'] = 0
+    with pytest.raises(ValueError, match='idle maintenance|toolhead fault|print recovery'):
+        m.run('_WMP_CALIBRATION_TOOL', T=2)
+    assert not m.events
+
+
+def test_managed_material_hooks_own_context_writes():
+    m = RecoveryModel()
+    m.p['wm_material'] = {}
+    observations = []
+    def observe(stage):
+        # The standalone backend now owns optional publication. Simulate its
+        # effects here; the real backend is covered by test_wm_material.
+        if stage == 'begin':
+            m.sv['wmp_print_context'] = {}
+        elif stage == 'commit':
+            m.sv['wmp_print_context'] = {
+                'version': 2, 'tool': m.sv['probe_tool'], 'mesh': 'wmp_print',
+                'mapping': [m.sv['box_modify_t%d' % i] for i in range(4)],
+                'offsets': [copy.deepcopy(m.sv['t%d_offset' % i]) for i in range(4)],
+                'file_hex': m.p['print_stats']['filename'].encode().hex()}
+        observations.append((stage, copy.deepcopy(m.sv.get('wmp_print_context')),
+                             len(m.events)))
+    m.material_handlers = {
+        '_WMP_RECOVERY_JOB_BEGIN': lambda: observe('begin'),
+        '_WMP_RECOVERY_JOB_COMMIT': lambda: observe('commit'),
+        '_WMP_RECOVERY_JOB_CLEAR': lambda: observe('clear')}
+    m.start()
+    assert [stage for stage, context, index in observations] == ['begin', 'commit']
+    assert observations[0][1] == {}
+    assert observations[1][1] == m.sv['wmp_print_context']
+    commands = [command for command, args in m.events]
+    assert commands.index('_WMP_RECOVERY_JOB_BEGIN') < commands.index('SET_HEATER_TEMPERATURE')
+    assert commands.index('_WMP_RECOVERY_JOB_COMMIT') > max(i for i, command in enumerate(commands) if command == 'G1')
+    m.run('_WMP_PRINT_CONTEXT_CLEAR')
+    assert observations[-1][0:2] == ('clear', {})
+
+
+@pytest.mark.parametrize('checkpoint', [1, 2])
+def test_probe_preparation_stops_before_next_macro_stage(checkpoint):
+    model = RecoveryModel()
+    model.p['print_stats']['state'] = 'standby'
+    checks = []
+    def check():
+        checks.append(True)
+        if len(checks) == checkpoint:
+            raise ValueError('stop requested')
+    model.probe_prepare_check = check
+    with pytest.raises(ValueError, match='stop requested'):
+        model.run('_WMP_PROBE_CALIBRATE')
+    commands = [cmd for cmd, _ in model.events]
+    assert 'PROBE_CALIBRATE' not in commands
+    assert ('G28' in commands) == (checkpoint == 2)
+
+
+def test_probe_positioning_and_probe_start_each_have_stop_boundary():
+    model = RecoveryModel()
+    model.p['toolhead']['homed_axes'] = 'xyz'
+    script = model.templates['PROBE_CALIBRATE'].render(printer=model.p, params={})
+    commands = [line.strip() for line in script.splitlines() if line.strip()]
+    for stage in ('BED_MESH_CLEAR', '_WMP_CALIBRATION_CLEARANCE', 'G1 X150 Y150 F3000', 'PROBE_CALIBRATE_BASE'):
+        assert commands[commands.index(stage)-1] == '_WMP_PROBE_PREPARE_CHECK'

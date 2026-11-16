@@ -1,0 +1,25 @@
+{
+  "artifact": {
+    "file": "screen.so",
+    "machine": "AArch64",
+    "needed": [
+      "libc.so.6",
+      "libgcc_s.so.1",
+      "libpthread.so.0",
+      "libstdc++.so.6"
+    ],
+    "nodelete": true,
+    "sha256": "fdb0c902742e6d04eed14653a80f35ffa3c6d26e7a96c8124d986ba8080704dd",
+    "size": 298520
+  },
+  "legacy_c_sha256": "ec3b4e90dfc6dcfbc65f952b665045ff67703bd6bfdcde5e534e3ffa86f4a447",
+  "profile": {
+    "firmware": "1.1.13",
+    "sha256": "b60c96c5caf980a127a3d284e5ac98e799dfd79691cb1a52aafd06fd818c4715",
+    "size": 61340216
+  },
+  "scope": "packaging-control-only",
+  "source_archive_sha256": "6bd53638fe86297aa9ef5f862cf15f012925b91cb19ea6c09dc09dea1d306ff5",
+  "source_manifest_sha256": "8c232dc4093084f4d8a6c5db6b2b5d1c7e425789db35d2090de7f336d82b8e5b",
+  "version": 1
+}

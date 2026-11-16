@@ -23,12 +23,16 @@ def vendor_module(name):
 @pytest.mark.parametrize('directory', ['stock', 'live'])
 @pytest.mark.parametrize('tool', [0, 2])
 def test_calibration_guards_surround_probing_and_keep_live_clearance(directory, tool):
-    printer = {'save_variables': {'variables': {'probe_position': [299, 290, 8.5, 6.9, 5.8]}}}
+    printer = {'save_variables': {'variables': {'probe_position': [299, 290, 8.5, 6.9, 5.8]}},
+               'print_stats': {'state': 'standby'}}
     script = templates(ROOT / 'config' / directory)['CALIBRATE_TOOL_OFFSET'].render(
         printer=printer, params={'T': tool}, action_respond_info=lambda *args: '')
     commands = [line.strip() for line in script.splitlines() if line.strip()]
     probe_command = 'TOOL_LOCATE_SENSOR' if tool == 0 else 'TOOL_CALIBRATE_TOOL_OFFSET'
-    assert commands.index('COLLISION_DETECT_DISABLE') < commands.index(f'T{tool}')
+    selection = f'_CHANGE_TOOL T={tool}' if directory == 'live' else f'T{tool}'
+    assert commands.index('COLLISION_DETECT_DISABLE') < commands.index(selection)
+    if directory == 'live':
+        assert f'T{tool}' not in commands  # Calibration selects a physical head, not a slicer slot.
     assert commands.index('G0 Y290 F9600') < commands.index('M400')
     threshold = next(c for c in commands if c.startswith('SET_COLLISION_THRESHOLD '))
     assert 'THRESHOLD=12.0' in threshold and 'ACTION=shutdown' in threshold

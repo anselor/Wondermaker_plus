@@ -123,54 +123,33 @@ def test_remote_verifier_is_self_contained(monkeypatch):
     assert "wait_for_guard('/home/test'," in scripts[0][0]
 
 
-@pytest.mark.parametrize('failure', [None, 'build', 'guard', 'print'])
-def test_install_publishes_libraries_atomically_and_requires_guard(monkeypatch, failure):
-    events = []
-    ctx = NS(user='test', ssh=lambda: None, printing_now=lambda: failure == 'print',
-             wait_for_backend=lambda: events.append('backend settled'), sftp=lambda: NS(put=lambda *a: None), DeployError=DeployError)
-    monkeypatch.setattr(preload, 'sources', lambda: [('head-config-guard', '/source/guard.c')])
-    def run(c, cmd, **kwargs):
-        events.append(cmd)
-        if cmd.startswith('gcc '):
-            assert '.so.wmp-upload-' in cmd
-            if failure == 'build':
-                return '', 'compiler error', 1
-        return '', '', 0
-    monkeypatch.setattr(preload, 'run', run)
-    monkeypatch.setattr(preload, '_write_dropin', lambda *a: events.append('override') or 'libs')
-    monkeypatch.setattr(preload, '_restart', lambda *a: events.append('screen restart'))
-    def verify(ctx):
-        events.append('guard check')
-        if failure == 'guard':
-            raise DeployError('unprotected')
-    monkeypatch.setattr(preload, 'verify_guard', verify)
-    monkeypatch.setattr(preload, 'status', lambda *a: events.append('status'))
-    if failure:
-        with pytest.raises(DeployError):
-            preload.install(ctx)
-        assert 'status' not in events
-        assert 'backend settled' not in events
-        if failure in ('build', 'print'):
-            assert 'screen restart' not in events
-        if failure == 'build':
-            assert not any(e.startswith('mv ') for e in events)
-    else:
-        preload.install(ctx)
-        assert events[-5:] == ['override', 'screen restart', 'guard check', 'backend settled', 'status']
-        assert any(e.startswith('mv ') and '.so.wmp-upload-' in e for e in events)
+def test_transactional_override_requires_guard(tmp_path):
+    import json
+    import preload_bundle as pb
+    stage=tmp_path/'stage'; stage.mkdir()
+    lib=tmp_path/'lib'; lib.mkdir()
+    drop=tmp_path/'override'
+    source=stage/'test.so'; source.write_bytes(b'candidate')
+    outputs={'libwmp_wifi-fix.so':{'file':source.name,'sha256':pb.digest(source)}}
+    (stage/'outputs.json').write_text(json.dumps(outputs))
+    with pytest.raises(ValueError,match='head-config-guard.*missing'):
+        pb.publish_stage(stage,lib,drop,require_guard=True)
+    assert not drop.exists() and not list(lib.iterdir())
+    outputs['libwmp_head-config-guard.so']=outputs['libwmp_wifi-fix.so']
+    (stage/'outputs.json').write_text(json.dumps(outputs))
+    pb.publish_stage(stage,lib,drop,require_guard=True)
+    assert 'WMP_REQUIRE_HEAD_CONFIG_GUARD=1' in drop.read_text()
 
 
-def test_override_requires_the_guard_on_every_screen_start(monkeypatch):
-    commands = []
-    def run(c, cmd, **kwargs):
-        commands.append(cmd)
-        return ('/home/test/wmp/lib/libwmp_head-config-guard.so\n' if cmd.startswith('ls ') else '', '', 0)
-    monkeypatch.setattr(preload, 'run', run)
-    preload._write_dropin(NS(user='test', DeployError=DeployError), None)
-    assert 'WMP_REQUIRE_HEAD_CONFIG_GUARD=1' in commands[-1]
-    monkeypatch.setattr(preload, 'run', lambda *a, **k: ('/home/test/wmp/lib/libwmp_wifi-fix.so', '', 0))
-    with pytest.raises(DeployError, match='missing'):
-        preload._write_dropin(NS(user='test', DeployError=DeployError), None)
+def test_guard_failure_blocks_activation_success(monkeypatch):
+    commands=[]
+    monkeypatch.setattr(preload,'_printer_info',lambda ctx:{'process_id':1})
+    monkeypatch.setattr(preload,'_checked',lambda ctx,c,command,**kw:commands.append(command))
+    def refuse(ctx): raise DeployError('unprotected screen')
+    monkeypatch.setattr(preload,'verify_guard',refuse)
+    with pytest.raises(DeployError,match='unprotected screen'):
+        preload._restart(NS(DeployError=DeployError),None)
+    assert commands[-1]=='systemctl start '+preload.SERVICE
 
 
 @pytest.mark.parametrize('disabled', [False, True])
@@ -192,6 +171,8 @@ def test_required_guard_prevents_unprotected_vendor_startup(tmp_path, disabled):
     # This executable is intentionally unsupported. Its main must never run.
     result = subprocess.run([str(client)], env=env, capture_output=True, text=True)
     assert result.returncode == 78 and 'vendor startup' not in result.stdout
+    assert 'preserve physical head configuration' in result.stderr
+    assert 'Reinstall a WM+ package supporting this screen client' in result.stderr
     env.pop('WMP_REQUIRE_HEAD_CONFIG_GUARD')
     result = subprocess.run([str(client)], env=env, capture_output=True, text=True)
     assert result.returncode == 0 and 'vendor startup' in result.stdout
@@ -208,11 +189,33 @@ def test_failed_service_restart_is_not_hidden_by_old_active_service(monkeypatch)
     assert len(commands) == 1
 
 
-def test_failed_override_write_stops_before_screen_restart(monkeypatch):
-    def run(c, cmd, **kwargs):
-        if cmd.startswith('ls '):
-            return '/home/test/wmp/lib/libwmp_head-config-guard.so', '', 0
-        return '', 'read-only filesystem', 1
-    monkeypatch.setattr(preload, 'run', run)
-    with pytest.raises(DeployError, match='screen restart blocked'):
-        preload._write_dropin(NS(user='test', DeployError=DeployError), None)
+# Transactional write failure and byte-for-byte rollback are exercised by
+# test_preload_bundle.py and test_preload_restore.py rather than the retired
+# _write_dropin implementation.
+
+
+@pytest.mark.parametrize('mapped', [False, True])
+def test_stock_restoration_verifier_checks_running_process_without_guard(tmp_path, monkeypatch, mapped):
+    import preflight
+    home = tmp_path/'home'
+    client = home/'TM_T1/bin/client'
+    client.parent.mkdir(parents=True)
+    client.write_bytes(b'stock executable')
+    proc_root = tmp_path/'proc'
+    proc = proc_root/'123'
+    proc.mkdir(parents=True)
+    (proc/'exe').symlink_to(client)
+    (proc/'stat').write_text('123 (client) ' + ' '.join(['0']*19+['456']))
+    (proc/'maps').write_text(str(home/'wmp/lib/libwmp_head-config-guard.so') if mapped else 'stock mapping')
+    monkeypatch.setattr(preload, '_printer_home', lambda ctx: str(home))
+    monkeypatch.setattr(subprocess, 'run', lambda *args, **kwargs: NS(stdout='123'))
+    def remote(ctx, code, **kwargs):
+        assert kwargs['sudo'] is True
+        code = code.replace("Path('/proc')", 'Path(%r)' % str(proc_root))
+        exec(compile(code, '<stock screen verifier>', 'exec'), {})
+    monkeypatch.setattr(preflight, 'remote', remote)
+    if mapped:
+        with pytest.raises(ValueError, match='Removed WM\\+ libraries remain mapped'):
+            preload.verify_stock_client(NS(user='unused'))
+    else:
+        preload.verify_stock_client(NS(user='unused'))
