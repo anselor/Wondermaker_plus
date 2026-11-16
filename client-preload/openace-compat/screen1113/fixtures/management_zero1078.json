@@ -1,0 +1,247 @@
+{
+  "adaptive_swap": {
+    "attempts": [],
+    "learned": null,
+    "reason": "",
+    "source": null,
+    "state": "idle"
+  },
+  "alerts": [],
+  "api_version": 1,
+  "assist": {},
+  "blocked_slots": [],
+  "blocked_tools": {},
+  "capabilities": {
+    "drivers_loaded": false,
+    "inventory_publication": true,
+    "job_map": 1,
+    "max_map_pairs": 256,
+    "max_virtual_tools": 32,
+    "native_select": true,
+    "owns_tool_commands": true,
+    "preheat": 1
+  },
+  "config_revision": 0,
+  "declined_commands": {},
+  "default_tool_map": {},
+  "destinations": [],
+  "devices": {
+    "abort": {
+      "endpoint": "openace/abort",
+      "observations": [],
+      "reason": "",
+      "requested": false,
+      "scopes": []
+    },
+    "adaptive_swap": {
+      "attempts": [],
+      "learned": null,
+      "reason": "",
+      "source": null,
+      "state": "idle"
+    },
+    "identity_persistence": "none",
+    "load_verify": null,
+    "paused": null,
+    "sensors": {
+      "action": "",
+      "modes": {
+        "h0": "event",
+        "h1": "event",
+        "h2": "event",
+        "h3": "event"
+      },
+      "notes": {}
+    },
+    "stop_pending": {},
+    "units": {}
+  },
+  "edge_feed": {},
+  "expectations_declared": false,
+  "heads": [
+    {
+      "contents": "present_unknown_source",
+      "extruder": "extruder",
+      "extruder_index": 0,
+      "feed": "direct",
+      "hand_loaded": false,
+      "id": "h0",
+      "sensor": true,
+      "toolhead_sensor": "filament_switch_sensor filament0"
+    },
+    {
+      "contents": "present_unknown_source",
+      "extruder": "extruder1",
+      "extruder_index": 1,
+      "feed": "direct",
+      "hand_loaded": false,
+      "id": "h1",
+      "sensor": true,
+      "toolhead_sensor": "filament_switch_sensor filament1"
+    },
+    {
+      "contents": "present_unknown_source",
+      "extruder": "extruder2",
+      "extruder_index": 2,
+      "feed": "direct",
+      "hand_loaded": false,
+      "id": "h2",
+      "sensor": true,
+      "toolhead_sensor": "filament_switch_sensor filament2"
+    },
+    {
+      "contents": "present_unknown_source",
+      "extruder": "extruder3",
+      "extruder_index": 3,
+      "feed": "direct",
+      "hand_loaded": false,
+      "id": "h3",
+      "sensor": true,
+      "toolhead_sensor": "filament_switch_sensor filament3"
+    }
+  ],
+  "heater_routing": "routed",
+  "heater_routing_reason": "verified M99104 / M99109 as the upstream extruder handlers",
+  "inventory": {},
+  "inventory_publication": "current",
+  "job": {
+    "active": false,
+    "config_revision": 0,
+    "file": null,
+    "pairs": [],
+    "restored_from": "none",
+    "source": "default",
+    "staged": "none",
+    "staged_reason": "",
+    "state": "none"
+  },
+  "last_error": null,
+  "layout": "head_major",
+  "load_verify": null,
+  "loaded": {
+    "h0": {
+      "destination": null,
+      "evidence": "none",
+      "identity": null,
+      "state": "unknown",
+      "verified": false
+    },
+    "h1": {
+      "destination": null,
+      "evidence": "none",
+      "identity": null,
+      "state": "unknown",
+      "verified": false
+    },
+    "h2": {
+      "destination": null,
+      "evidence": "none",
+      "identity": null,
+      "state": "unknown",
+      "verified": false
+    },
+    "h3": {
+      "destination": null,
+      "evidence": "none",
+      "identity": null,
+      "state": "unknown",
+      "verified": false
+    }
+  },
+  "management": {
+    "add_candidates": [],
+    "capabilities": {
+      "effective_settings": 1,
+      "unit_accept_expect_context": 1,
+      "unit_add_expect_context": 1,
+      "version": 1
+    },
+    "head_settings": {
+      "h0": {
+        "effective": {
+          "capture_mm": 10,
+          "capture_step_mm": 5
+        },
+        "origins": {
+          "capture_mm": "config",
+          "capture_step_mm": "default"
+        }
+      },
+      "h1": {
+        "effective": {
+          "capture_mm": 10,
+          "capture_step_mm": 5
+        },
+        "origins": {
+          "capture_mm": "config",
+          "capture_step_mm": "default"
+        }
+      },
+      "h2": {
+        "effective": {
+          "capture_mm": 0,
+          "capture_step_mm": 5
+        },
+        "origins": {
+          "capture_mm": "default",
+          "capture_step_mm": "default"
+        }
+      },
+      "h3": {
+        "effective": {
+          "capture_mm": 0,
+          "capture_step_mm": 5
+        },
+        "origins": {
+          "capture_mm": "default",
+          "capture_step_mm": "default"
+        }
+      }
+    },
+    "source_settings": {},
+    "units": {}
+  },
+  "material_families": {
+    "matte": "pla",
+    "matte pla": "pla",
+    "petg": "petg",
+    "pla": "pla",
+    "pla matte": "pla",
+    "pla+": "pla"
+  },
+  "operation": null,
+  "ownership_conflicts": [],
+  "ownership_reason": "forced by own_tool_commands: true (no vendor macro T0 found)",
+  "path_clear_mm": {},
+  "pending_temps": {},
+  "persistence": "ok",
+  "qualification": {
+    "ace_positioning_mm": 0,
+    "attempted": [],
+    "edge_feed_bound_mm": 1200,
+    "extruder_mm": 0,
+    "frozen": {},
+    "head": null,
+    "inlet_after_cleanup": null,
+    "note": "",
+    "open": false,
+    "slot": null,
+    "stage": "none",
+    "trial": null,
+    "unit": null
+  },
+  "recovery": null,
+  "session_id": 100,
+  "software_version": "0.1.0",
+  "source_settings": {},
+  "state_revision": 1,
+  "tool_extruder_index": {},
+  "tool_head": {},
+  "unit_discovery": [],
+  "unit_settings": {},
+  "units": [],
+  "unload": {},
+  "unload_modes": {},
+  "unrouted_slots": [],
+  "vendor_handlers": {}
+}

@@ -1,0 +1,418 @@
+{
+  "revision": "fixture-1",
+  "owner": "openace",
+  "fresh": true,
+  "heads": [
+    {
+      "id": "h0",
+      "name": "Head 1",
+      "actual": 28,
+      "target": 0,
+      "loaded": {
+        "state": "loaded",
+        "source": "ace-1:0",
+        "identity": {
+          "brand": "Generic",
+          "material": "PLA",
+          "color": "#b8bec5"
+        }
+      }
+    },
+    {
+      "id": "h1",
+      "name": "Head 2",
+      "actual": 28,
+      "target": 0,
+      "loaded": {
+        "state": "empty"
+      }
+    },
+    {
+      "id": "h2",
+      "name": "Head 3",
+      "actual": 28,
+      "target": 0,
+      "loaded": {
+        "state": "unknown"
+      }
+    },
+    {
+      "id": "h3",
+      "name": "Head 4",
+      "actual": 28,
+      "target": 0,
+      "loaded": {
+        "state": "empty"
+      }
+    }
+  ],
+  "sources": [
+    {
+      "id": "ace-1:0",
+      "name": "Slot 1",
+      "unit": "ace-1",
+      "kind": "ace",
+      "head": "h0",
+      "identity": {
+        "brand": "Generic",
+        "material": "PLA",
+        "color": "#b8bec5"
+      },
+      "available": true,
+      "slot": 0
+    },
+    {
+      "id": "ace-1:1",
+      "name": "Slot 2",
+      "unit": "ace-1",
+      "kind": "ace",
+      "head": "h1",
+      "identity": {
+        "brand": "Generic",
+        "material": "PETG",
+        "color": "#ef8a2c"
+      },
+      "available": true,
+      "slot": 1
+    },
+    {
+      "id": "ace-1:2",
+      "name": "Slot 3",
+      "unit": "ace-1",
+      "kind": "ace",
+      "head": "h2",
+      "identity": {
+        "brand": "Generic",
+        "material": "PLA",
+        "color": "#3fb4c4"
+      },
+      "available": true,
+      "slot": 2
+    },
+    {
+      "id": "ace-1:3",
+      "name": "Slot 4",
+      "unit": "ace-1",
+      "kind": "ace",
+      "head": "h3",
+      "identity": {
+        "brand": "Generic",
+        "material": "PLA",
+        "color": "#60b87f"
+      },
+      "available": true,
+      "slot": 3
+    },
+    {
+      "id": "ace-2:0",
+      "name": "Slot 1",
+      "unit": "ace-2",
+      "kind": "ace",
+      "head": "h0",
+      "identity": {
+        "brand": "Generic",
+        "material": "PLA",
+        "color": "#b8bec5"
+      },
+      "available": true,
+      "slot": 0
+    },
+    {
+      "id": "ace-2:1",
+      "name": "Slot 2",
+      "unit": "ace-2",
+      "kind": "ace",
+      "head": "h0",
+      "identity": {
+        "brand": "Generic",
+        "material": "PETG",
+        "color": "#ef8a2c"
+      },
+      "available": true,
+      "slot": 1
+    },
+    {
+      "id": "ace-2:2",
+      "name": "Slot 3",
+      "unit": "ace-2",
+      "kind": "ace",
+      "head": "h0",
+      "identity": {
+        "brand": "Generic",
+        "material": "PLA",
+        "color": "#3fb4c4"
+      },
+      "available": true,
+      "slot": 2
+    },
+    {
+      "id": "ace-2:3",
+      "name": "Slot 4",
+      "unit": "ace-2",
+      "kind": "ace",
+      "head": "h0",
+      "identity": {
+        "brand": "Generic",
+        "material": "PLA",
+        "color": "#60b87f"
+      },
+      "available": true,
+      "slot": 3
+    },
+    {
+      "id": "external:h0",
+      "kind": "external",
+      "name": "Head 1",
+      "head": "h0",
+      "identity": {
+        "brand": "Generic",
+        "material": "PLA",
+        "color": "#b8bec5"
+      },
+      "available": true
+    },
+    {
+      "id": "external:h1",
+      "kind": "external",
+      "name": "Head 2",
+      "head": "h1",
+      "identity": {
+        "brand": "Generic",
+        "material": "PLA",
+        "color": "#ef8a2c"
+      },
+      "available": true
+    },
+    {
+      "id": "external:h2",
+      "kind": "external",
+      "name": "Head 3",
+      "head": "h2",
+      "identity": {
+        "brand": "Generic",
+        "material": "PLA",
+        "color": "#3fb4c4"
+      },
+      "available": true
+    },
+    {
+      "id": "external:h3",
+      "kind": "external",
+      "name": "Head 4",
+      "head": "h3",
+      "identity": {
+        "brand": "Generic",
+        "material": "PLA",
+        "color": "#60b87f"
+      },
+      "available": true
+    }
+  ],
+  "units": [
+    {
+      "id": "ace-1",
+      "name": "ACE 1",
+      "connected": true,
+      "assignments": {
+        "ace-1:0": "h0",
+        "ace-1:1": "h1",
+        "ace-1:2": "h2",
+        "ace-1:3": "h3"
+      }
+    },
+    {
+      "id": "ace-2",
+      "name": "ACE 2",
+      "connected": true,
+      "assignments": {
+        "ace-2:0": "h0",
+        "ace-2:1": "h0",
+        "ace-2:2": "h0",
+        "ace-2:3": "h0"
+      }
+    }
+  ],
+  "routes": [
+    {
+      "id": "route-0-0",
+      "tool": 0,
+      "source": "ace-1:0",
+      "label": "T0 \u00b7 ACE 1 \u00b7 Slot 1",
+      "eligible": true,
+      "sliced_rows": [
+        "0",
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ]
+    },
+    {
+      "id": "route-0-1",
+      "tool": 1,
+      "source": "ace-1:1",
+      "label": "T1 \u00b7 ACE 1 \u00b7 Slot 2",
+      "eligible": true,
+      "sliced_rows": [
+        "0",
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ]
+    },
+    {
+      "id": "route-0-2",
+      "tool": 2,
+      "source": "ace-1:2",
+      "label": "T2 \u00b7 ACE 1 \u00b7 Slot 3",
+      "eligible": true,
+      "sliced_rows": [
+        "0",
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ]
+    },
+    {
+      "id": "route-0-3",
+      "tool": 3,
+      "source": "ace-1:3",
+      "label": "T3 \u00b7 ACE 1 \u00b7 Slot 4",
+      "eligible": true,
+      "sliced_rows": [
+        "0",
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ]
+    },
+    {
+      "id": "route-1-0",
+      "tool": 4,
+      "source": "ace-2:0",
+      "label": "T4 \u00b7 ACE 2 \u00b7 Slot 1",
+      "eligible": true,
+      "sliced_rows": [
+        "0",
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ]
+    },
+    {
+      "id": "route-1-1",
+      "tool": 5,
+      "source": "ace-2:1",
+      "label": "T5 \u00b7 ACE 2 \u00b7 Slot 2",
+      "eligible": true,
+      "sliced_rows": [
+        "0",
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ]
+    },
+    {
+      "id": "route-1-2",
+      "tool": 6,
+      "source": "ace-2:2",
+      "label": "T6 \u00b7 ACE 2 \u00b7 Slot 3",
+      "eligible": true,
+      "sliced_rows": [
+        "0",
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ]
+    },
+    {
+      "id": "route-1-3",
+      "tool": 7,
+      "source": "ace-2:3",
+      "label": "T7 \u00b7 ACE 2 \u00b7 Slot 4",
+      "eligible": true,
+      "sliced_rows": [
+        "0",
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ]
+    }
+  ],
+  "candidates": [
+    {
+      "id": "usb-new-3",
+      "name": "New ACE unit",
+      "context": "demo-observation-only"
+    }
+  ],
+  "job": {
+    "state": "idle",
+    "id": "job-demo",
+    "name": "No active print",
+    "source": "ace-1:0",
+    "hold": "Backend recovery adapter is not connected"
+  },
+  "capabilities": {},
+  "files": [
+    {
+      "id": "demo-file",
+      "name": "Sample_enclosure.gcode",
+      "sliced": [
+        {
+          "id": "0",
+          "material": "PLA",
+          "color": "#b8bec5",
+          "brand": "Generic"
+        },
+        {
+          "id": "1",
+          "material": "PLA",
+          "color": "#ef8a2c",
+          "brand": "Generic"
+        },
+        {
+          "id": "2",
+          "material": "PLA",
+          "color": "#3fb4c4",
+          "brand": "Generic"
+        },
+        {
+          "id": "3",
+          "material": "PLA",
+          "color": "#60b87f",
+          "brand": "Generic"
+        },
+        {
+          "id": "4",
+          "material": "PLA",
+          "color": "#b8bec5",
+          "brand": "Generic"
+        },
+        {
+          "id": "5",
+          "material": "PLA",
+          "color": "#ef8a2c",
+          "brand": "Generic"
+        }
+      ]
+    }
+  ],
+  "import_files": [],
+  "session": "fixture-session"
+}

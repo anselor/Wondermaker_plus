@@ -1,0 +1,74 @@
+{
+  "version": 1,
+  "required": {
+    "wm_material": {
+      "script_generation_protocol": 1,
+      "print_cancel_ingress_protocol": 1,
+      "print_cancel_resolution_protocol": 1,
+      "print_cancel_protocol": 1,
+      "command_generation_protocol": 1,
+      "toolhead_action_protocol": 1,
+      "toolhead_recovery_protocol": 1,
+      "filament_sequence_protocol": 1,
+      "filament_cancel_protocol": 1,
+      "filament_recovery_protocol": 1,
+      "print_start_protocol": 1,
+      "recovery_review_protocol": 1,
+      "recovery_continue_protocol": 1,
+      "recovery_stop_protocol": 1,
+      "recovery_resolution_protocol": 1
+    },
+    "wmp_recovery": {
+      "calibration_ticket_protocol": 1,
+      "identification.protocol": 2,
+      "probe_editor.protocol": 1,
+      "probe_editor.stop_protocol": 1,
+      "probe_editor.save_review_protocol": 2
+    },
+    "commands": [
+      "_WMP_IDENTIFY_HEADS",
+      "_WMP_COUPLING_STROKE",
+      "_WMP_FAILED_PICKUP_CLEANUP",
+      "WMP_CHECK_SCRIPT_GENERATION",
+      "_WMP_CHECK_DOCK_SUPPORT",
+      "WMP_RESOLVE_PRINT_CANCEL",
+      "WMP_CHECK_COMMAND_GENERATION",
+      "WMP_CHECK_RESUME",
+      "WMP_RESTORE_RESUME_E",
+      "WMP_CAPTURE_PAUSE",
+      "WMP_SET_FILAMENT",
+      "WMP_START_PRINT",
+      "WMP_FILAMENT_SEQUENCE",
+      "WMP_RECOVER_FILAMENT",
+      "WMP_RECOVER_TOOLHEAD",
+      "WMP_TOOLHEAD_ACTION",
+      "WMP_SET_NOZZLE",
+      "_WMP_PROBE_CALIBRATE",
+      "_WMP_PROBE_PREPARE_CHECK",
+      "_WMP_PROBE_SAVE_REVIEW",
+      "_WMP_PROBE_EDITOR",
+      "_WMP_CALIBRATION_TOOL",
+      "_WMP_CALIBRATION_COMMAND",
+      "WMP_RECOVERY_CONTINUE",
+      "WMP_RECOVERY_RESOLVE"
+    ]
+  },
+  "optional": {
+    "wm_material": {
+      "filament_check_protocol": 1,
+      "nozzle_settings_protocol": 1,
+      "profile_import_protocol": 1,
+      "recovery_ticket_protocol": 1,
+      "filament_recipe_write_protocol": 1
+    },
+    "wmp_recovery": {}
+  },
+  "backend_owned_protocols": [
+    "script_generation_protocol",
+    "print_cancel_ingress_protocol",
+    "command_generation_protocol"
+  ],
+  "backend_owned_commands": [
+    "WMP_CHECK_SCRIPT_GENERATION"
+  ]
+}

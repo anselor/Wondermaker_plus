@@ -1,0 +1,16 @@
+{
+  "Architecture": "amd64",
+  "Created": "2026-08-25T01:12:24.278883326-04:00",
+  "Id": "sha256:86fdcabbf2da48f1023d39362d3edc92495da739c716716b83b973aee91d54a8",
+  "Os": "linux",
+  "RepoDigests": [
+    "wmp-inject-build@sha256:86fdcabbf2da48f1023d39362d3edc92495da739c716716b83b973aee91d54a8"
+  ],
+  "RepoTags": [
+    "wmp-inject-build:bullseye"
+  ],
+  "compiler_packages": "binutils-aarch64-linux-gnu 2.35.2-2\ncrossbuild-essential-arm64 12.9\ng++-10-aarch64-linux-gnu 10.2.1-6cross1\ng++-aarch64-linux-gnu 4:10.2.1-1\ngcc-10-aarch64-linux-gnu 10.2.1-6cross1\ngcc-aarch64-linux-gnu 4:10.2.1-1\nlibc6-arm64-cross 2.31-9cross4\nlibc6-dev-arm64-cross 2.31-9cross4\nlibstdc++-10-dev-arm64-cross 10.2.1-6cross1\n",
+  "original_Dockerfile_available": false,
+  "recipe_scope": "Dockerfile reconstructed from actual image history; not a claim that rebuilding it reproduces this exact image digest",
+  "recorded_history": "RUN /bin/sh -c apt-get update  && apt-get install -y --no-install-recommends       crossbuild-essential-arm64       binutils-aarch64-linux-gnu  && rm -rf /var/lib/apt/lists/* # buildkit\n# debian.sh --arch 'amd64' out/ 'bullseye' '@1787529600'\n"
+}

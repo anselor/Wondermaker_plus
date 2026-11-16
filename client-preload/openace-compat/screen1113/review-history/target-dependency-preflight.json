@@ -1,0 +1,13 @@
+{
+  "script": "/home/t13dp/openace-review/native-readiness/exact-packaging-preflight-libdl.py",
+  "script_sha256": "d2fff028851e3bc9c536592191b16be582541ad1ae4ac969aa698b5b788743fd",
+  "exit": 0,
+  "stdout": "screen bundle exact1113 dependency check passed\n",
+  "stderr": "",
+  "remaining_scratch": [
+    "exact-packaging-preflight-libdl.py",
+    "exact-packaging-preflight.py"
+  ],
+  "observed_epoch": 1792882046.4438527,
+  "scope": "scratch-only reviewed package preflight; no service/client/serial/printer invocation"
+}

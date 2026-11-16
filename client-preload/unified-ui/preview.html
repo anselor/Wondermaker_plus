@@ -1,0 +1,49 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>WM+ screen implementation preview</title>
+<style>
+*{box-sizing:border-box}body{background:#11161b;color:#f2f3f5;font:16px system-ui;margin:24px}header{max-width:1000px;margin:auto}h1{font-size:25px}p{color:#b7c4d2}select{background:#343c45;color:white;padding:9px;border-radius:6px;margin-bottom:20px}#stage{width:800px;height:480px;position:relative;background:#272b30;margin:16px auto;box-shadow:0 0 0 1px #68717b;border-radius:8px;overflow:hidden}#stage>*{position:absolute;white-space:pre-line;overflow:hidden;font:15px/1.25 system-ui;padding:6px;color:#f0f2f4}.panel{background:#272b30}.card{background:#303740;border:1px solid #59636e;border-radius:8px}.bar{background:#171b20;font-weight:bold!important}.heading{font-size:23px!important;font-weight:bold!important}button{border:1px solid #59636e;border-radius:7px;background:#353d46;cursor:pointer}button:focus-visible{outline:3px solid #bedbff;outline-offset:-3px}button.selected{background:#b84d06;border-color:#fb8b3e}button:disabled{color:#adb3ba!important;border-style:dashed;cursor:help;background:#282e35}.faded{opacity:.4}.swatch{border:1px solid #aaa;border-radius:4px;pointer-events:none}.notice{background:#684a19;color:white;font-size:12px!important}.busy:before{content:'◌ ';display:inline-block;animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}#reason{max-width:800px;margin:12px auto;min-height:42px;color:#efc479}#stage .label,#stage .heading,#stage .bar,#stage .panel,#stage .card{pointer-events:none}
+</style>
+<header><h1>WM+ unified screens</h1><p>Development preview · same C++ controller used by the native renderer. Fixture data only. No printer commands. Hover or focus an unavailable control for its reason.</p><label>Scenario <select id="scenario"><option value="openace">openACE · two units</option><option value="standalone">Standalone</option><option value="zero">openACE · zero units</option><option value="paused">Paused print</option><option value="disconnected">Units disconnected</option><option value="stale">Stale backend</option></select></label></header><div id="stage" aria-label="Printer screen"></div><p id="reason" role="status"></p>
+<script>
+const stage=document.querySelector('#stage'),reason=document.querySelector('#reason');
+const controls=new Map();
+let viewContext=null;
+function draw(data){
+ if(data.error){reason.textContent=data.error;return;}
+ const ids=new Set();
+ for(const w of data.widgets){
+  if(typeof w.id!=='string'||!w.id||ids.has(w.id)){reason.textContent='Invalid widget identity';return;}
+  ids.add(w.id);
+ }
+ const context=JSON.stringify([data.page,data.modal]);
+ // Navigation may replace the view. Data sync within a view retains nodes.
+ if(context!==viewContext){stage.replaceChildren();controls.clear();viewContext=context;}
+ stage.dataset.page=data.page;stage.dataset.modal=data.modal;reason.textContent=data.notice||'';
+ for(const [id,e] of controls)if(!ids.has(id)){e.remove();controls.delete(id);}
+ const focused=document.activeElement;
+ for(let i=0;i<data.widgets.length;i++){
+  const w=data.widgets[i],tag=w.kind==='button'?'BUTTON':'DIV';
+  let e=controls.get(w.id);
+  if(e&&e.tagName!==tag){e.remove();controls.delete(w.id);e=null;}
+  if(!e){
+   e=document.createElement(tag.toLowerCase());e.dataset.id=w.id;controls.set(w.id,e);
+   if(tag==='BUTTON'){
+    e.addEventListener('click',()=>{if(controls.get(w.id)===e&&e.isConnected&&!e.disabled)send({event:w.id});});
+    e.addEventListener('pointerenter',()=>{reason.textContent=e.widget.reason||'';});
+    e.addEventListener('focus',()=>{reason.textContent=e.widget.reason||'';});
+   }
+  }
+  e.widget=w;
+  e.className=w.kind+(w.selected?' selected':'')+(w.faded?' faded':'')+(w.busy?' busy':'');
+  if(e.textContent!==w.text)e.textContent=w.text;
+  Object.assign(e.style,{left:w.x+'px',top:w.y+'px',width:w.w+'px',height:w.h+'px',background:/^#[0-9a-f]{6}$/i.test(w.color)?w.color:''});
+  if(tag==='BUTTON'){e.disabled=!w.enabled;e.title=w.reason||'';e.setAttribute('aria-label',w.text);}
+  // Avoid DOM moves on ordinary sync; preserve focus if a reorder needs one.
+  if(stage.children[i]!==e)stage.insertBefore(e,stage.children[i]||null);
+ }
+ if(focused&&focused.isConnected&&controls.get(focused.dataset.id)===focused&&!focused.disabled&&document.activeElement!==focused)
+  focused.focus({preventScroll:true});
+}
+
+async function send(data){draw(await(await fetch('/event',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)})).json());}
+document.querySelector('#scenario').addEventListener('change',e=>send({scenario:e.target.value}));fetch('/state').then(r=>r.json()).then(draw);
+</script></html>

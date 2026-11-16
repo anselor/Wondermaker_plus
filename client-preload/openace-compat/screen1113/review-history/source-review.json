@@ -1,0 +1,31 @@
+{
+  "historical_native_input_count": 121,
+  "historical_native_manifest_file": "native121-inputs.json",
+  "historical_native_manifest_sha256": "f1fd2b16e868f591e9142833ce6dcb0c869a51c568833c167487d5f2526ee1f7",
+  "inherited_source_review_file": "inherited-source-review.md",
+  "inherited_source_review_sha256": "03dab383a1ccc3e3a2a753dc9d14b8999b694b4c61d435a76c62355bca22aa3a",
+  "reviewed_production_source_hashes": {
+    "client-preload/openace-compat/screen1113/source/client/delivery.hpp": "3f2ca0a67cbaa295462b24f4aaa4ab13676cfc74cb23eaa99915f3dd949a02fb",
+    "client-preload/openace-compat/screen1113/source/client/loopback_http.hpp": "ce5c6ecd835a395134ba49a2b399195c48381b0596fa181f8198a011d1806552",
+    "client-preload/openace-compat/screen1113/source/client/main_layout.hpp": "fbf6b131698ef582c7e4804a23160a403b7af28fe4d359fbe885256b699d07b7",
+    "client-preload/openace-compat/screen1113/source/client/management_commands.hpp": "bf6cb6d4075eee9516540b6d106386e134328c9ce2e1bdc9ba1971e783582820",
+    "client-preload/openace-compat/screen1113/source/client/management_panel.hpp": "370d80d8bb8b2e980eb4e5954deb20a6c0a373dcc320815e3f3a0388dba647a5",
+    "client-preload/openace-compat/screen1113/source/client/manual_flow.hpp": "1d04567d0f38306aef9784be9628a8eddb84d736744d52d1b6c43ac78e06dd9c",
+    "client-preload/openace-compat/screen1113/source/client/native1113_port.hpp": "e545c9f19a037248bca3b2bddcbb95d510c523380444e9c30da278e947c3b5b3",
+    "client-preload/openace-compat/screen1113/source/client/native1113_windows.hpp": "8aa2004200af480526c4779959c627242315b25b57b479acf7dea94b942c98d5",
+    "client-preload/openace-compat/screen1113/source/client/native_bootstrap.cpp": "a051cb3ce771aea7a6797a4adf2c655fb2ec6e3f37a3a9de0d8947cb9461a2c6",
+    "client-preload/openace-compat/screen1113/source/client/native_management.hpp": "24276499d0e83b17daca2978db57d6ba45a4424e7e7c74c8c0cac1f3d44f5bc2",
+    "client-preload/openace-compat/screen1113/source/client/native_renderer.hpp": "092defb52c4e609e89833d22a5e7ca66f686c901f60b4289d004906d46f5396d",
+    "client-preload/openace-compat/screen1113/source/client/openace_view.hpp": "e13f9c857244485b9a017cb1d5a13d71a2e8cf9c18116f62b29b958af9c8be0a",
+    "client-preload/openace-compat/screen1113/source/client/refresh_bridge.hpp": "3aca9ff29448bd3625a49419bacbde3df768e0e977aeb83ca2ac9b5bf8752165",
+    "client-preload/openace-compat/screen1113/source/client/screen_runtime.hpp": "77682d82edf2cfab0cb33b8b49aa49607a56355e835b4db07fb956789a1fc7f5",
+    "client-preload/openace-compat/screen1113/source/client/timer_windows.hpp": "a0e996b03718e5a18f30319382583a0982f894626caa7d6e37a04d3a9a2057ad",
+    "client-preload/openace-compat/screen1113/source/client/worker_bridge.hpp": "b536e68808dac102edc4ded9ee14f635eb9e478610d39a009e191d2129c434d1",
+    "client-preload/openace-compat/screen1113/source/vendor/nlohmann/json.hpp": "c9ac7589260f36ea7016d4d51a6c95809803298c7caec9f55830a0214c5f9140",
+    "client-preload/openace-compat/wmp_openace_compat.c": "ec3b4e90dfc6dcfbc65f952b665045ff67703bd6bfdcde5e534e3ffa86f4a447"
+  },
+  "scope": "Historical source review and exact target dependency trace; not installed native UI or new review permission",
+  "target_dependency_preflight_file": "target-dependency-preflight.json",
+  "target_dependency_preflight_sha256": "a2ed15a9a2712618679101427b99a56a583ae088b8b6dea2ae8efc1bc858a140",
+  "target_preflight_artifact_sha256": "2d2ac997674dcc5f14a14a86f8e6c87a0341a3c7a00ec9fd9318f896a27f829c"
+}

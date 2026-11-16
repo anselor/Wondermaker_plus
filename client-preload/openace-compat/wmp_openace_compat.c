@@ -1,6 +1,7 @@
 /* Keep the vendor touchscreen's physical-head operations unambiguous when
  * openACE owns the virtual T<n> namespace.  With no live `openace` Klipper
- * object, every command and the stock resume path remain untouched.
+ * object, normal stock behavior is retained. Runout auto-purge requires
+ * confirmed absence; unavailable presence data never permits its motion.
  */
 #define _GNU_SOURCE
 #include <arpa/inet.h>
@@ -32,13 +33,25 @@ struct profile {
     uint64_t file_hash;
     uintptr_t resume_prepare;
     uintptr_t run_gcode;
+    uintptr_t runout_purge;
+    uintptr_t resume_check;
+    size_t resume_check_size;
 };
 
 static const struct profile profiles[] = {
-    {"1.1.08", 61340144, UINT64_C(0x3872f8647e4366ae), 0x51a73c, 0x61425c},
-    {"1.1.12", 61340216, UINT64_C(0xcef6a2287ca04bc8), 0x51a7b4, 0x61434c},
-    {"1.1.13", 61340216, UINT64_C(0x3ed764ac9cdaa82d), 0x51a7b4, 0x614338},
+    {"1.1.08", 61340144, UINT64_C(0x3872f8647e4366ae), 0x51a73c, 0x61425c, 0x532850, 0x61b1b8, 4768},
+    {"1.1.12", 61340216, UINT64_C(0xcef6a2287ca04bc8), 0x51a7b4, 0x61434c, 0x5328c8, 0x61b2d8, 5160},
+    {"1.1.13", 61340216, UINT64_C(0x3ed764ac9cdaa82d), 0x51a7b4, 0x614338, 0x5328b4, 0x61b2c4, 5160},
 };
+
+#define PATCH_SITE_COUNT 4
+static void patch_sites(const struct profile *p, uintptr_t sites[PATCH_SITE_COUNT])
+{
+    sites[0] = p->resume_prepare;
+    sites[1] = p->run_gcode;
+    sites[2] = p->runout_purge;
+    sites[3] = p->resume_check;
+}
 
 static uint64_t fingerprint(uint64_t hash, const void *data, size_t size)
 {
@@ -67,10 +80,116 @@ static const struct profile *identify(FILE *f)
     return NULL;
 }
 
+#ifdef WMP_OPENACE_TEST
 static int response_has_openace(const char *response)
 {
     const char *body = strstr(response, "\r\n\r\n");
     return body && strstr(body + 4, "\"openace\"") != NULL;
+}
+#endif
+
+/* Runout auto-purge is a separate stock callback from screen Resume. Only a
+ * complete, successful object-list response may grant its stock motion path.
+ * Missing service/data means no unattended homing or extrusion, not absence.
+ */
+static void json_space(const char **cursor)
+{
+    while (**cursor == ' ' || **cursor == '\t' || **cursor == '\r' || **cursor == '\n') ++*cursor;
+}
+
+static int json_token(const char **cursor, const char *token)
+{
+    json_space(cursor);
+    size_t length = strlen(token);
+    if (strncmp(*cursor, token, length)) return 0;
+    *cursor += length;
+    return 1;
+}
+
+static int openace_presence_response(const char *response)
+{
+    if (!response) return -1;
+    int status = 0;
+    if (sscanf(response, "HTTP/%*u.%*u %d", &status) != 1 || status != 200) return -1;
+    const char *body = strstr(response, "\r\n\r\n");
+    if (!body) return -1;
+    const char *headers_end = body;
+    body += 4;
+    int have_length = 0;
+    const char *line = strstr(response, "\r\n");
+    if (!line) return -1;
+    for (line += 2; line < headers_end;) {
+        const char *end = strstr(line, "\r\n");
+        if (!end || end > headers_end) return -1;
+        if (!strncasecmp(line, "Transfer-Encoding:", 18)) return -1;
+        if (!strncasecmp(line, "Content-Length:", 15)) {
+            const char *number = line + 15;
+            while (number < end && (*number == ' ' || *number == '\t')) number++;
+            if (have_length || number == end || !isdigit((unsigned char)*number)) return -1;
+            char *tail;
+            errno = 0;
+            unsigned long long length = strtoull(number, &tail, 10);
+            while (tail < end && (*tail == ' ' || *tail == '\t')) tail++;
+            if (errno || tail != end || length != strlen(body)) return -1;
+            have_length = 1;
+        }
+        line = end + 2;
+    }
+    /* Accept only the complete Moonraker object-list schema. Unknown fields,
+     * escaped object names or invalid JSON are uncertainty, never absence.
+     */
+    const char *cursor = body;
+    if (!json_token(&cursor, "{") || !json_token(&cursor, "\"result\"") ||
+        !json_token(&cursor, ":") || !json_token(&cursor, "{") ||
+        !json_token(&cursor, "\"objects\"") || !json_token(&cursor, ":") ||
+        !json_token(&cursor, "[")) return -1;
+    int present = 0;
+    json_space(&cursor);
+    if (*cursor != ']') for (;;) {
+        if (!json_token(&cursor, "\"")) return -1;
+        const char *name = cursor;
+        while (*cursor && *cursor != '"') {
+            if ((unsigned char)*cursor < 0x20 || *cursor == '\\') return -1;
+            cursor++;
+        }
+        if (!*cursor) return -1;
+        if (cursor - name == 7 && !memcmp(name, "openace", 7)) present = 1;
+        cursor++;
+        json_space(&cursor);
+        if (*cursor == ']') break;
+        if (!json_token(&cursor, ",")) return -1;
+    }
+    if (!json_token(&cursor, "]") || !json_token(&cursor, "}") ||
+        !json_token(&cursor, "}")) return -1;
+    json_space(&cursor);
+    return *cursor ? -1 : present;
+}
+
+/* The unified screen owns standalone replacement as well as ACE sources.
+ * Stock recovery may remap heads or move before reaching the RESUME macro.
+ * Keep the historical compatibility-only library's behavior unchanged.
+ */
+static void dispatch_stock_recovery(int presence, void (*stock)(void))
+{
+#ifdef WMP_UNIFIED_FILAMENT
+    (void)presence;
+    (void)stock;
+#else
+    if (presence == 0) stock();
+#endif
+}
+
+static void dispatch_resume_prepare(int presence, void (*stock)(void),
+                                    void (*send)(const char *))
+{
+#ifdef WMP_UNIFIED_FILAMENT
+    (void)presence;
+    (void)stock;
+    send("RESUME");
+#else
+    if (presence > 0) send("RESUME");
+    else stock();
+#endif
 }
 
 /* Rewrite only complete, simple M104/M109 commands with physical T0..T3.
@@ -114,6 +233,14 @@ static int rewrite_physical_heater(const char *input, char *output, size_t size)
 }
 
 #ifdef WMP_OPENACE_TEST
+void wmp_dispatch_runout_purge(int presence, void (*stock)(void))
+{ dispatch_stock_recovery(presence, stock); }
+void wmp_dispatch_resume_check(int presence, void (*stock)(void))
+{ dispatch_stock_recovery(presence, stock); }
+void wmp_patch_sites(const struct profile *p, uintptr_t sites[PATCH_SITE_COUNT])
+{ patch_sites(p, sites); }
+int wmp_openace_presence_response(const char *response)
+{ return openace_presence_response(response); }
 int wmp_response_has_openace(const char *response) { return response_has_openace(response); }
 int wmp_rewrite_physical_heater(const char *in, char *out, size_t n)
 { return rewrite_physical_heater(in, out, n); }
@@ -123,6 +250,8 @@ static pthread_mutex_t state_lock = PTHREAD_MUTEX_INITIALIZER;
 static struct timespec checked_at;
 static int cached_openace;
 static void (*original_resume)(void);
+static void (*original_runout_purge)(void);
+static void (*original_resume_check)(void);
 static void (*original_run_gcode)(void *);
 static const char *(*string_data)(const void *);
 static void (*string_construct)(void *);
@@ -138,7 +267,7 @@ static void logmsg(const char *message)
 static int query_openace(void)
 {
     int fd = socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
-    if (fd < 0) return 0;
+    if (fd < 0) return -1;
     struct timeval timeout = {.tv_sec = 0, .tv_usec = 250000};
     setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof timeout);
     setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof timeout);
@@ -146,21 +275,22 @@ static int query_openace(void)
         .sin_family = AF_INET, .sin_port = htons(7125),
         .sin_addr.s_addr = htonl(INADDR_LOOPBACK),
     };
-    if (connect(fd, (struct sockaddr *)&address, sizeof address)) { close(fd); return 0; }
+    if (connect(fd, (struct sockaddr *)&address, sizeof address)) { close(fd); return -1; }
     static const char request[] =
         "GET /printer/objects/list HTTP/1.0\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n";
     if (send(fd, request, sizeof request - 1, MSG_NOSIGNAL) != sizeof request - 1) {
-        close(fd); return 0;
+        close(fd); return -1;
     }
     char response[65536];
     size_t used = 0;
-    ssize_t got;
+    ssize_t got = -1;
     while (used + 1 < sizeof response &&
            (got = recv(fd, response + used, sizeof response - used - 1, 0)) > 0)
         used += (size_t)got;
     close(fd);
     response[used] = 0;
-    return response_has_openace(response);
+    if (got != 0) return -1;  /* Timeout/truncation is not confirmed absence. */
+    return openace_presence_response(response);
 }
 
 static int openace_active(void)
@@ -169,7 +299,7 @@ static int openace_active(void)
     clock_gettime(CLOCK_MONOTONIC, &now);
     pthread_mutex_lock(&state_lock);
     if (!checked_at.tv_sec || now.tv_sec - checked_at.tv_sec >= 2) {
-        cached_openace = query_openace();
+        cached_openace = query_openace() > 0;
         checked_at = now;
     }
     int active = cached_openace;
@@ -201,12 +331,44 @@ static void run_gcode(void *command)
 
 static void resume_prepare(void)
 {
-    if (!openace_active()) {
-        original_resume();
-        return;
-    }
-    logmsg("openACE detected: screen Resume sent to Klipper for openACE to handle");
-    send_text("RESUME");
+#ifdef WMP_UNIFIED_FILAMENT
+    /* No synchronous HTTP or vendor preparation on this GUI callback. The
+     * Klipper RESUME handler performs fresh admission before heat or motion. */
+    dispatch_resume_prepare(0, original_resume, send_text);
+#else
+    dispatch_resume_prepare(openace_active(), original_resume, send_text);
+#endif
+}
+
+static void runout_purge(void)
+{
+#ifdef WMP_UNIFIED_FILAMENT
+    dispatch_stock_recovery(0, original_runout_purge);
+#else
+    int presence = query_openace();
+    if (presence != 0)
+        logmsg(presence > 0
+            ? "openACE owns runout recovery: stock automatic homing/purge suppressed"
+            : "Runout automatic purge withheld: openACE presence unavailable; no motion queued");
+    dispatch_stock_recovery(presence, original_runout_purge);
+#endif
+}
+
+/* This worker consumes already-collected sensor/fault state after a pause.
+ * Do not intercept filament_check_for_pause or the sensor producers themselves.
+ */
+static void resume_check(void)
+{
+#ifdef WMP_UNIFIED_FILAMENT
+    dispatch_stock_recovery(0, original_resume_check);
+#else
+    int presence = query_openace();
+    if (presence != 0)
+        logmsg(presence > 0
+            ? "openACE owns recovery: stock automatic substitution/purge/resume suppressed"
+            : "Automatic recovery withheld: openACE presence unavailable; no motion queued");
+    dispatch_stock_recovery(presence, original_resume_check);
+#endif
 }
 
 static int loaded_matches(FILE *f, uintptr_t address, size_t size)
@@ -251,6 +413,11 @@ static void *make_trampoline(uintptr_t address)
 __attribute__((constructor))
 static void initialize(void)
 {
+#ifdef WMP_UNIFIED_FILAMENT
+    /* The unified bootstrap installs recovery guards in its verified native
+     * transaction. Do not race it for command_sender or reject its patches. */
+    return;
+#endif
     char exe[512];
     ssize_t n = readlink("/proc/self/exe", exe, sizeof exe - 1);
     if (n <= 0 || n == sizeof exe - 1) return;
@@ -262,7 +429,9 @@ static void initialize(void)
     if (!f) return;
     const struct profile *p = identify(f);
     int recognized = p && loaded_matches(f, p->resume_prepare, 3128) &&
-        loaded_matches(f, p->run_gcode, 404);
+        loaded_matches(f, p->run_gcode, 404) &&
+        loaded_matches(f, p->runout_purge, 1168) &&
+        loaded_matches(f, p->resume_check, p->resume_check_size);
     fclose(f);
     if (!recognized) { logmsg("Patch skipped: unsupported or modified screen client; check firmware compatibility"); return; }
 
@@ -280,24 +449,29 @@ static void initialize(void)
 
     original_resume = make_trampoline(p->resume_prepare);
     original_run_gcode = make_trampoline(p->run_gcode);
-    if (!original_resume || !original_run_gcode) {
+    original_runout_purge = make_trampoline(p->runout_purge);
+    original_resume_check = make_trampoline(p->resume_check);
+    if (!original_resume || !original_run_gcode || !original_runout_purge || !original_resume_check) {
         logmsg("Patch skipped: could not preserve the original screen entry code"); return;
     }
-    uintptr_t addresses[] = {p->resume_prepare, p->run_gcode};
-    for (size_t i = 0; i < 2; i++)
+    uintptr_t addresses[PATCH_SITE_COUNT];
+    patch_sites(p, addresses);
+    for (size_t i = 0; i < sizeof addresses / sizeof addresses[0]; i++)
         if (protect(addresses[i], 16, PROT_READ | PROT_WRITE | PROT_EXEC)) {
             logmsg("Patch skipped: could not make screen code writable (mprotect failed)"); return;
         }
     write_jump((void *)p->resume_prepare, (uintptr_t)resume_prepare);
     write_jump((void *)p->run_gcode, (uintptr_t)run_gcode);
-    for (size_t i = 0; i < 2; i++) {
+    write_jump((void *)p->runout_purge, (uintptr_t)runout_purge);
+    write_jump((void *)p->resume_check, (uintptr_t)resume_check);
+    for (size_t i = 0; i < sizeof addresses / sizeof addresses[0]; i++) {
         __builtin___clear_cache((char *)addresses[i], (char *)addresses[i] + 16);
         if (protect(addresses[i], 16, PROT_READ | PROT_EXEC))
             logmsg("Warning: could not restore executable memory permissions; inspect the patch log before printing");
     }
     char message[128];
     snprintf(message, sizeof message,
-        "client %s: openACE compatibility loaded; Resume and heater routing change when openACE is detected", p->version);
+        "client %s: openACE compatibility loaded; Resume, both automatic recovery workers and heater routing guarded", p->version);
     logmsg(message);
 }
 #endif

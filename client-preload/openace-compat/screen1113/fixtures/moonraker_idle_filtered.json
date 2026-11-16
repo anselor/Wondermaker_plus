@@ -1,0 +1,97 @@
+{
+  "session_id": 3286012,
+  "material_change_prompt": null,
+  "loaded": {
+    "h0": {
+      "state": "unknown",
+      "destination": null,
+      "identity": null,
+      "evidence": "none",
+      "verified": false
+    },
+    "h1": {
+      "state": "loaded",
+      "destination": {
+        "head": "h1",
+        "unit": "ace0",
+        "slot": 1
+      },
+      "identity": {
+        "material": "PLA",
+        "color": "#05D1F5",
+        "nozzle_temp": 220,
+        "bed_temp": 0,
+        "name": "Teal_PLA",
+        "vendor": "",
+        "line": "",
+        "color_name": "",
+        "spool_id": null,
+        "weight": null,
+        "source": "user"
+      },
+      "evidence": "persisted",
+      "verified": false
+    },
+    "h2": {
+      "state": "unknown",
+      "destination": null,
+      "identity": null,
+      "evidence": "none",
+      "verified": false
+    },
+    "h3": {
+      "state": "loaded",
+      "destination": {
+        "head": "h3",
+        "unit": null,
+        "slot": null
+      },
+      "identity": {
+        "material": "PLA",
+        "color": "#808080",
+        "nozzle_temp": 220,
+        "bed_temp": 0,
+        "name": "PLA Gray",
+        "vendor": "",
+        "line": "",
+        "color_name": "Gray",
+        "spool_id": null,
+        "weight": null,
+        "source": "user"
+      },
+      "evidence": "persisted",
+      "verified": false
+    }
+  },
+  "manual_flow": {
+    "version": 1,
+    "available": false,
+    "reason": "no captured paused direct-tool context",
+    "context": null,
+    "tool": null,
+    "head": null,
+    "source": null,
+    "change_id": null,
+    "identity": null,
+    "loaded": null,
+    "temperature": {
+      "print_c": null,
+      "procedure_c": null
+    },
+    "target_prime_mm": null,
+    "presence": null,
+    "mounted": null,
+    "operation": "idle",
+    "correction_required": false,
+    "correction_reason": "",
+    "purge": {
+      "declared_mm": null,
+      "completed_mm": 0.0,
+      "remaining_mm": null,
+      "state": "undeclared",
+      "receipt_write_pending": false,
+      "known_partial_continuation": false
+    },
+    "prepare_completion": "not_recorded"
+  }
+}

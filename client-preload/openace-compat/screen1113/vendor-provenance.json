@@ -1,0 +1,7 @@
+{
+  "origin": "Orca-Flashforge/src/slic3r/GUI/ConvertModel/tinygltf/json.hpp (historical vendoring source; header is included here)",
+  "sha256": "c9ac7589260f36ea7016d4d51a6c95809803298c7caec9f55830a0214c5f9140",
+  "license": "MIT; license/copyright retained in header",
+  "version": "3.10.4",
+  "use": "standalone header; never native-client C++ ABI objects"
+}

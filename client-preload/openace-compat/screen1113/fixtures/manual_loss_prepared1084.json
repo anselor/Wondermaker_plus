@@ -1,0 +1,735 @@
+{
+  "adaptive_swap": {
+    "attempts": [],
+    "learned": null,
+    "reason": "",
+    "source": null,
+    "state": "idle"
+  },
+  "alerts": [],
+  "api_version": 1,
+  "assist": {},
+  "blocked_slots": [],
+  "blocked_tools": {},
+  "capabilities": {
+    "drivers_loaded": false,
+    "inventory_publication": true,
+    "job_map": 1,
+    "max_map_pairs": 256,
+    "max_virtual_tools": 32,
+    "native_select": true,
+    "owns_tool_commands": true,
+    "preheat": 1
+  },
+  "config_revision": 8,
+  "declined_commands": {},
+  "default_tool_map": {
+    "0": {
+      "head": "h0",
+      "slot": null,
+      "unit": null
+    },
+    "1": {
+      "head": "h1",
+      "slot": null,
+      "unit": null
+    },
+    "2": {
+      "head": "h2",
+      "slot": null,
+      "unit": null
+    },
+    "3": {
+      "head": "h3",
+      "slot": null,
+      "unit": null
+    }
+  },
+  "destinations": [
+    {
+      "head": "h0",
+      "slot": null,
+      "unit": null
+    },
+    {
+      "head": "h1",
+      "slot": null,
+      "unit": null
+    },
+    {
+      "head": "h2",
+      "slot": null,
+      "unit": null
+    },
+    {
+      "head": "h3",
+      "slot": null,
+      "unit": null
+    }
+  ],
+  "devices": {
+    "abort": {
+      "endpoint": "openace/abort",
+      "observations": [],
+      "reason": "",
+      "requested": false,
+      "scopes": []
+    },
+    "adaptive_swap": {
+      "attempts": [],
+      "learned": null,
+      "reason": "",
+      "source": null,
+      "state": "idle"
+    },
+    "identity_persistence": "none",
+    "load_verify": null,
+    "paused": null,
+    "sensors": {
+      "action": "",
+      "modes": {
+        "h0": "event",
+        "h1": "event",
+        "h2": "event",
+        "h3": "event"
+      },
+      "notes": {}
+    },
+    "stop_pending": {},
+    "units": {}
+  },
+  "edge_feed": {},
+  "expectations_declared": false,
+  "filament_repair": [
+    {
+      "blocking_flags": [],
+      "episode_id": "repair-c06d3f6a9e1f4f44b493edcb2f27eabd",
+      "head": "h0",
+      "historical_removals": 0,
+      "kind": "runout",
+      "manual_removal": {
+        "assessment": "manually removed old strand and fragments from all named head/shared paths",
+        "command": "OPENACE_RECOVER HEAD=h0 REMOVED=1 SOURCES=h0",
+        "sources": [
+          "h0"
+        ]
+      },
+      "phase": "runout_direct_prepared",
+      "position_state": "stopped_position_unconfirmed",
+      "reason": "h0: head inlet reads False; possible runout, broken filament or sensor reading. Old strand path is unresolved; do not insert a replacement until the old strand and fragments are removed",
+      "runout": {
+        "clearance": {
+          "action_ids": [
+            "manual_prepare-2:clear:0",
+            "manual_prepare-2:clear:1",
+            "manual_prepare-2:clear:2",
+            "manual_prepare-2:clear:3",
+            "manual_prepare-2:clear:4",
+            "manual_prepare-2:clear:5",
+            "manual_prepare-2:clear:6",
+            "manual_prepare-2:clear:7",
+            "manual_prepare-2:clear:8",
+            "manual_prepare-2:clear:9",
+            "manual_prepare-2:clear:10"
+          ],
+          "complete": true,
+          "completed_mm": 110,
+          "contract_id": "79b37d128724d7f022bd07c63c371296705e6c5998a966338ea87b8be61cabe9",
+          "generation": 1,
+          "step_mm": 10,
+          "target_c": 210.0,
+          "target_session": 1,
+          "total_mm": 110
+        },
+        "loss_event": [
+          "printer",
+          1,
+          1,
+          "sensor_changed"
+        ],
+        "old_tail": {
+          "captured_at_s": 103.66999999999928,
+          "committed_evidence": "toolhead",
+          "destination": {
+            "head": "h0",
+            "slot": null,
+            "unit": null
+          },
+          "head_present": false,
+          "historical_context": null,
+          "identity": {
+            "bed_temp": 0,
+            "color": "#112233",
+            "color_name": "",
+            "line": "",
+            "material": "PLA",
+            "name": "",
+            "nozzle_temp": 210,
+            "source": "user",
+            "spool_id": null,
+            "vendor": "",
+            "weight": null
+          },
+          "instance_id": "tail-24dc3bb2b4604cb3bee1ef6d5a87d502",
+          "loss_device_key": "",
+          "loss_seq": 1,
+          "loss_session": 1
+        },
+        "pending_replacement": null,
+        "removal": null,
+        "state": "old_head_path_cleared"
+      }
+    }
+  ],
+  "head_clearance": {
+    "attempts": [
+      {
+        "action_id": "manual_prepare-2:clear:0",
+        "commanded_mm": 10,
+        "completed": true,
+        "possibly_issued": false,
+        "reason": ""
+      },
+      {
+        "action_id": "manual_prepare-2:clear:1",
+        "commanded_mm": 10,
+        "completed": true,
+        "possibly_issued": false,
+        "reason": ""
+      },
+      {
+        "action_id": "manual_prepare-2:clear:2",
+        "commanded_mm": 10,
+        "completed": true,
+        "possibly_issued": false,
+        "reason": ""
+      },
+      {
+        "action_id": "manual_prepare-2:clear:3",
+        "commanded_mm": 10,
+        "completed": true,
+        "possibly_issued": false,
+        "reason": ""
+      },
+      {
+        "action_id": "manual_prepare-2:clear:4",
+        "commanded_mm": 10,
+        "completed": true,
+        "possibly_issued": false,
+        "reason": ""
+      },
+      {
+        "action_id": "manual_prepare-2:clear:5",
+        "commanded_mm": 10,
+        "completed": true,
+        "possibly_issued": false,
+        "reason": ""
+      },
+      {
+        "action_id": "manual_prepare-2:clear:6",
+        "commanded_mm": 10,
+        "completed": true,
+        "possibly_issued": false,
+        "reason": ""
+      },
+      {
+        "action_id": "manual_prepare-2:clear:7",
+        "commanded_mm": 10,
+        "completed": true,
+        "possibly_issued": false,
+        "reason": ""
+      },
+      {
+        "action_id": "manual_prepare-2:clear:8",
+        "commanded_mm": 10,
+        "completed": true,
+        "possibly_issued": false,
+        "reason": ""
+      },
+      {
+        "action_id": "manual_prepare-2:clear:9",
+        "commanded_mm": 10,
+        "completed": true,
+        "possibly_issued": false,
+        "reason": ""
+      },
+      {
+        "action_id": "manual_prepare-2:clear:10",
+        "commanded_mm": 10,
+        "completed": true,
+        "possibly_issued": false,
+        "reason": ""
+      }
+    ],
+    "completed_commanded_mm": 110,
+    "head": "h0",
+    "ok": true,
+    "possibly_issued_mm": 0,
+    "reason": "",
+    "state": "completed"
+  },
+  "heads": [
+    {
+      "contents": "empty",
+      "extruder": "extruder",
+      "extruder_index": 0,
+      "feed": "direct",
+      "hand_loaded": false,
+      "id": "h0",
+      "sensor": false,
+      "toolhead_sensor": "filament_switch_sensor filament0"
+    },
+    {
+      "contents": "hand_loaded",
+      "extruder": "extruder1",
+      "extruder_index": 1,
+      "feed": "direct",
+      "hand_loaded": true,
+      "id": "h1",
+      "sensor": true,
+      "toolhead_sensor": "filament_switch_sensor filament1"
+    },
+    {
+      "contents": "hand_loaded",
+      "extruder": "extruder2",
+      "extruder_index": 2,
+      "feed": "direct",
+      "hand_loaded": true,
+      "id": "h2",
+      "sensor": true,
+      "toolhead_sensor": "filament_switch_sensor filament2"
+    },
+    {
+      "contents": "hand_loaded",
+      "extruder": "extruder3",
+      "extruder_index": 3,
+      "feed": "direct",
+      "hand_loaded": true,
+      "id": "h3",
+      "sensor": true,
+      "toolhead_sensor": "filament_switch_sensor filament3"
+    }
+  ],
+  "heater_routing": "routed",
+  "heater_routing_reason": "verified M99104 / M99109 as the upstream extruder handlers",
+  "inventory": {
+    "h0": {
+      "bed_temp": 0,
+      "color": "#112233",
+      "color_name": "",
+      "line": "",
+      "material": "PLA",
+      "name": "",
+      "nozzle_temp": 210,
+      "source": "user",
+      "spool_id": null,
+      "vendor": "",
+      "weight": null
+    },
+    "h1": {
+      "bed_temp": 0,
+      "color": "#112233",
+      "color_name": "",
+      "line": "",
+      "material": "PLA",
+      "name": "",
+      "nozzle_temp": 211,
+      "source": "user",
+      "spool_id": null,
+      "vendor": "",
+      "weight": null
+    },
+    "h2": {
+      "bed_temp": 0,
+      "color": "#112233",
+      "color_name": "",
+      "line": "",
+      "material": "PLA",
+      "name": "",
+      "nozzle_temp": 212,
+      "source": "user",
+      "spool_id": null,
+      "vendor": "",
+      "weight": null
+    },
+    "h3": {
+      "bed_temp": 0,
+      "color": "#112233",
+      "color_name": "",
+      "line": "",
+      "material": "PLA",
+      "name": "",
+      "nozzle_temp": 213,
+      "source": "user",
+      "spool_id": null,
+      "vendor": "",
+      "weight": null
+    }
+  },
+  "inventory_publication": "current",
+  "job": {
+    "active": true,
+    "config_revision": 8,
+    "file": "/tmp/pytest-of-anselor/pytest-1873/test_capture_actual_runout_pre0/manual-runout.gcode",
+    "pairs": [
+      [
+        0,
+        0
+      ],
+      [
+        1,
+        1
+      ],
+      [
+        2,
+        2
+      ],
+      [
+        3,
+        3
+      ]
+    ],
+    "restored_from": "none",
+    "source": "default_frozen",
+    "staged": "none",
+    "staged_reason": "",
+    "state": "established"
+  },
+  "last_error": "h0: head inlet reads False; possible runout, broken filament or sensor reading. Old strand path is unresolved; do not insert a replacement until the old strand and fragments are removed",
+  "layout": "head_major",
+  "load_verify": null,
+  "loaded": {
+    "h0": {
+      "destination": null,
+      "evidence": "toolhead",
+      "identity": null,
+      "state": "empty",
+      "verified": false
+    },
+    "h1": {
+      "destination": {
+        "head": "h1",
+        "slot": null,
+        "unit": null
+      },
+      "evidence": "user_confirmed",
+      "identity": {
+        "bed_temp": 0,
+        "color": "#112233",
+        "color_name": "",
+        "line": "",
+        "material": "PLA",
+        "name": "",
+        "nozzle_temp": 211,
+        "source": "user",
+        "spool_id": null,
+        "vendor": "",
+        "weight": null
+      },
+      "state": "loaded",
+      "verified": true
+    },
+    "h2": {
+      "destination": {
+        "head": "h2",
+        "slot": null,
+        "unit": null
+      },
+      "evidence": "user_confirmed",
+      "identity": {
+        "bed_temp": 0,
+        "color": "#112233",
+        "color_name": "",
+        "line": "",
+        "material": "PLA",
+        "name": "",
+        "nozzle_temp": 212,
+        "source": "user",
+        "spool_id": null,
+        "vendor": "",
+        "weight": null
+      },
+      "state": "loaded",
+      "verified": true
+    },
+    "h3": {
+      "destination": {
+        "head": "h3",
+        "slot": null,
+        "unit": null
+      },
+      "evidence": "user_confirmed",
+      "identity": {
+        "bed_temp": 0,
+        "color": "#112233",
+        "color_name": "",
+        "line": "",
+        "material": "PLA",
+        "name": "",
+        "nozzle_temp": 213,
+        "source": "user",
+        "spool_id": null,
+        "vendor": "",
+        "weight": null
+      },
+      "state": "loaded",
+      "verified": true
+    }
+  },
+  "management": {
+    "add_candidates": [],
+    "capabilities": {
+      "effective_settings": 1,
+      "identity_settings": 1,
+      "unit_accept_expect_context": 1,
+      "unit_add_expect_context": 1,
+      "version": 1
+    },
+    "head_settings": {
+      "h0": {
+        "effective": {
+          "capture_mm": 10,
+          "capture_step_mm": 5
+        },
+        "origins": {
+          "capture_mm": "config",
+          "capture_step_mm": "default"
+        }
+      },
+      "h1": {
+        "effective": {
+          "capture_mm": 10,
+          "capture_step_mm": 5
+        },
+        "origins": {
+          "capture_mm": "config",
+          "capture_step_mm": "default"
+        }
+      },
+      "h2": {
+        "effective": {
+          "capture_mm": 0,
+          "capture_step_mm": 5
+        },
+        "origins": {
+          "capture_mm": "default",
+          "capture_step_mm": "default"
+        }
+      },
+      "h3": {
+        "effective": {
+          "capture_mm": 0,
+          "capture_step_mm": 5
+        },
+        "origins": {
+          "capture_mm": "default",
+          "capture_step_mm": "default"
+        }
+      }
+    },
+    "identity_settings": {
+      "h0": {
+        "display_name": "",
+        "provenance": {
+          "source": "user",
+          "weight": null
+        },
+        "values": {
+          "bed_temp": 0,
+          "color": "#112233",
+          "color_name": "",
+          "line": "",
+          "material": "PLA",
+          "name": "",
+          "nozzle_temp": 210,
+          "nozzle_temp_max": 0,
+          "nozzle_temp_min": 0,
+          "spool_id": null,
+          "vendor": ""
+        }
+      },
+      "h1": {
+        "display_name": "",
+        "provenance": {
+          "source": "user",
+          "weight": null
+        },
+        "values": {
+          "bed_temp": 0,
+          "color": "#112233",
+          "color_name": "",
+          "line": "",
+          "material": "PLA",
+          "name": "",
+          "nozzle_temp": 211,
+          "nozzle_temp_max": 0,
+          "nozzle_temp_min": 0,
+          "spool_id": null,
+          "vendor": ""
+        }
+      },
+      "h2": {
+        "display_name": "",
+        "provenance": {
+          "source": "user",
+          "weight": null
+        },
+        "values": {
+          "bed_temp": 0,
+          "color": "#112233",
+          "color_name": "",
+          "line": "",
+          "material": "PLA",
+          "name": "",
+          "nozzle_temp": 212,
+          "nozzle_temp_max": 0,
+          "nozzle_temp_min": 0,
+          "spool_id": null,
+          "vendor": ""
+        }
+      },
+      "h3": {
+        "display_name": "",
+        "provenance": {
+          "source": "user",
+          "weight": null
+        },
+        "values": {
+          "bed_temp": 0,
+          "color": "#112233",
+          "color_name": "",
+          "line": "",
+          "material": "PLA",
+          "name": "",
+          "nozzle_temp": 213,
+          "nozzle_temp_max": 0,
+          "nozzle_temp_min": 0,
+          "spool_id": null,
+          "vendor": ""
+        }
+      }
+    },
+    "source_settings": {},
+    "units": {}
+  },
+  "manual_flow": {
+    "available": true,
+    "change_id": null,
+    "context": "14e7821fdb8ae0a510689505316bfecbe7b0b301b06fdd7776af1ffdeda0c8c3",
+    "correction_reason": "",
+    "correction_required": false,
+    "head": "h0",
+    "identity": {
+      "color": "#112233",
+      "material": "PLA",
+      "name": ""
+    },
+    "loaded": {
+      "color": "",
+      "material": "",
+      "state": "empty",
+      "verified": false
+    },
+    "mounted": true,
+    "operation": "idle",
+    "prepare_completion": "not_recorded",
+    "presence": false,
+    "purge": {
+      "completed_mm": 0.0,
+      "declared_mm": null,
+      "known_partial_continuation": false,
+      "receipt_write_pending": false,
+      "remaining_mm": null,
+      "state": "undeclared"
+    },
+    "reason": "",
+    "source": "h0",
+    "target_prime_mm": 80,
+    "temperature": {
+      "print_c": 210.0,
+      "procedure_c": 210.0
+    },
+    "tool": 0,
+    "version": 1
+  },
+  "material_families": {
+    "matte": "pla",
+    "matte pla": "pla",
+    "petg": "petg",
+    "pla": "pla",
+    "pla matte": "pla",
+    "pla+": "pla"
+  },
+  "operation": null,
+  "ownership_conflicts": [],
+  "ownership_reason": "forced by own_tool_commands: true (no vendor macro T0 found)",
+  "path_clear_mm": {},
+  "pending_temps": {},
+  "persistence": "ok",
+  "qualification": {
+    "ace_positioning_mm": 0,
+    "attempted": [],
+    "edge_feed_bound_mm": 1200,
+    "extruder_mm": 0,
+    "frozen": {},
+    "head": null,
+    "inlet_after_cleanup": null,
+    "note": "",
+    "open": false,
+    "slot": null,
+    "stage": "none",
+    "trial": null,
+    "unit": null
+  },
+  "recovery": {
+    "blocking_flags": [],
+    "faults": [
+      {
+        "category": "motion_unresolved",
+        "head": "h0",
+        "reason": "h0: head inlet reads False; possible runout, broken filament or sensor reading. Old strand path is unresolved; do not insert a replacement until the old strand and fragments are removed",
+        "resolved": false,
+        "retry": "after_recovery",
+        "sequence": 1,
+        "session": null,
+        "slot": null,
+        "unit": null
+      }
+    ],
+    "generation": 1,
+    "job_identity": [
+      "/tmp/pytest-of-anselor/pytest-1873/test_capture_actual_runout_pre0/manual-runout.gcode",
+      8,
+      "default_frozen"
+    ],
+    "last_good_tool": 0,
+    "replay": null,
+    "required_tool": 0,
+    "state": "paused",
+    "terminal_state": "STOPPED_POSITION_UNCONFIRMED",
+    "vendor_pause_attempted": true
+  },
+  "session_id": 100,
+  "software_version": "0.1.0",
+  "source_settings": {},
+  "state_revision": 13,
+  "tool_extruder_index": {
+    "0": 0,
+    "1": 1,
+    "2": 2,
+    "3": 3
+  },
+  "tool_head": {
+    "0": "h0",
+    "1": "h1",
+    "2": "h2",
+    "3": "h3"
+  },
+  "unit_discovery": [],
+  "unit_settings": {},
+  "units": [],
+  "unload": {},
+  "unload_modes": {},
+  "unrouted_slots": [],
+  "vendor_handlers": {}
+}

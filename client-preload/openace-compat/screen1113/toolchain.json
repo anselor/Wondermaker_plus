@@ -1,0 +1,37 @@
+{
+  "c_flags": [
+    "-fPIC",
+    "-O2",
+    "-Wall",
+    "-Wextra"
+  ],
+  "container_legacy_c": "/baseline",
+  "container_output": "/out",
+  "container_source": "/src",
+  "cxx_flags": [
+    "-std=c++11",
+    "-shared",
+    "-fPIC",
+    "-O2",
+    "-Wall",
+    "-Wextra",
+    "-Werror",
+    "-pthread",
+    "-Wl,-z,nodelete"
+  ],
+  "image": "sha256:86fdcabbf2da48f1023d39362d3edc92495da739c716716b83b973aee91d54a8",
+  "link_after_objects": [
+    "-ldl"
+  ],
+  "maximum_cxxabi": "1.3",
+  "maximum_gcc": "3.0",
+  "maximum_glibc": "2.17",
+  "maximum_glibcxx": "3.4.21",
+  "network": "none",
+  "profile": {
+    "firmware": "1.1.13",
+    "sha256": "b60c96c5caf980a127a3d284e5ac98e799dfd79691cb1a52aafd06fd818c4715",
+    "size": 61340216
+  },
+  "version": 1
+}

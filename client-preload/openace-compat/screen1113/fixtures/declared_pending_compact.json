@@ -1,0 +1,509 @@
+{
+  "adaptive_swap": {
+    "attempts": [],
+    "learned": null,
+    "reason": "",
+    "source": null,
+    "state": "idle"
+  },
+  "alerts": [
+    {
+      "head": "h0",
+      "kind": "material_change",
+      "message": "filament change T3 (h0): from PLA [PLA #112233] to Gray [PLA+ #445566]",
+      "severity": "info",
+      "slot": null,
+      "tool": 3,
+      "unit": null
+    }
+  ],
+  "api_version": 1,
+  "assist": {},
+  "blocked_slots": [],
+  "blocked_tools": {},
+  "capabilities": {
+    "drivers_loaded": false,
+    "inventory_publication": true,
+    "job_map": 1,
+    "max_map_pairs": 256,
+    "max_virtual_tools": 32,
+    "native_select": true,
+    "owns_tool_commands": true,
+    "preheat": 1
+  },
+  "config_revision": 10,
+  "declined_commands": {},
+  "default_tool_map": {
+    "0": {
+      "head": "h0",
+      "slot": null,
+      "unit": null
+    },
+    "1": {
+      "head": "h1",
+      "slot": null,
+      "unit": null
+    },
+    "2": {
+      "head": "h2",
+      "slot": null,
+      "unit": null
+    },
+    "3": {
+      "head": "h3",
+      "slot": null,
+      "unit": null
+    },
+    "4": {
+      "head": "h0",
+      "slot": null,
+      "unit": null
+    }
+  },
+  "destinations": [
+    {
+      "head": "h0",
+      "slot": null,
+      "unit": null
+    },
+    {
+      "head": "h1",
+      "slot": null,
+      "unit": null
+    },
+    {
+      "head": "h2",
+      "slot": null,
+      "unit": null
+    },
+    {
+      "head": "h3",
+      "slot": null,
+      "unit": null
+    }
+  ],
+  "devices": {
+    "abort": {
+      "endpoint": "openace/abort",
+      "observations": [],
+      "reason": "",
+      "requested": false,
+      "scopes": []
+    },
+    "adaptive_swap": {
+      "attempts": [],
+      "learned": null,
+      "reason": "",
+      "source": null,
+      "state": "idle"
+    },
+    "identity_persistence": "none",
+    "load_verify": null,
+    "paused": null,
+    "sensors": {
+      "action": "",
+      "modes": {
+        "h0": "event",
+        "h1": "event",
+        "h2": "event",
+        "h3": "event"
+      },
+      "notes": {}
+    },
+    "stop_pending": {},
+    "units": {}
+  },
+  "edge_feed": {},
+  "expectations_declared": false,
+  "heads": [
+    {
+      "contents": "hand_loaded",
+      "extruder": "extruder",
+      "extruder_index": 0,
+      "feed": "direct",
+      "hand_loaded": true,
+      "id": "h0",
+      "sensor": true,
+      "toolhead_sensor": "filament_switch_sensor filament0"
+    },
+    {
+      "contents": "hand_loaded",
+      "extruder": "extruder1",
+      "extruder_index": 1,
+      "feed": "direct",
+      "hand_loaded": true,
+      "id": "h1",
+      "sensor": true,
+      "toolhead_sensor": "filament_switch_sensor filament1"
+    },
+    {
+      "contents": "hand_loaded",
+      "extruder": "extruder2",
+      "extruder_index": 2,
+      "feed": "direct",
+      "hand_loaded": true,
+      "id": "h2",
+      "sensor": true,
+      "toolhead_sensor": "filament_switch_sensor filament2"
+    },
+    {
+      "contents": "hand_loaded",
+      "extruder": "extruder3",
+      "extruder_index": 3,
+      "feed": "direct",
+      "hand_loaded": true,
+      "id": "h3",
+      "sensor": true,
+      "toolhead_sensor": "filament_switch_sensor filament3"
+    }
+  ],
+  "heater_routing": "routed",
+  "heater_routing_reason": "verified M99104 / M99109 as the upstream extruder handlers",
+  "inventory": {
+    "h0": {
+      "bed_temp": 0,
+      "color": "#778899",
+      "color_name": "",
+      "line": "",
+      "material": "PLA+",
+      "name": "",
+      "nozzle_temp": 210,
+      "source": "user",
+      "spool_id": null,
+      "vendor": "",
+      "weight": null
+    },
+    "h1": {
+      "bed_temp": 0,
+      "color": "#112233",
+      "color_name": "",
+      "line": "",
+      "material": "PLA",
+      "name": "",
+      "nozzle_temp": 211,
+      "source": "user",
+      "spool_id": null,
+      "vendor": "",
+      "weight": null
+    },
+    "h2": {
+      "bed_temp": 0,
+      "color": "#112233",
+      "color_name": "",
+      "line": "",
+      "material": "PLA",
+      "name": "",
+      "nozzle_temp": 212,
+      "source": "user",
+      "spool_id": null,
+      "vendor": "",
+      "weight": null
+    },
+    "h3": {
+      "bed_temp": 0,
+      "color": "#112233",
+      "color_name": "",
+      "line": "",
+      "material": "PLA",
+      "name": "",
+      "nozzle_temp": 213,
+      "source": "user",
+      "spool_id": null,
+      "vendor": "",
+      "weight": null
+    }
+  },
+  "inventory_publication": "current",
+  "job": {
+    "active": true,
+    "config_revision": 9,
+    "file": "/tmp/pytest-of-anselor/pytest-1795/test_cpp_declared_m600_click_u0/declared-m600.gcode",
+    "pairs": [
+      [
+        3,
+        4
+      ]
+    ],
+    "restored_from": "none",
+    "source": "override",
+    "staged": "none",
+    "staged_reason": "",
+    "state": "established"
+  },
+  "last_error": null,
+  "layout": "head_major",
+  "load_verify": null,
+  "loaded": {
+    "h0": {
+      "destination": {
+        "head": "h0",
+        "slot": null,
+        "unit": null
+      },
+      "evidence": "toolhead",
+      "identity": {
+        "bed_temp": 0,
+        "color": "#778899",
+        "color_name": "",
+        "line": "",
+        "material": "PLA+",
+        "name": "",
+        "nozzle_temp": 210,
+        "source": "user",
+        "spool_id": null,
+        "vendor": "",
+        "weight": null
+      },
+      "state": "loaded",
+      "verified": true
+    },
+    "h1": {
+      "destination": {
+        "head": "h1",
+        "slot": null,
+        "unit": null
+      },
+      "evidence": "user_confirmed",
+      "identity": {
+        "bed_temp": 0,
+        "color": "#112233",
+        "color_name": "",
+        "line": "",
+        "material": "PLA",
+        "name": "",
+        "nozzle_temp": 211,
+        "source": "user",
+        "spool_id": null,
+        "vendor": "",
+        "weight": null
+      },
+      "state": "loaded",
+      "verified": true
+    },
+    "h2": {
+      "destination": {
+        "head": "h2",
+        "slot": null,
+        "unit": null
+      },
+      "evidence": "user_confirmed",
+      "identity": {
+        "bed_temp": 0,
+        "color": "#112233",
+        "color_name": "",
+        "line": "",
+        "material": "PLA",
+        "name": "",
+        "nozzle_temp": 212,
+        "source": "user",
+        "spool_id": null,
+        "vendor": "",
+        "weight": null
+      },
+      "state": "loaded",
+      "verified": true
+    },
+    "h3": {
+      "destination": {
+        "head": "h3",
+        "slot": null,
+        "unit": null
+      },
+      "evidence": "user_confirmed",
+      "identity": {
+        "bed_temp": 0,
+        "color": "#112233",
+        "color_name": "",
+        "line": "",
+        "material": "PLA",
+        "name": "",
+        "nozzle_temp": 213,
+        "source": "user",
+        "spool_id": null,
+        "vendor": "",
+        "weight": null
+      },
+      "state": "loaded",
+      "verified": true
+    }
+  },
+  "manual_filaments": {
+    "active": {
+      "3": 1
+    },
+    "digest": "1198575538a96835f0173071e28b30a2521f390122bcb324bbaca8fa1fbcd1ea",
+    "pending": {
+      "accepted": false,
+      "file_tool": 3,
+      "head": "h0",
+      "previous_id": 1,
+      "segment": 0,
+      "target_id": 2
+    },
+    "segments": {
+      "3": 0
+    }
+  },
+  "material_change_prompt": {
+    "actual_from": {
+      "color": "#112233",
+      "material": "PLA",
+      "name": ""
+    },
+    "actual_from_basis": "loaded",
+    "change_id": "acaf38c01919447a82f9e2a38dc8e7d7",
+    "confirmation": {
+      "actual_color": "#778899",
+      "actual_material": "PLA+",
+      "approved": false,
+      "change_id": "acaf38c01919447a82f9e2a38dc8e7d7",
+      "context": "5c352551a0735b207c637a477c63344caa8051565c0d112f3c4f5b5c90139db3",
+      "expected_color": "#445566",
+      "expected_material": "PLA+",
+      "pending_confirmation": true,
+      "source": "h0",
+      "tool": 3,
+      "version": 1
+    },
+    "declaration_error": null,
+    "declared_previous": {
+      "color": "#112233",
+      "material": "PLA",
+      "name": "Blue"
+    },
+    "declared_target": {
+      "color": "#445566",
+      "material": "PLA+",
+      "name": "Gray"
+    },
+    "head": "h0",
+    "message": "filament change T3 (h0): from PLA [PLA #112233] to Gray [PLA+ #445566]",
+    "record_saved": true,
+    "source": "h0",
+    "target_declared": true,
+    "tool": 3
+  },
+  "material_families": {
+    "matte": "pla",
+    "matte pla": "pla",
+    "petg": "petg",
+    "pla": "pla",
+    "pla matte": "pla",
+    "pla+": "pla"
+  },
+  "operation": null,
+  "ownership_conflicts": [],
+  "ownership_reason": "forced by own_tool_commands: true (no vendor macro T0 found)",
+  "path_clear_mm": {},
+  "pending_temps": {},
+  "persistence": "ok",
+  "qualification": {
+    "ace_positioning_mm": 0,
+    "attempted": [],
+    "edge_feed_bound_mm": 1200,
+    "extruder_mm": 0,
+    "frozen": {},
+    "head": null,
+    "inlet_after_cleanup": null,
+    "note": "",
+    "open": false,
+    "slot": null,
+    "stage": "none",
+    "trial": null,
+    "unit": null
+  },
+  "recovery": {
+    "blocking_flags": [],
+    "faults": [],
+    "generation": 1,
+    "job_identity": [
+      "/tmp/pytest-of-anselor/pytest-1795/test_cpp_declared_m600_click_u0/declared-m600.gcode",
+      9,
+      "override"
+    ],
+    "last_good_tool": 3,
+    "material_change": {
+      "actual_color": "#778899",
+      "actual_material": "PLA+",
+      "approved": false,
+      "confirmation_context": "5c352551a0735b207c637a477c63344caa8051565c0d112f3c4f5b5c90139db3",
+      "expected_color": "#445566",
+      "expected_material": "PLA+",
+      "extra_procedure_required": false,
+      "normal_recipe_completed": false,
+      "normal_reported_mm": null,
+      "normal_restore_completed": false,
+      "pending_confirmation": true,
+      "pending_extra_purge": null,
+      "pending_load_receipt": false,
+      "purge_receipts": [
+        {
+          "actions": [
+            {
+              "commanded_mm": 10,
+              "completed": true,
+              "evidence_kind": "event",
+              "issued": true,
+              "sequence": 3,
+              "session": 1,
+              "submission_id": "manual_complete-3:prime:0"
+            },
+            {
+              "commanded_mm": 10,
+              "completed": true,
+              "evidence_kind": "event",
+              "issued": true,
+              "sequence": 4,
+              "session": 1,
+              "submission_id": "manual_complete-3:prime:10"
+            }
+          ],
+          "assignment": 2,
+          "completed_mm": 20,
+          "contents_epoch": 2,
+          "continuity_epoch": 0,
+          "identity": "7dee386036f0523d8154ae8732ff58bd07a7840cf92785f5b330daae72154c1a",
+          "instance": 2,
+          "loaded": true,
+          "ok": true,
+          "operation_id": "manual_complete-3",
+          "reason": "",
+          "uncertainty_epoch": 0
+        }
+      ],
+      "purge_remaining_mm": 0.0,
+      "source": "h0",
+      "tool": 3
+    },
+    "replay": null,
+    "required_tool": 3,
+    "state": "paused",
+    "terminal_state": "STOPPED_POSITION_UNCONFIRMED",
+    "vendor_pause_attempted": true
+  },
+  "session_id": 100,
+  "software_version": "0.1.0",
+  "source_settings": {},
+  "state_revision": 15,
+  "tool_extruder_index": {
+    "0": 0,
+    "1": 1,
+    "2": 2,
+    "3": 0,
+    "4": 0
+  },
+  "tool_head": {
+    "0": "h0",
+    "1": "h1",
+    "2": "h2",
+    "3": "h0",
+    "4": "h0"
+  },
+  "unit_discovery": [],
+  "unit_settings": {},
+  "units": [],
+  "unload": {},
+  "unload_modes": {},
+  "unrouted_slots": [],
+  "vendor_handlers": {}
+}

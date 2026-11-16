@@ -1,0 +1,148 @@
+{
+  "client_sha256": "b60c96c5caf980a127a3d284e5ac98e799dfd79691cb1a52aafd06fd818c4715",
+  "firmware": "1.1.13",
+  "functions": {
+    "lv_btn_create": {
+      "address": "0x6d4ca0",
+      "bytes": "fd7bbda9fd030091e00f00f9e10f40f9407b01b000a010910d30ff97e01700f9",
+      "executable": true,
+      "length": 32,
+      "sha256": "17dddc51cd01c8ea5ff10b974beb1356b4c65c91989492c1e5a6c9a3b3e25187"
+    },
+    "lv_disp_get_default": {
+      "address": "0x6c3374",
+      "bytes": "60fc069000a02891000040f9c0035fd6fd7bbea9fd030091e00f00f9e00f40f9",
+      "executable": true,
+      "length": 32,
+      "sha256": "a4a002ac3775a7d7e83cd0764ed53440b05fe6af87d2122dbc7e5896e3de5a95"
+    },
+    "lv_disp_get_layer_top": {
+      "address": "0x696650",
+      "bytes": "fd7bbea9fd030091e00f00f9e00f40f91f0000f16100005443b30094e00f00f9",
+      "executable": true,
+      "length": 32,
+      "sha256": "06417ae894165122724366f5ac32add9870fa01d9a76d3253165750df88acb06"
+    },
+    "lv_event_get_code": {
+      "address": "0x6979fc",
+      "bytes": "ff4300d1e00700f9e00740f9001040b900781812ff430091c0035fd6ff4300d1",
+      "executable": true,
+      "length": 32,
+      "sha256": "d1dcda2d8c2f10bd585f0a56fa0f4d6a34eba8f08929c79925f120e018548f12"
+    },
+    "lv_event_get_current_target": {
+      "address": "0x6979e4",
+      "bytes": "ff4300d1e00700f9e00740f9000440f9ff430091c0035fd6ff4300d1e00700f9",
+      "executable": true,
+      "length": 32,
+      "sha256": "6e52b3a23d30e1783918d0c06c1b9e7622b45b7945c209d17227502791c082ca"
+    },
+    "lv_event_get_target": {
+      "address": "0x6979cc",
+      "bytes": "ff4300d1e00700f9e00740f9000040f9ff430091c0035fd6ff4300d1e00700f9",
+      "executable": true,
+      "length": 32,
+      "sha256": "8f5f0208ea9c82a80aeabb852bce21ac787fa223b74b9f625502e1d9aad70561"
+    },
+    "lv_event_get_user_data": {
+      "address": "0x697a30",
+      "bytes": "ff4300d1e00700f9e00740f9000c40f9ff430091c0035fd6ff4300d1e00700f9",
+      "executable": true,
+      "length": 32,
+      "sha256": "e1640b47ffb2d8f628b0e2763bdaeced9657f1876812e3437ec14e87b3bf6548"
+    },
+    "lv_label_create": {
+      "address": "0x6d96ac",
+      "bytes": "fd7bbda9fd030091e00f00f9e10f40f9207b0190000026918a1dff97e01700f9",
+      "executable": true,
+      "length": 32,
+      "sha256": "6d5325f9b7aea59aa38848b6374db06e81037efda457cb21d9edbc4f3613a450"
+    },
+    "lv_label_set_text": {
+      "address": "0x6d96e0",
+      "bytes": "fd7bbca9fd030091f30b00f9e01700f9e11300f9e01740f9e01f00f9e01740f9",
+      "executable": true,
+      "length": 32,
+      "sha256": "34640a43bdb51158c07545220bf92565bdc892665708c5a492cf44427c2e7feb"
+    },
+    "lv_obj_add_event_cb": {
+      "address": "0x697b38",
+      "bytes": "fd7bbca9fd030091f30b00f9e01f00f9e11b00f9e22f00b9e31300f9e01f40f9",
+      "executable": true,
+      "length": 32,
+      "sha256": "2d031f5ec639d66e02f0343d1067080b0ccef92d26fab04326d2a7f8ee02a4bc"
+    },
+    "lv_obj_create": {
+      "address": "0x69ece0",
+      "bytes": "fd7bbda9fd030091e00f00f9e10f40f9c07c019000a00c91fd070094e01700f9",
+      "executable": true,
+      "length": 32,
+      "sha256": "0bbff5158b5584e2c30294b36e8c914feae1023dd05aedd942ec498dce21b95b"
+    },
+    "lv_obj_get_child": {
+      "address": "0x6af7e8",
+      "bytes": "ff8300d1e00700f9e10700b9e00740f9000840f91f0000f161000054000080d2",
+      "executable": true,
+      "length": 32,
+      "sha256": "ef6d665872c1c4b559539982bc8211d7a9197342ae20e933e9ba9e178d84f45d"
+    },
+    "lv_obj_get_child_cnt": {
+      "address": "0x6af89c",
+      "bytes": "ff4300d1e00700f9e00740f9000840f91f0000f1610000540000805204000014",
+      "executable": true,
+      "length": 32,
+      "sha256": "b1d16efc945b4d599fba3d54060e1089109f2bc479856eed6b18bdd9bd6429f5"
+    },
+    "lv_obj_get_coords": {
+      "address": "0x6a496c",
+      "bytes": "fd7bbea9fd030091e00f00f9e10b00f9e00f40f900a00091e10300aae00b40f9",
+      "executable": true,
+      "length": 32,
+      "sha256": "9e610bd3397cbac0d5eadb177128014f354ffbfcc95835c9b3a5a12a0609ad4c"
+    },
+    "lv_obj_is_valid": {
+      "address": "0x69f284",
+      "bytes": "fd7bbda9fd030091e00f00f9000080d295910094e01700f927000014ff2700b9",
+      "executable": true,
+      "length": 32,
+      "sha256": "8ac9521d70263d8828c4cda7ea707d01f890a9095123f29b3c8ba2fbb2cf51bf"
+    },
+    "lv_obj_move_to_index": {
+      "address": "0x6af3c4",
+      "bytes": "fd7bbda9fd030091e00f00f9e11700b9e01740b91f0000710a010054e00f40f9",
+      "executable": true,
+      "length": 32,
+      "sha256": "4f121e439f1d6f130c8c0d0a88e8a36091507b6115bb85f8eda51a64f63c88b4"
+    },
+    "lv_timer_create": {
+      "address": "0x6cf084",
+      "bytes": "fd7bbca9fd030091e01700f9e12700b9e20f00f9ff1f00f900fc069000a02991",
+      "executable": true,
+      "length": 32,
+      "sha256": "bfe4a22fe3f75caa3a7791370f820c629f32ba32162f798e11994f25e99c5048"
+    },
+    "screen_refresh_handler": {
+      "address": "0x553de8",
+      "bytes": "fd7bbea9fd030091e00f00f96cfdff97400702b001001491000080d2f90c0094",
+      "executable": true,
+      "length": 32,
+      "sha256": "c6cd739fc9c6b233ff754f572ef92c429da0be83df96db29064ca17805ea9437"
+    }
+  },
+  "not_proved": [
+    "placement/native Stop accessibility under all stock pages/modals",
+    "runtime widget renderer and display-reset controls",
+    "installer C++ linkage/cross-build",
+    "attended physical touchscreen validation"
+  ],
+  "proved_event_filter": {
+    "clicked": 7,
+    "delete": 33
+  },
+  "status": "evidence only; no calls or runtime hook installed",
+  "stop_object_symbol": {
+    "address": "0x386d038",
+    "kind": "pointer slot written by setup_screen_main; not a permanent object identity",
+    "symbol": "_ZL8btn_stop"
+  }
+}

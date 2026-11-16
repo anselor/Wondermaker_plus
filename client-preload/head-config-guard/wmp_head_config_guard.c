@@ -53,7 +53,9 @@ static void reject(const char *message)
 {
     logmsg(message);
     if (getenv("WMP_REQUIRE_HEAD_CONFIG_GUARD")) {
-        logmsg("Required head guard unavailable; screen startup blocked");
+        const char *repair = "Required head guard unavailable; screen startup blocked to preserve physical head configuration. Reinstall a WM+ package supporting this screen client or restore supported stock firmware. See /tmp/wmp_head-config-guard.log for the failed check.";
+        logmsg(repair);
+        fprintf(stderr, "WM+ head guard: %s\n%s\n", message, repair);
         _exit(78);
     }
 }

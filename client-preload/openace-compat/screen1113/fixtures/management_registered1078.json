@@ -1,0 +1,512 @@
+{
+  "adaptive_swap": {
+    "attempts": [],
+    "learned": null,
+    "reason": "",
+    "source": null,
+    "state": "idle"
+  },
+  "alerts": [],
+  "api_version": 1,
+  "assist": {},
+  "blocked_slots": [],
+  "blocked_tools": {},
+  "capabilities": {
+    "drivers_loaded": true,
+    "inventory_publication": true,
+    "job_map": 1,
+    "max_map_pairs": 256,
+    "max_virtual_tools": 8,
+    "native_select": true,
+    "owns_tool_commands": false,
+    "preheat": 1
+  },
+  "config_revision": 1,
+  "declined_commands": {},
+  "default_tool_map": {},
+  "destinations": [],
+  "devices": {
+    "abort": {
+      "endpoint": "openace/abort",
+      "observations": [],
+      "reason": "",
+      "requested": false,
+      "scopes": []
+    },
+    "adaptive_swap": {
+      "attempts": [],
+      "learned": null,
+      "reason": "",
+      "source": null,
+      "state": "idle"
+    },
+    "identity_persistence": "none",
+    "load_verify": null,
+    "paused": null,
+    "sensors": {
+      "action": "",
+      "modes": {
+        "h0": "event",
+        "h1": "event"
+      },
+      "notes": {}
+    },
+    "stop_pending": {},
+    "units": {
+      "ace0": {
+        "action": "",
+        "assist_mode": "buffer",
+        "assist_regulation": "device buffer; no finite length/time bound; USB-loss stop unverified",
+        "connected": true,
+        "error": "",
+        "firmware": "V1.1.31",
+        "id_space": "ok",
+        "identity": "device uid:111111112222222233333333",
+        "identity_distinguishable": true,
+        "ids_remaining": 65465,
+        "motion_diagnostics": {
+          "0": {
+            "armed": false,
+            "direction": null,
+            "raw_slot_word": "ready",
+            "start_written_at": null,
+            "stop": {}
+          },
+          "1": {
+            "armed": false,
+            "direction": null,
+            "raw_slot_word": "ready",
+            "start_written_at": null,
+            "stop": {}
+          },
+          "2": {
+            "armed": false,
+            "direction": null,
+            "raw_slot_word": "ready",
+            "start_written_at": null,
+            "stop": {}
+          },
+          "3": {
+            "armed": false,
+            "direction": null,
+            "raw_slot_word": "ready",
+            "start_written_at": null,
+            "stop": {}
+          }
+        },
+        "port": "/dev/pts/20",
+        "port_present": true,
+        "replacement_suspected": false,
+        "rollback_assist_supported": true,
+        "shutdown_stop_delivery": {},
+        "slots": [
+          {
+            "filament": "empty",
+            "filament_state": 0,
+            "firmware_identified": false,
+            "has_identity": false,
+            "index": 0,
+            "motion": "idle",
+            "present": false,
+            "slot_state": "ready",
+            "telemetry": {
+              "classification": "indeterminate",
+              "reason": "no captured move",
+              "valid": false
+            }
+          },
+          {
+            "filament": "empty",
+            "filament_state": 0,
+            "firmware_identified": false,
+            "has_identity": false,
+            "index": 1,
+            "motion": "idle",
+            "present": false,
+            "slot_state": "ready",
+            "telemetry": {
+              "classification": "indeterminate",
+              "reason": "no captured move",
+              "valid": false
+            }
+          },
+          {
+            "filament": "empty",
+            "filament_state": 0,
+            "firmware_identified": false,
+            "has_identity": false,
+            "index": 2,
+            "motion": "idle",
+            "present": false,
+            "slot_state": "ready",
+            "telemetry": {
+              "classification": "indeterminate",
+              "reason": "no captured move",
+              "valid": false
+            }
+          },
+          {
+            "filament": "empty",
+            "filament_state": 0,
+            "firmware_identified": false,
+            "has_identity": false,
+            "index": 3,
+            "motion": "idle",
+            "present": false,
+            "slot_state": "ready",
+            "telemetry": {
+              "classification": "indeterminate",
+              "reason": "no captured move",
+              "valid": false
+            }
+          }
+        ],
+        "status": "ready"
+      }
+    }
+  },
+  "edge_feed": {},
+  "expectations_declared": false,
+  "heads": [
+    {
+      "contents": "empty_unrecorded",
+      "extruder": "extruder",
+      "extruder_index": 0,
+      "feed": "direct",
+      "hand_loaded": false,
+      "id": "h0",
+      "sensor": false,
+      "toolhead_sensor": "filament_switch_sensor filament0"
+    },
+    {
+      "contents": "empty_unrecorded",
+      "extruder": "extruder1",
+      "extruder_index": 1,
+      "feed": "direct",
+      "hand_loaded": false,
+      "id": "h1",
+      "sensor": false,
+      "toolhead_sensor": "filament_switch_sensor filament1"
+    }
+  ],
+  "heater_routing": "unavailable",
+  "heater_routing_reason": "openACE does not own T<n>; vendor M104/M109 untouched; T<n> on those commands keeps the vendor's physical-head meaning; logical tool aliases are not temperature-routed",
+  "inventory": {},
+  "inventory_publication": "current",
+  "job": {
+    "active": false,
+    "config_revision": 0,
+    "file": null,
+    "pairs": [],
+    "restored_from": "none",
+    "source": "default",
+    "staged": "none",
+    "staged_reason": "",
+    "state": "none"
+  },
+  "last_error": null,
+  "layout": "head_major",
+  "load_verify": null,
+  "loaded": {
+    "h0": {
+      "destination": null,
+      "evidence": "none",
+      "identity": null,
+      "state": "unknown",
+      "verified": false
+    },
+    "h1": {
+      "destination": null,
+      "evidence": "none",
+      "identity": null,
+      "state": "unknown",
+      "verified": false
+    }
+  },
+  "management": {
+    "add_candidates": [],
+    "capabilities": {
+      "effective_settings": 1,
+      "unit_accept_expect_context": 1,
+      "unit_add_expect_context": 1,
+      "version": 1
+    },
+    "head_settings": {
+      "h0": {
+        "effective": {
+          "capture_mm": 10,
+          "capture_step_mm": 5
+        },
+        "origins": {
+          "capture_mm": "config",
+          "capture_step_mm": "default"
+        }
+      },
+      "h1": {
+        "effective": {
+          "capture_mm": 10,
+          "capture_step_mm": 5
+        },
+        "origins": {
+          "capture_mm": "config",
+          "capture_step_mm": "default"
+        }
+      }
+    },
+    "source_settings": {
+      "ace0:0": {
+        "effective": {
+          "feed_timeout_s": 60.0,
+          "feed_to_sensor_mm": 1200,
+          "feeder_hold_mm": 100,
+          "feeder_to_inlet_mm": null,
+          "path_clear_mm": null,
+          "unload_mode": "rollback_assist"
+        },
+        "geometry": "unestablished",
+        "origins": {
+          "feed_timeout_s": "default",
+          "feed_to_sensor_mm": "default",
+          "feeder_hold_mm": "default",
+          "feeder_to_inlet_mm": "unset",
+          "path_clear_mm": "unset",
+          "unload_mode": "default"
+        }
+      },
+      "ace0:1": {
+        "effective": {
+          "feed_timeout_s": 60.0,
+          "feed_to_sensor_mm": 1200,
+          "feeder_hold_mm": 100,
+          "feeder_to_inlet_mm": null,
+          "path_clear_mm": null,
+          "unload_mode": "rollback_assist"
+        },
+        "geometry": "unestablished",
+        "origins": {
+          "feed_timeout_s": "default",
+          "feed_to_sensor_mm": "default",
+          "feeder_hold_mm": "default",
+          "feeder_to_inlet_mm": "unset",
+          "path_clear_mm": "unset",
+          "unload_mode": "default"
+        }
+      },
+      "ace0:2": {
+        "effective": {
+          "feed_timeout_s": 60.0,
+          "feed_to_sensor_mm": 1200,
+          "feeder_hold_mm": 100,
+          "feeder_to_inlet_mm": null,
+          "path_clear_mm": null,
+          "unload_mode": "rollback_assist"
+        },
+        "geometry": "unestablished",
+        "origins": {
+          "feed_timeout_s": "default",
+          "feed_to_sensor_mm": "default",
+          "feeder_hold_mm": "default",
+          "feeder_to_inlet_mm": "unset",
+          "path_clear_mm": "unset",
+          "unload_mode": "default"
+        }
+      },
+      "ace0:3": {
+        "effective": {
+          "feed_timeout_s": 60.0,
+          "feed_to_sensor_mm": 1200,
+          "feeder_hold_mm": 100,
+          "feeder_to_inlet_mm": null,
+          "path_clear_mm": null,
+          "unload_mode": "rollback_assist"
+        },
+        "geometry": "unestablished",
+        "origins": {
+          "feed_timeout_s": "default",
+          "feed_to_sensor_mm": "default",
+          "feeder_hold_mm": "default",
+          "feeder_to_inlet_mm": "unset",
+          "path_clear_mm": "unset",
+          "unload_mode": "default"
+        }
+      }
+    },
+    "units": {
+      "ace0": {
+        "accept_context": null,
+        "accepted_identity": {
+          "adapter": "INVENTORY",
+          "device": "uid:111111112222222233333333",
+          "location": "/dev/pts/20"
+        },
+        "binding": "usb_serial:INVENTORY",
+        "candidate_incarnation": "('/dev/pts/20', '1a86', '55d3', 'ace2', 'INVENTORY', None, '/dev/pts/20', None)",
+        "generation": "ace2",
+        "observed_identity": null,
+        "runtime_epoch": 0
+      }
+    }
+  },
+  "material_families": {
+    "matte": "pla",
+    "matte pla": "pla",
+    "petg": "petg",
+    "pla": "pla",
+    "pla matte": "pla",
+    "pla+": "pla"
+  },
+  "operation": null,
+  "ownership_conflicts": [],
+  "ownership_reason": "own_tool_commands: false",
+  "path_clear_mm": {},
+  "pending_temps": {},
+  "persistence": "ok",
+  "qualification": {
+    "ace_positioning_mm": 0,
+    "attempted": [],
+    "edge_feed_bound_mm": 1200,
+    "extruder_mm": 0,
+    "frozen": {},
+    "head": null,
+    "inlet_after_cleanup": null,
+    "note": "",
+    "open": false,
+    "slot": null,
+    "stage": "none",
+    "trial": null,
+    "unit": null
+  },
+  "recovery": null,
+  "session_id": 100,
+  "software_version": "0.1.0",
+  "source_settings": {
+    "ace0:0": {
+      "effective": {
+        "feeder_hold_mm": 100
+      },
+      "geometry": "unestablished",
+      "origins": {
+        "feeder_hold_mm": "default"
+      }
+    },
+    "ace0:1": {
+      "effective": {
+        "feeder_hold_mm": 100
+      },
+      "geometry": "unestablished",
+      "origins": {
+        "feeder_hold_mm": "default"
+      }
+    },
+    "ace0:2": {
+      "effective": {
+        "feeder_hold_mm": 100
+      },
+      "geometry": "unestablished",
+      "origins": {
+        "feeder_hold_mm": "default"
+      }
+    },
+    "ace0:3": {
+      "effective": {
+        "feeder_hold_mm": 100
+      },
+      "geometry": "unestablished",
+      "origins": {
+        "feeder_hold_mm": "default"
+      }
+    }
+  },
+  "state_revision": 5,
+  "tool_extruder_index": {},
+  "tool_head": {},
+  "unit_discovery": [
+    {
+      "claimed_by": "ace0",
+      "device": "/dev/pts/20",
+      "generation": "ace2",
+      "usb_path": "/dev/pts/20",
+      "usb_serial": "INVENTORY"
+    }
+  ],
+  "unit_settings": {
+    "ace0": {
+      "effective": {
+        "assist_mode": "buffer",
+        "feed_speed": 50,
+        "generation": "ace2",
+        "max_feed_mm": 1500,
+        "retract_speed": 50,
+        "slots": 4,
+        "stop_survives_disconnect": false,
+        "usb_path": null,
+        "usb_serial": "INVENTORY"
+      },
+      "origins": {
+        "assist_mode": "default",
+        "feed_speed": "default",
+        "generation": "persisted",
+        "max_feed_mm": "default",
+        "retract_speed": "default",
+        "slots": "default",
+        "stop_survives_disconnect": "default",
+        "usb_path": "persisted",
+        "usb_serial": "persisted"
+      }
+    }
+  },
+  "units": [
+    {
+      "binding": "usb_serial:INVENTORY",
+      "generation": "ace2",
+      "id": "ace0",
+      "name": "ace0",
+      "slots": 4
+    }
+  ],
+  "unload": {},
+  "unload_modes": {},
+  "unrouted_slots": [
+    {
+      "color_name": null,
+      "line": null,
+      "material": null,
+      "name": null,
+      "present": false,
+      "slot": 0,
+      "unit": "ace0",
+      "vendor": null
+    },
+    {
+      "color_name": null,
+      "line": null,
+      "material": null,
+      "name": null,
+      "present": false,
+      "slot": 1,
+      "unit": "ace0",
+      "vendor": null
+    },
+    {
+      "color_name": null,
+      "line": null,
+      "material": null,
+      "name": null,
+      "present": false,
+      "slot": 2,
+      "unit": "ace0",
+      "vendor": null
+    },
+    {
+      "color_name": null,
+      "line": null,
+      "material": null,
+      "name": null,
+      "present": false,
+      "slot": 3,
+      "unit": "ace0",
+      "vendor": null
+    }
+  ],
+  "vendor_handlers": {}
+}

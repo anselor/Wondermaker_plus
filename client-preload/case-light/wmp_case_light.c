@@ -1,6 +1,9 @@
 /* Share Klipper's saved light preference with the stock screen and wake path.
- * Automatic GPIO writes happen only in wmp_case_light.py, never here.
+ * Automatic light policy lives in wmp_case_light.py. At startup only, repair
+ * a missing/input GPIO using the factory OFF initializer before delegating it.
  * Original setters still initialize the vendor GPIO and provide manual fallback.
+ *
+ * Also wakes a sleeping screen when the door is opened. See door_wake_poll().
  */
 #define _GNU_SOURCE
 #include <dlfcn.h>
@@ -10,6 +13,7 @@
 #include <elf.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <linux/input.h>
 #include <pthread.h>
 #include <pwd.h>
 #include <stddef.h>
@@ -98,7 +102,149 @@ static int grant_gpio(const char *path, uid_t owner)
     return result;
 }
 
+/* Door-open screen wake.
+ *
+ * The vendor configuration reports two door switches as gcode_button
+ * Door_button1 and Door_button2: PRESSED while closed, RELEASED while open.
+ * The worker reads them twice a second. When either changes from closed to
+ * open while the backlight is off, it sends one touch to the top-left corner
+ * of the panel. A sleeping screen is covered by the screen program's own
+ * full-screen wake layer, so that touch wakes the screen and reaches no
+ * control. An open door sends nothing further, and the screen sleeps again
+ * after its usual delay.
+ */
+#define TOUCH_DEVICE "/dev/input/event0"
+#define BACKLIGHT_VALUE "/sys/class/backlight/backlight/brightness"
+#define WAKE_X 2
+#define WAKE_Y 2
+#define DOOR_QUERY "GET /printer/objects/query?gcode_button%20Door_button1" \
+    "&gcode_button%20Door_button2 HTTP/1.0\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n"
+
+/* Bit n is set while door switch n+1 is open. -1: no switch state available. */
+static int parse_doors(const char *response)
+{
+    static const char *const names[] = {"\"gcode_button Door_button1\"",
+                                        "\"gcode_button Door_button2\""};
+    int open = 0, found = 0;
+    for (size_t i = 0; i < sizeof names / sizeof names[0]; i++) {
+        const char *value = strstr(response, names[i]);
+        if (!value || !(value = strstr(value, "\"state\"")) || !(value = strchr(value, ':')))
+            continue;
+        for (value++; isspace((unsigned char)*value); value++) {}
+        if (!strncmp(value, "\"RELEASED\"", 10)) open |= 1 << i;
+        else if (strncmp(value, "\"PRESSED\"", 9)) continue;
+        found = 1;
+    }
+    return found ? open : -1;
+}
+
+/* True once for each change from closed to open. The first reading, and the
+ * first reading after the switches were unavailable, only set the baseline.
+ */
+static int door_opened(int doors, int *last)
+{
+    int previous = *last;
+    *last = doors;
+    return doors >= 0 && previous >= 0 && (doors & ~previous);
+}
+
+static int backlight_off(const char *path)
+{
+    int fd = open(path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
+    if (fd < 0) return 0;
+    char text[16] = {0};
+    ssize_t count;
+    do { count = read(fd, text, sizeof text - 1); } while (count < 0 && errno == EINTR);
+    close(fd);
+    return count > 0 && text[0] == '0' && (text[1] == '\n' || !text[1]);
+}
+
+static int send_events(int fd, const struct input_event *events, size_t count)
+{
+    const char *data = (const char *)events;
+    size_t size = count * sizeof *events, sent = 0;
+    while (sent < size) {
+        ssize_t n = write(fd, data + sent, size - sent);
+        if (n < 0 && errno == EINTR) continue;
+        if (n <= 0) return -1;
+        sent += (size_t)n;
+    }
+    return 0;
+}
+
+static int touch_corner(const char *device)
+{
+    static int tracking = 20000;
+    int fd = open(device, O_WRONLY | O_CLOEXEC | O_NOFOLLOW);
+    if (fd < 0) return -1;
+    tracking = tracking % 60000 + 1;
+    /* evdev drops unchanged ABS values, so move both axes off the target
+     * before the contact reports it.
+     */
+    const struct input_event prime[] = {
+        {.type = EV_ABS, .code = ABS_X, .value = WAKE_X ^ 1},
+        {.type = EV_ABS, .code = ABS_Y, .value = WAKE_Y ^ 1},
+        {.type = EV_SYN, .code = SYN_REPORT}};
+    const struct input_event down[] = {
+        {.type = EV_ABS, .code = ABS_MT_SLOT},
+        {.type = EV_ABS, .code = ABS_MT_TRACKING_ID, .value = tracking},
+        {.type = EV_ABS, .code = ABS_MT_POSITION_X, .value = WAKE_X},
+        {.type = EV_ABS, .code = ABS_MT_POSITION_Y, .value = WAKE_Y},
+        {.type = EV_ABS, .code = ABS_MT_TOUCH_MAJOR, .value = 30},
+        {.type = EV_KEY, .code = BTN_TOUCH, .value = 1},
+        {.type = EV_ABS, .code = ABS_X, .value = WAKE_X},
+        {.type = EV_ABS, .code = ABS_Y, .value = WAKE_Y},
+        {.type = EV_SYN, .code = SYN_REPORT}};
+    const struct input_event up[] = {
+        {.type = EV_ABS, .code = ABS_MT_SLOT},
+        {.type = EV_ABS, .code = ABS_MT_TRACKING_ID, .value = -1},
+        {.type = EV_KEY, .code = BTN_TOUCH},
+        {.type = EV_SYN, .code = SYN_REPORT}};
+    int result = send_events(fd, prime, sizeof prime / sizeof prime[0]);
+    if (!result) result = send_events(fd, down, sizeof down / sizeof down[0]);
+    if (!result) {
+        usleep(80000);
+        result = send_events(fd, up, sizeof up / sizeof up[0]);
+    }
+    close(fd);
+    return result;
+}
+
+static int moonraker_request(const char *, size_t, char *, size_t);
+static int door_wake_enabled;
+
+static void door_wake_poll(void)
+{
+    static int last = -1;
+    char response[2048];
+    if (!door_wake_enabled) return;
+    int doors = moonraker_request(DOOR_QUERY, sizeof DOOR_QUERY - 1, response, sizeof response)
+        ? -1 : parse_doors(response);
+    if (!door_opened(doors, &last) || !backlight_off(BACKLIGHT_VALUE)) return;
+    logmsg(touch_corner(TOUCH_DEVICE) ? "door opened: screen wake touch failed"
+                                      : "door opened: screen wake touch sent");
+}
+
 static uid_t gpio_owner;
+static int initialize_gpio_output(const char *direction_path)
+{
+    int fd = open(direction_path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
+    if (fd < 0) return errno == ENOENT ? original_low() : -1;
+    char direction[8] = {0};
+    ssize_t count;
+    do { count = read(fd, direction, sizeof direction - 1); }
+    while (count < 0 && errno == EINTR);
+    close(fd);
+    /* Preserve an already initialized output and its current level. A cold
+     * export defaults to input, which the unprivileged policy cannot repair.
+     * Call the original setter, not light_low(): initialization is not a new
+     * user preference and must never persist OFF over the saved choice.
+     */
+    if (count == 4 && !memcmp(direction, "out\n", 4)) return 0;
+    if (count == 3 && !memcmp(direction, "in\n", 3)) return original_low();
+    return -1;
+}
+
 static void *gpio_permissions(void *unused)
 {
     (void)unused;
@@ -109,12 +255,14 @@ static void *gpio_permissions(void *unused)
     for (;;) {
         grant_gpio("/sys/class/gpio/gpio76/value", gpio_owner);
         refresh_preference();
+        door_wake_poll();
         usleep(500000);
     }
     return NULL;
 }
 
-static int request_policy(const char *action, const char *body)
+static int moonraker_request(const char *request, size_t length,
+                             char *response, size_t size)
 {
     int fd = socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
     if (fd < 0) return -1;
@@ -124,20 +272,15 @@ static int request_policy(const char *action, const char *body)
     struct sockaddr_in address = {.sin_family = AF_INET, .sin_port = htons(7125),
                                  .sin_addr.s_addr = htonl(INADDR_LOOPBACK)};
     if (connect(fd, (struct sockaddr *)&address, sizeof address)) { close(fd); return -1; }
-    char request[512], response[2048];
-    int length = snprintf(request, sizeof request,
-        "POST /printer/wmp_case_light/%s HTTP/1.0\r\nHost: 127.0.0.1\r\n"
-        "Content-Type: application/json\r\nContent-Length: %zu\r\nConnection: close\r\n\r\n%s",
-        action, strlen(body), body);
     size_t sent = 0, used = 0;
-    while (sent < (size_t)length) {
-        ssize_t n = send(fd, request + sent, (size_t)length - sent, MSG_NOSIGNAL);
+    while (sent < length) {
+        ssize_t n = send(fd, request + sent, length - sent, MSG_NOSIGNAL);
         if (n < 0 && errno == EINTR) continue;
         if (n <= 0) { close(fd); return -1; }
         sent += (size_t)n;
     }
-    while (used + 1 < sizeof response) {
-        ssize_t n = recv(fd, response + used, sizeof response - used - 1, 0);
+    while (used + 1 < size) {
+        ssize_t n = recv(fd, response + used, size - used - 1, 0);
         if (n < 0 && errno == EINTR) continue;
         if (n <= 0) break;
         used += (size_t)n;
@@ -145,6 +288,17 @@ static int request_policy(const char *action, const char *body)
     close(fd); response[used] = 0;
     if ((strncmp(response, "HTTP/1.1 200 ", 13) && strncmp(response, "HTTP/1.0 200 ", 13))
         || !strstr(response, "\"result\"")) return -1;
+    return 0;
+}
+
+static int request_policy(const char *action, const char *body)
+{
+    char request[512], response[2048];
+    int length = snprintf(request, sizeof request,
+        "POST /printer/wmp_case_light/%s HTTP/1.0\r\nHost: 127.0.0.1\r\n"
+        "Content-Type: application/json\r\nContent-Length: %zu\r\nConnection: close\r\n\r\n%s",
+        action, strlen(body), body);
+    if (moonraker_request(request, (size_t)length, response, sizeof response)) return -1;
     const char *value = strstr(response, "\"enabled\"");
     if (!value || !(value = strchr(value, ':'))) return -1;
     for (value++; isspace((unsigned char)*value); value++) {}
@@ -166,10 +320,24 @@ static int post_preference(int enabled)
 static int (*wake_policy)(void);
 static int notify_wake(void) { return request_policy("wake", "{}"); }
 
+static int read_light_value(const char *path)
+{
+    /* The factory getter exports a missing GPIO without configuring output.
+     * A status read must not create that partially initialized hardware state.
+     */
+    int fd = open(path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
+    if (fd < 0) return 0;
+    char value = 0;
+    ssize_t count;
+    do { count = read(fd, &value, 1); } while (count < 0 && errno == EINTR);
+    close(fd);
+    return count == 1 && value == '1';
+}
+
 static int light_value(void)
 {
     int enabled = atomic_load(&cached_preference);
-    return enabled < 0 ? original_get() : enabled;
+    return enabled < 0 ? read_light_value("/sys/class/gpio/gpio76/value") : enabled;
 }
 
 static void screen_brightness(unsigned int value)
@@ -309,7 +477,10 @@ static void initialize(void)
      */
     screen_led_on = (void *)0x386ce2c;
     wake_policy = notify_wake;
+    door_wake_enabled = !getenv("WMP_DOOR_WAKE_DISABLE");
     install_jumps(addresses, targets, count);
+    if (initialize_gpio_output("/sys/class/gpio/gpio76/direction"))
+        logmsg("GPIO76 output initialization failed; automatic light control is unconfirmed");
     char message[128];
     snprintf(message, sizeof message, "client %s: case-light preference display and wake hooks active", p->version);
     logmsg(message);

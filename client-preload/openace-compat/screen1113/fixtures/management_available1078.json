@@ -1,0 +1,224 @@
+{
+  "adaptive_swap": {
+    "attempts": [],
+    "learned": null,
+    "reason": "",
+    "source": null,
+    "state": "idle"
+  },
+  "alerts": [],
+  "api_version": 1,
+  "assist": {},
+  "blocked_slots": [],
+  "blocked_tools": {},
+  "capabilities": {
+    "drivers_loaded": false,
+    "inventory_publication": true,
+    "job_map": 1,
+    "max_map_pairs": 256,
+    "max_virtual_tools": 8,
+    "native_select": true,
+    "owns_tool_commands": false,
+    "preheat": 1
+  },
+  "config_revision": 0,
+  "declined_commands": {},
+  "default_tool_map": {},
+  "destinations": [],
+  "devices": {
+    "abort": {
+      "endpoint": "openace/abort",
+      "observations": [],
+      "reason": "",
+      "requested": false,
+      "scopes": []
+    },
+    "adaptive_swap": {
+      "attempts": [],
+      "learned": null,
+      "reason": "",
+      "source": null,
+      "state": "idle"
+    },
+    "identity_persistence": "none",
+    "load_verify": null,
+    "paused": null,
+    "sensors": {
+      "action": "",
+      "modes": {
+        "h0": "event",
+        "h1": "event"
+      },
+      "notes": {}
+    },
+    "stop_pending": {},
+    "units": {}
+  },
+  "edge_feed": {},
+  "expectations_declared": false,
+  "heads": [
+    {
+      "contents": "empty_unrecorded",
+      "extruder": "extruder",
+      "extruder_index": 0,
+      "feed": "direct",
+      "hand_loaded": false,
+      "id": "h0",
+      "sensor": false,
+      "toolhead_sensor": "filament_switch_sensor filament0"
+    },
+    {
+      "contents": "empty_unrecorded",
+      "extruder": "extruder1",
+      "extruder_index": 1,
+      "feed": "direct",
+      "hand_loaded": false,
+      "id": "h1",
+      "sensor": false,
+      "toolhead_sensor": "filament_switch_sensor filament1"
+    }
+  ],
+  "heater_routing": "unavailable",
+  "heater_routing_reason": "openACE does not own T<n>; vendor M104/M109 untouched; T<n> on those commands keeps the vendor's physical-head meaning; logical tool aliases are not temperature-routed",
+  "inventory": {},
+  "inventory_publication": "current",
+  "job": {
+    "active": false,
+    "config_revision": 0,
+    "file": null,
+    "pairs": [],
+    "restored_from": "none",
+    "source": "default",
+    "staged": "none",
+    "staged_reason": "",
+    "state": "none"
+  },
+  "last_error": null,
+  "layout": "head_major",
+  "load_verify": null,
+  "loaded": {
+    "h0": {
+      "destination": null,
+      "evidence": "none",
+      "identity": null,
+      "state": "unknown",
+      "verified": false
+    },
+    "h1": {
+      "destination": null,
+      "evidence": "none",
+      "identity": null,
+      "state": "unknown",
+      "verified": false
+    }
+  },
+  "management": {
+    "add_candidates": [
+      {
+        "boot": "1.0.1-sim",
+        "candidate_incarnation": "('/dev/pts/20', '1a86', '55d3', 'ace2', 'INVENTORY', None, '/dev/pts/20', None)",
+        "claimed_by": null,
+        "device": "/dev/pts/20",
+        "device_identity": "uid:111111112222222233333333",
+        "expect_context": "3ea95e7663b23a766637ee8b5d1c44bdd179efd687edce4c2d4d3fc1120296d5",
+        "firmware": "V1.1.31",
+        "generation": "ace2",
+        "identification": "available_unregistered",
+        "identification_error": "",
+        "identity_kind": "firmware_uid",
+        "observed_at": 100.65999999999987,
+        "usb_path": "/dev/pts/20",
+        "usb_serial": "INVENTORY"
+      }
+    ],
+    "capabilities": {
+      "effective_settings": 1,
+      "unit_accept_expect_context": 1,
+      "unit_add_expect_context": 1,
+      "version": 1
+    },
+    "head_settings": {
+      "h0": {
+        "effective": {
+          "capture_mm": 10,
+          "capture_step_mm": 5
+        },
+        "origins": {
+          "capture_mm": "config",
+          "capture_step_mm": "default"
+        }
+      },
+      "h1": {
+        "effective": {
+          "capture_mm": 10,
+          "capture_step_mm": 5
+        },
+        "origins": {
+          "capture_mm": "config",
+          "capture_step_mm": "default"
+        }
+      }
+    },
+    "source_settings": {},
+    "units": {}
+  },
+  "material_families": {
+    "matte": "pla",
+    "matte pla": "pla",
+    "petg": "petg",
+    "pla": "pla",
+    "pla matte": "pla",
+    "pla+": "pla"
+  },
+  "operation": null,
+  "ownership_conflicts": [],
+  "ownership_reason": "own_tool_commands: false",
+  "path_clear_mm": {},
+  "pending_temps": {},
+  "persistence": "ok",
+  "qualification": {
+    "ace_positioning_mm": 0,
+    "attempted": [],
+    "edge_feed_bound_mm": 1200,
+    "extruder_mm": 0,
+    "frozen": {},
+    "head": null,
+    "inlet_after_cleanup": null,
+    "note": "",
+    "open": false,
+    "slot": null,
+    "stage": "none",
+    "trial": null,
+    "unit": null
+  },
+  "recovery": null,
+  "session_id": 100,
+  "software_version": "0.1.0",
+  "source_settings": {},
+  "state_revision": 3,
+  "tool_extruder_index": {},
+  "tool_head": {},
+  "unit_discovery": [
+    {
+      "boot": "1.0.1-sim",
+      "candidate_incarnation": "('/dev/pts/20', '1a86', '55d3', 'ace2', 'INVENTORY', None, '/dev/pts/20', None)",
+      "claimed_by": null,
+      "device": "/dev/pts/20",
+      "device_identity": "uid:111111112222222233333333",
+      "firmware": "V1.1.31",
+      "generation": "ace2",
+      "identification": "available_unregistered",
+      "identification_error": "",
+      "identity_kind": "firmware_uid",
+      "observed_at": 100.65999999999987,
+      "usb_path": "/dev/pts/20",
+      "usb_serial": "INVENTORY"
+    }
+  ],
+  "unit_settings": {},
+  "units": [],
+  "unload": {},
+  "unload_modes": {},
+  "unrouted_slots": [],
+  "vendor_handlers": {}
+}
