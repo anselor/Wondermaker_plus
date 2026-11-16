@@ -3,6 +3,15 @@
 #include <cassert>
 using wmp_ui::native::StockCompletedDisplay;
 int main(){
+ using wmp_ui::native::stock_job_busy;
+ for(const auto&host:{"ready","shutdown","disconnected"}){
+  for(const auto&job:{"standby","printing","paused","complete","error","cancelled"}){
+   for(bool busy:{false,true}){
+    const bool expected=std::string(host)=="ready"&&std::string(job)=="complete"?false:busy;
+    assert(stock_job_busy(busy,host,job)==expected);
+   }
+  }
+ }
  StockCompletedDisplay display;
  assert(display.visible(true,"complete","coupon.gcode"));
  display.dismiss("complete","coupon.gcode");

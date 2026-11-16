@@ -140,6 +140,14 @@ int main(){
  original_popup_event.store(&vendor);
  auto&state=*new(reinterpret_cast<void*>(0xe645338))std::string("complete");
  auto&filename=*new(reinterpret_cast<void*>(0xe645430))std::string("part.gcode");
+ auto&host=*new(reinterpret_cast<void*>(0xe645170))std::string("ready");
+ original_is_printing.store(&printing);
+ assert(!unified_is_printing()); // complete permits calibration and file selection
+ assert(state=="complete"&&filename=="part.gcode"); // receipt remains available
+ for(const auto&job:{"printing","paused","error"}){state=job;assert(unified_is_printing());}
+ state="complete";host="shutdown";assert(unified_is_printing());
+ host="ready";assert(!unified_is_printing());
+
  *reinterpret_cast<unsigned char*>(0x386ceb8)=1;
  for(int kind:{5,6}){
   *reinterpret_cast<int*>(0x384e938)=kind;

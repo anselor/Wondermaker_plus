@@ -2,6 +2,11 @@
 #pragma once
 #include <string>
 namespace wmp_ui { namespace native {
+// A completed job is terminal, even while its result card remains visible.
+// Preserve stock admission for every other state, including disconnected hosts.
+inline bool stock_job_busy(bool stock_busy,const std::string&host,const std::string&job){
+ return host=="ready"&&job=="complete"?false:stock_busy;
+}
 // GUI-only acknowledgement. Never changes printer state or command admission.
 class StockCompletedDisplay {
 public:

@@ -8,8 +8,8 @@
   },
   "artifact": {
     "file": "screen.so",
-    "sha256": "701a2541c23ba28fda1eb4aaa422067ef130726394fd30cae15b226003564933",
-    "size": 3068880,
+    "sha256": "7d03292ff385dc43e5fd472a8c220de4839b6bfa2b15e4720a05717a739c76d9",
+    "size": 3064912,
     "machine": "AArch64",
     "nodelete": true,
     "needed": [
@@ -20,6 +20,6 @@
     ]
   },
   "legacy_c_sha256": "6f5dc98cc32612212c6419694296c7dc63329f79c3d6ea226a211b6c2ff13799",
-  "source_manifest_sha256": "ed5eaa98e92f4098206dda7d6b88be286c54a5a13a0d8e3e8c360afdd20c675c",
-  "source_archive_sha256": "5a5f0e80c28ce6818ab56033ca05be689d558b5c3a974da29d9c9d67be72b0c7"
+  "source_manifest_sha256": "15d699d5c1f65d19ec2af46ab1a43c602150cb7edfc76464415a1415162cfebc",
+  "source_archive_sha256": "f1e7bcd15aee5d04aa486250d62a7a6a3462aa8bb0a2a2b2f3ec05318588cc21"
 }

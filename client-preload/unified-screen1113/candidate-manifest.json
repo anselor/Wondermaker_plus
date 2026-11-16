@@ -2,10 +2,10 @@
   "scope": "unified-native-development-candidate",
   "activated": false,
   "toolchain_image": "sha256:86fdcabbf2da48f1023d39362d3edc92495da739c716716b83b973aee91d54a8",
-  "ui_build_id": "b42f8f442892e161",
+  "ui_build_id": "62ae1330390e5907",
   "artifact": {
     "path": "libwmp_unified_screen_candidate.so",
-    "sha256": "701a2541c23ba28fda1eb4aaa422067ef130726394fd30cae15b226003564933"
+    "sha256": "7d03292ff385dc43e5fd472a8c220de4839b6bfa2b15e4720a05717a739c76d9"
   },
   "runtime_dependencies": {
     "klipper_extras/wmp_component.py": "2157ddcccb944ca6e89222b896715671d51f8ee3ad4e04ad3f294eb82ca1cd94",
@@ -87,7 +87,7 @@
     "client-preload/unified-ui/native/ace_adoption.hpp": "fccc34da0c797a224d589d9209828641607874434c4d6cfb6be3bf281fd6fb11",
     "client-preload/unified-ui/native/ace_unit_preview.hpp": "4a02626906ef0f9f364c7ed02eaf5d894857a4f815973ce67595e92e4060ab10",
     "client-preload/unified-ui/native/backend_contract.json": "9df01f2fdc4473b8f295de90133b9df740cc014ea2e4a6d5ac55339f1f8cb43f",
-    "client-preload/unified-ui/native/bootstrap.cpp": "2e62956ae0de87d72189de0fa69c5f62258807fadc88977a3d662c1fa6a7753c",
+    "client-preload/unified-ui/native/bootstrap.cpp": "8cd8b54138c839e44799c015af21239ed1010daf53945f9c1f0c6b64adcb404d",
     "client-preload/unified-ui/native/bounded_worker.hpp": "a97bc643a85d1dca1c912a70676cbbb29e94dd4edc1c86227da3f5c028a718e6",
     "client-preload/unified-ui/native/build-arm.sh": "d9f5f647277684ffdf869ab0fa8cefc8283095bb84c9323f9f846a014c221303",
     "client-preload/unified-ui/native/build_id.py": "1d804899ce0e75b4c36f15f7f4f595434c701fa2ef5dbdefa02659e799504e94",
@@ -126,7 +126,7 @@
     "client-preload/unified-ui/native/stock_calibration_status.hpp": "b71bee117fe57c4ad30222709e50703244dcbad418da1336a55a53883f948a55",
     "client-preload/unified-ui/native/stock_cancel_route.hpp": "601a87a7214631b49f2331a45840f1975d1b994cb2c9fe5614a9aabca2bda6e9",
     "client-preload/unified-ui/native/stock_colour_picker.hpp": "c116d7a1ba5664cff688bdd87024c7b84168ecd06add12a16bab126156ec076b",
-    "client-preload/unified-ui/native/stock_completed_display.hpp": "e60810d7fe2f153a8f47a1477f35d11a4a0cf87e735c8f4ea761f194cfc72e47",
+    "client-preload/unified-ui/native/stock_completed_display.hpp": "7cd884d1dc88567e26739a932a2739b25dc8622cea29624ae155ebd9b2688069",
     "client-preload/unified-ui/native/stock_diagnostics.hpp": "a868213c61d44d13386ade70c4c1bad4147fff379a687ee3e42ad6340518ae1d",
     "client-preload/unified-ui/native/stock_dialog_backdrop.hpp": "1b000554f25149c3225643ba9c0115dc9e849c09a0569998953af774012c7304",
     "client-preload/unified-ui/native/stock_exclude_cancel.hpp": "57a44ec6d008b0637d6af23eb375ba8330ba00d6feb7f727b8852317ad3dc804",
@@ -139,6 +139,7 @@
     "client-preload/unified-ui/native/stock_identification_flow.hpp": "479c267be09afcafd4898a7978dbad661bd8436bc3b9a318cb5f4783a33a0e01",
     "client-preload/unified-ui/native/stock_identity_edit.hpp": "66e9f3669a4fa608d58f8a3962d7772dd64ac6c581a6db20630c485eaef59a1b",
     "client-preload/unified-ui/native/stock_image_preview.hpp": "5472a07fcc68208e777bd5cd1fb97372aa403bdc8204a51b7721d1d1daf3e0ff",
+    "client-preload/unified-ui/native/stock_job_busy_hook.hpp": "64d56c9931502e94c39b763f05ea5e1ba22d663473319f4c12e18c802aa56b69",
     "client-preload/unified-ui/native/stock_maintenance_command.hpp": "e267830c404daeda0368ee088d6dc1c175d1207be0cfbd3cf9bcaff16775681a",
     "client-preload/unified-ui/native/stock_mapping_backup.hpp": "80a5eab378bfd0cbe6c1996176562877d340942538c816f6f6f4e12f2da9867a",
     "client-preload/unified-ui/native/stock_navigation_tabs.hpp": "3ffac7538a11c2a2b391c0380493acbb4f4dc8303ca2066f4d74a5522335c1c6",
