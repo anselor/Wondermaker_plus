@@ -475,6 +475,23 @@ in live with markers:
 # <<< wondermaker+ end: <change-id>
 ```
 
+Vendor-macro patch inventory (re-check each on every firmware re-baseline):
+
+| Change id | File and macros | Purpose |
+|---|---|---|
+| `stop-points` | `macros.cfg`: `START_PRINT` | `_WMP_STOP_POINT PHASE=<phase>` calls at eight phase boundaries and `_WMP_STOP_WAITS ENABLE=<0 or 1>` around the probe-nozzle preheat, bed wait and purge-position nozzle wait, so a pending print Cancel stops there instead of after the macro finishes |
+
+The `stop-points` lines patch only the vendor `START_PRINT` body. Heat-wait
+interruption is not a macro patch: the `TEMPERATURE_WAIT` wrapper in
+`klipper_extras/wmp_stop_points.py` acts inside the `_WMP_STOP_WAITS` region. After a
+re-baseline, confirm the marked blocks still sit at the same phase boundaries in
+the new vendor `START_PRINT`, confirm vendor `M190` and `M109` still wait through
+`TEMPERATURE_WAIT`, confirm no macro overrides `TEMPERATURE_WAIT` (the managed
+loop re-implements it inside the open region), and re-run
+`uv run --with jinja2 python tools/validate_klipper_config.py`. A changed vendor
+`START_PRINT` also changes the digest pinned in
+`klipper_extras/wmp_recovery_file_envelope.py`; requalify it.
+
 Compare changes with `diff -r config/stock config/live`. Klipper rewrites
 `SAVE_CONFIG`, so saved calibration cannot use these comment markers.
 

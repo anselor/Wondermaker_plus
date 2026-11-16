@@ -2040,3 +2040,68 @@ physical qualification of changing printer model or chamber hardware, atomic
 write/failure qualification, or permission to change the live model. No product
 interception is justified by this preservation check alone. Previously verified
 commissioned model/include consistency and reboot preservation remain valid.
+
+### R27 stop points — 15 November (local, undeployed)
+
+Print Cancel during `START_PRINT` now stops at the next stop point instead of
+after the whole macro. The cancel request is still recorded immediately; the
+stop points only decide where the running macro honours it.
+
+Stops early:
+
+- At the next of eight stop points: `start_admitted`, `before_homing`, `homed`,
+  `before_mesh`, `mesh_saved`, `before_initial_tool`, `initial_tool_ready`,
+  `purged`. Commands: `_WMP_STOP_POINT PHASE=<phase>` and
+  `_WMP_STOP_WAITS ENABLE=0|1` (`klipper_extras/wmp_stop_points.py`). Phase names
+  match `[a-z0-9_]{1,48}`.
+- Within about one second inside three heat waits: the probe-nozzle preheat, the
+  bed wait (vendor `M190` reaching `TEMPERATURE_WAIT`) and the print-nozzle wait at
+  the purge position (vendor `M109` reaching `TEMPERATURE_WAIT`).
+- The error text is `Print cancellation requested; stopped at <label>` or
+  `Print cancellation requested; stopped while heating <heater>`. The native
+  cancel panel shows `Stopped at: <label>`.
+- A stopped `START_PRINT` ends as print_stats `cancelled`, not `error`: a wrapper
+  on `print_stats.note_error` translates those two texts while a live cancel is
+  bound to the current job, because the vendor `note_error` would otherwise make
+  the cleanup's `note_cancel` a no-op.
+
+Still runs to completion:
+
+- `G28`, `BED_MESH_CALIBRATE`, each `T{INITIAL_TOOL}` tool change including its
+  `_WAIT_TOOL_TEMPERATURE` heat wait, and mid-print tool changes.
+- Stop points, wait regions and heat-wait wrappers are inert when openACE or AFC
+  is present; vendor behaviour is unchanged. No new motion is added and the
+  new commands do not use `M400`.
+
+Journal and rollback:
+
+- Cancellation journal version 3 adds an optional
+  `stop_point = {"phase", "label", "state"}` (all strings). Versions 1 and 2
+  remain readable.
+- Rolling back to r4: a version 3 record reads as unreadable and remains a hold,
+  the same rule as version 2. It does not clear an interrupted cancellation.
+
+Recovery digest:
+
+- The `START_PRINT` digest pinned in
+  `klipper_extras/wmp_recovery_file_envelope.py` changed with the stop points. Saved
+  jobs recorded before this change are refused for file-derived recovery with
+  "Print-start macro/transform proof changed; file-derived recovery cannot verify
+  clearance".
+
+Deployment (not yet performed):
+
+- SSH, `config` component: `config/live/macros.cfg` (the `stop-points` blocks).
+- SSH, `material` component: `klipper_extras/wmp_stop_points.py` (new; listed
+  in `HELPERS`), with its hooks in `wm_material.py`, `wmp_command_routing.py`
+  and `wmp_print_cancel.py`, and `klipper_extras/wmp_recovery_file_envelope.py`.
+- Native screen: `stock_recovery_progress.hpp` (the `Stopped at:` line) is a
+  compiled input of the sealed prebuilt library in
+  `client-preload/unified-screen1113/` (listed in `source-inputs.json`).
+  `python3 tools/reseal_screen_package.py --check` reports the package out of
+  date. The line ships only after the screen library is rebuilt and the package
+  is resealed and re-exported (`tools/reseal_screen_package.py`,
+  `tools/package_unified_ui_delivery.py`). Deploying the `preload` component alone
+  does not deliver it. Not done yet.
+- The `stop-points` lines in `START_PRINT` are vendor-macro patches; re-check them on each firmware
+  re-baseline (see `config/README.md`).
