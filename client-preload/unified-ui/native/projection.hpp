@@ -218,7 +218,7 @@ inline Json project(const Json&status,const Json&ace,bool present,const std::str
   const auto saved_nozzles=status.value("wm_material",Json::object()).value("nozzles",Json::object());
   if(!present&&saved_nozzles.contains(head)){
    const auto saved=saved_nozzles.at(head);char mm[24];std::snprintf(mm,sizeof(mm),"%.1f mm",saved.value("diameter",0.0));
-   out["heads"].back()["nozzle"]={{"diameter",mm},{"material",saved.value("material","Unknown")},{"saved_diameter",saved.value("diameter",0.0)},{"active_diameter",saved.value("active_diameter",0.0)},{"restart_required",saved.value("restart_required",false)}};
+   out["heads"].back()["nozzle"]={{"diameter",mm},{"material",saved.value("material","Unknown")},{"saved_diameter",saved.value("diameter",0.0)},{"active_diameter",saved.value("active_diameter",0.0)},{"restart_required",saved.value("restart_required",false)},{"apply_pending",saved.value("apply_pending",false)}};
   }
   auto configured=identities.contains(head)&&identities[head].is_object()?identity(identities[head].value("values",Json::object())):identity(Json());
   if(!present){auto settings=status.value("wm_material",Json::object()).value("identities",Json::object());if(settings.contains(head))configured=settings[head];}

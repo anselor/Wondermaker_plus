@@ -25,7 +25,7 @@ public:
   }
   if(request_.empty()&&!terminal_){
    const bool changed=data_.value("session","")!=session_||data_.value("nozzle_revision","")!=revision_;
-   caption(notice_,changed?"Settings changed. Go back and reopen.":identification_pending()?"Wait for head identification to finish before saving.":!available()?"Waiting for printer status.":original_.value("restart_required",false)?"Saved diameter differs from active diameter. Restart Klipper to apply it.":"");
+   caption(notice_,changed?"Settings changed. Go back and reopen.":identification_pending()?"Wait for head identification to finish before saving.":!available()?"Waiting for printer status.":application_notice());
   }
   // LVGL may create the popup after the READY callback returns.
   for(auto*p:{material_,diameter_})if(stock_object_valid(p)&&stock_function<bool(*)(void*)>(lv_dropdown_is_open)(p))list_style(p);
@@ -48,7 +48,7 @@ public:
   diameter_=dropdown("Select diameter\n0.2 mm\n0.4 mm\n0.6 mm\n0.8 mm",160,134,w-180);
   const double d=original_.value("diameter",0.0);unsigned selected=0;for(unsigned i=1;i<=4;++i)if(std::abs(d-double(i)/5.0)<0.000001)selected=i;
   stock_function<void(*)(void*,unsigned)>(lv_dropdown_set_selected)(diameter_,selected);
-  notice_=label(root_,original_.value("restart_required",false)?"Saved diameter differs from active diameter. Restart Klipper to apply it.":"",20,214,w-40,80);
+  notice_=label(root_,application_notice(),20,214,w-40,80);
   enable_save();return true;
  }catch(...){close();return false;}
 private:
@@ -61,10 +61,24 @@ private:
  static void list_style(void*p){auto*l=stock_function<void*(*)(void*)>(lv_dropdown_get_list)(p);if(!l)return;stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(l,reinterpret_cast<void*>(MyriadPro_Regular_16),0);for(unsigned part:{0U,0x40000U,0x40001U,0x40020U,0x40021U}){stock_function<void(*)(void*,std::uint32_t,unsigned)>(lv_obj_set_style_text_color)(l,0xffeeeeeeU,part);stock_function<void(*)(void*,std::uint32_t,unsigned)>(lv_obj_set_style_bg_color)(l,part?0xffbf4900U:0xff3c3e42U,part);stock_function<void(*)(void*,int,unsigned)>(lv_obj_set_style_bg_opa)(l,255,part);}}
  bool viewable()const{return data_.value("fresh",false)&&data_.value("owner","")=="standalone"&&data_.value("capabilities",Json::object()).value("save_nozzle",false);}
  bool identification_pending()const{const auto state=data_.value("identification",Json::object()).value("state","");return state=="pending"||state=="running";}
+ bool printing()const{const auto state=data_.value("job",Json::object()).value("state","");return state=="printing"||state=="paused";}
  bool available()const{return viewable()&&!identification_pending();}
  Json draft()const{unsigned m=stock_function<unsigned(*)(void*)>(lv_dropdown_get_selected)(material_),d=stock_function<unsigned(*)(void*)>(lv_dropdown_get_selected)(diameter_);if(m<1||m>2||d<1||d>4)return Json();return {{"head",head_},{"material",m==1?"Hardened steel":"Stainless steel"},{"diameter",double(d)/5.0},{"expected",revision_}};}
- bool can_save()const{if(!active()||!material_||!diameter_||!available()||terminal_||!request_.empty()||data_.value("session","")!=session_||data_.value("nozzle_revision","")!=revision_)return false;const auto d=draft();return d.is_object()&&(d["material"]!=original_.value("material","")||std::abs(d["diameter"].get<double>()-original_.value("diameter",0.0))>0.000001);}
- void enable_save(){if(!stock_object_valid(save_))return;if(stock_object_valid(back_label_))caption(back_label_,terminal_?"DONE":"BACK");bool enabled=can_save();stock_function<void(*)(void*,unsigned)>(enabled?lv_obj_clear_state:lv_obj_add_state)(save_,128);stock_function<void(*)(void*,std::uint32_t,unsigned)>(lv_obj_set_style_text_color)(save_label_,enabled?0xffeeeeeeU:0xff888888U,0);for(auto*p:{material_,diameter_})if(stock_object_valid(p))stock_function<void(*)(void*,unsigned)>(request_.empty()&&!terminal_?lv_obj_clear_state:lv_obj_add_state)(p,128);}
+ std::string application_notice()const{
+  if(printing())return "Finish or cancel the print before changing nozzle settings.";
+  const auto current=data_.value("nozzle_settings",Json::object()).value(head_,original_);
+  if(current.value("apply_pending",false))return "Diameter will apply when the printer is idle.";
+  const auto error=current.value("apply_error",std::string());
+  if(!error.empty())return "Saved diameter not applied: "+error+". Save to retry.";
+  if(current.value("live_update_supported",false)){
+   if(std::abs(current.value("active_diameter",0.0)-current.value("diameter",0.0))>.000001)return "Save to apply the saved diameter.";
+   return "";
+  }
+  if(material_&&diameter_){const auto d=draft();if(d.is_object()&&std::abs(d.value("diameter",0.0)-current.value("active_diameter",current.value("diameter",0.0)))>.000001)return "Changing diameter requires a Klipper restart.";}
+  return current.value("restart_required",false)?"Restart Klipper to apply the saved diameter.":"";
+ }
+ bool can_save()const{if(!active()||!material_||!diameter_||!available()||printing()||terminal_||!request_.empty()||data_.value("session","")!=session_||data_.value("nozzle_revision","")!=revision_)return false;const auto d=draft();return d.is_object()&&((!original_.value("apply_error",std::string()).empty())||(original_.value("live_update_supported",false)&&std::abs(original_.value("active_diameter",0.0)-original_.value("diameter",0.0))>.000001)||d["material"]!=original_.value("material","")||std::abs(d["diameter"].get<double>()-original_.value("diameter",0.0))>0.000001);}
+ void enable_save(){if(!stock_object_valid(save_))return;if(stock_object_valid(back_label_))caption(back_label_,terminal_?"DONE":"BACK");bool enabled=can_save();stock_function<void(*)(void*,unsigned)>(enabled?lv_obj_clear_state:lv_obj_add_state)(save_,128);stock_function<void(*)(void*,std::uint32_t,unsigned)>(lv_obj_set_style_text_color)(save_label_,enabled?0xffeeeeeeU:0xff888888U,0);for(auto*p:{material_,diameter_})if(stock_object_valid(p))stock_function<void(*)(void*,unsigned)>(request_.empty()&&!terminal_&&!printing()?lv_obj_clear_state:lv_obj_add_state)(p,128);}
  void reset(){root_=save_=save_label_=back_label_=material_=diameter_=notice_=armed_=nullptr;request_.clear();terminal_=false;}
  static void event(void*e)noexcept{try{
   auto*o=static_cast<StockNozzleEditor*>(stock_function<void*(*)(void*)>(lv_event_get_user_data)(e));if(!o)return;auto*p=stock_function<void*(*)(void*)>(lv_event_get_target)(e);const int code=stock_function<int(*)(void*)>(lv_event_get_code)(e);

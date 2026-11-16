@@ -16,6 +16,7 @@ CFG_DST = "printer_data/config/wm_material.cfg"
 HELPERS = (
     'wmp_orca_profiles.py',
     'wmp_nozzles.py',
+    'wmp_nozzle_runtime.py',
     'wmp_saved_variables.py',
     'wmp_recovery_retirement.py',
     'wmp_recovery_file_envelope.py',

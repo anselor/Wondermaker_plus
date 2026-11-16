@@ -3497,8 +3497,13 @@ int main(int argc,char**argv){
   select("Select diameter",3);select("Select material",2);
   for(const auto*job:{"printing","paused"}){
    status["job"]["state"]=job;status["toolhead_operation"]={{"state","running"}};
-   editor.update(status);assert(!(find("SAVE")->state&128)&&saves==0);
+   editor.update(status);assert((find("SAVE")->state&128)&&saves==0);
+   assert(find("Finish or cancel the print before changing nozzle settings."));
+   fake::send(find("SAVE"),7);assert(saves==0);
+   for(const auto&n:fake::nodes)if(n->live&&(n->options.find("Select diameter")==0||n->options.find("Select material")==0))
+    for(auto*p=n->parent;p;p=p->parent)if(p==page)assert(n->state&128);
   }
+  status["job"]["state"]="idle";editor.update(status);assert(!(find("SAVE")->state&128));
   for(const auto*state:{"pending","running"}){
    status["identification"]={{"state",state}};editor.update(status);assert(find("SAVE")->state&128);
    assert(find("Wait for head identification to finish before saving."));fake::send(find("SAVE"),7);assert(saves==0);

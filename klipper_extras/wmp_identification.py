@@ -13,6 +13,11 @@ import stat
 import tempfile
 import uuid
 
+try:
+    from .wmp_nozzle_runtime import active_settings as active_nozzle_settings
+except ImportError:
+    from wmp_nozzle_runtime import active_settings as active_nozzle_settings
+
 
 UUID_LINE = re.compile(rb'(?m)^([ \t]*canbus_uuid[ \t]*:[ \t]*)([0-9a-fA-F]{12})([ \t]*(?:[#;][^\r\n]*)?)(\r?\n|$)')
 
@@ -751,8 +756,8 @@ class IdentificationCommands:
                         raise ValueError('Managed filament owner unavailable for migration verification')
                     transaction = HeadConfigurationTransaction.reopen(directory, journal, material._validate_identity)
                     session = material.session_id
-                    settings = self.printer.lookup_object('configfile').get_status(
-                        self.printer.get_reactor().monotonic())['settings']
+                    settings = active_nozzle_settings(self.printer, self.printer.lookup_object('configfile').get_status(
+                        self.printer.get_reactor().monotonic())['settings'])
                     transaction.verify_loaded(session, settings, lambda: self._migration_admission(material, session))
             require_resolved_journals(directory)
             for journal in directory.glob('.wmp-identification-*.json'):
@@ -761,7 +766,7 @@ class IdentificationCommands:
                         and not record.get('verified_session')):
                     if material is None:
                         raise ValueError('Material session unavailable for UUID assignment verification')
-                    settings = self.printer.lookup_object('configfile').get_status(now)['settings']
+                    settings = active_nozzle_settings(self.printer, self.printer.lookup_object('configfile').get_status(now)['settings'])
                     AssignmentRepairTransaction.verify_loaded(
                         directory, journal, record, material.session_id, settings)
         except (OSError, ValueError, KeyError, TypeError, AttributeError) as error:
@@ -844,7 +849,7 @@ class IdentificationCommands:
             session = material.session_id
             if Path(material.profile_path).resolve().parent != directory:
                 raise ValueError('Head migration requires filament records in the configuration directory')
-            settings = self.printer.lookup_object('configfile').get_status(now)['settings']
+            settings = active_nozzle_settings(self.printer, self.printer.lookup_object('configfile').get_status(now)['settings'])
             generation = getattr(material, '_command_generation', 0)
             def owned():
                 return (self.printer.lookup_object('wm_material', None) is material

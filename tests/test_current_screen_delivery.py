@@ -455,3 +455,11 @@ def test_config_verifier_accepts_only_optional_absent_sensor_hooks(package, tmp_
         stream.write('\n[gcode_macro CUSTOM_RUNOUT]\ngcode: UPDATE_DELAYED_GCODE ID=delayed_pause0 DURATION=1\n')
     with pytest.raises(ValueError, match='required by retained configuration'):
         pb.verify_backend_config(root, home)
+
+
+def test_live_nozzle_helper_is_in_installer_and_bound_backend():
+    from components.material import HELPERS
+    name = 'wmp_nozzle_runtime.py'
+    assert name in HELPERS
+    assert name in pb.backend_helper_names(ROOT)
+    assert 'klipper_extras/' + name in pb.current_source_files(ROOT)

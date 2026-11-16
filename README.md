@@ -19,8 +19,8 @@ controls. Saved timelapse videos are under **Files → Video**.
   the screen.
 - Mount or dock a head, set its temperature, and extrude or retract a chosen
   distance.
-- Edit nozzle material and diameter for each head. Diameter changes take effect
-  after restarting Klipper.
+- Edit nozzle material and diameter for each head. Diameter changes apply without restarting
+  when idle. Nozzle settings cannot be changed during printing or a paused print.
 - Review filament colours, materials and head assignments before printing.
 - Replace filament during a pause or after runout, then resume the print.
 

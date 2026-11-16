@@ -34,6 +34,7 @@ RUNTIME_INPUTS = (
     'klipper_extras/wm_material.py',
     'klipper_extras/wmp_orca_profiles.py',
     'klipper_extras/wmp_nozzles.py',
+    'klipper_extras/wmp_nozzle_runtime.py',
     'klipper_extras/wmp_saved_variables.py',
     'klipper_extras/wmp_recovery_retirement.py',
     'klipper_extras/wmp_recovery_file_envelope.py',

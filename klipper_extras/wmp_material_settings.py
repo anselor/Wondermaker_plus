@@ -8,11 +8,11 @@ import re
 import threading
 
 try:
-    from . import wmp_recovery_file_envelope, wmp_filament_profiles, wmp_nozzles
+    from . import wmp_recovery_file_envelope, wmp_filament_profiles, wmp_nozzles, wmp_nozzle_runtime
     from .wmp_observation import _status_observation
     from .wmp_filament_types import SLOTS
 except ImportError:
-    import wmp_recovery_file_envelope, wmp_filament_profiles, wmp_nozzles
+    import wmp_recovery_file_envelope, wmp_filament_profiles, wmp_nozzles, wmp_nozzle_runtime
     from wmp_observation import _status_observation
     from wmp_filament_types import SLOTS
 
@@ -21,6 +21,11 @@ class MaterialSettings:
 
     def __init__(self, material):
         self.material = material
+        self._nozzle_runtime = wmp_nozzle_runtime.NozzleRuntime(material.printer, self._saved_nozzle_diameter)
+
+    def _saved_nozzle_diameter(self, name):
+        head = 'h' + (name[len('extruder'):] or '0')
+        return self.material._nozzles.read()[0][head]['diameter']
 
     def cmd_PROFILE_IMPORT(self, gcmd):
         self.material._drain_async_completions()
@@ -77,7 +82,8 @@ class MaterialSettings:
         heaters = {}
         mapping = [None] * SLOTS
         try:
-            settings = self.material.printer.lookup_object("configfile").get_status(now)["settings"]
+            settings = wmp_nozzle_runtime.active_settings(self.material.printer,
+                self.material.printer.lookup_object("configfile").get_status(now)["settings"])
             for index in range(SLOTS):
                 name = "extruder" + (str(index) if index else "")
                 values = settings.get(name, {})
@@ -105,14 +111,18 @@ class MaterialSettings:
             return result
         try:
             heads, revision = store.read()
-            settings = self.material.printer.lookup_object("configfile").get_status(now)["settings"]
+            settings = wmp_nozzle_runtime.active_settings(self.material.printer,
+                self.material.printer.lookup_object("configfile").get_status(now)["settings"])
             for head, values in heads.items():
                 heater = "extruder" + (head[1] if head != "h0" else "")
                 active = settings.get(heater, {}).get("nozzle_diameter")
                 if type(active) not in (int, float) or not math.isfinite(active):
                     raise ValueError("Active nozzle diameter is unavailable")
                 values["active_diameter"] = active
-                values["restart_required"] = abs(active - values["diameter"]) > 0.000001
+                values["live_update_supported"] = self._nozzle_runtime.supported(heater)
+                values["apply_pending"] = heater in self._nozzle_runtime.pending
+                values["apply_error"] = self._nozzle_runtime.errors.get(heater, "")
+                values["restart_required"] = not values["live_update_supported"] and abs(active - values["diameter"]) > 0.000001
             result.update(nozzle_settings_protocol=1, nozzles=heads, nozzle_revision=revision)
         except (OSError, ValueError, KeyError, AttributeError, TypeError) as error:
             result["nozzle_error"] = str(error)
@@ -124,9 +134,13 @@ class MaterialSettings:
                 or self.material.printer.lookup_object("AFC", None) is not None):
             raise gcmd.error("Another filament manager owns nozzle settings")
         now = self.material.printer.get_reactor().monotonic()
-        # These writes change saved configuration only; active heater geometry
-        # is loaded at restart. Serialize with the actual head-config publisher,
-        # not unrelated motion, a print, or a filament operation.
+        state = self.material.printer.lookup_object("print_stats").get_status(now).get("state")
+        paused = self.material.printer.lookup_object("pause_resume").get_status(now).get("is_paused", False)
+        sd_active = self.material.printer.lookup_object("virtual_sdcard").is_active()
+        if state in ("printing", "paused") or paused or sd_active:
+            raise gcmd.error("Finish or cancel the print before changing nozzle settings: "
+                             "print_stats.state=%r, is_paused=%s, sd_active=%s" % (state, paused, sd_active))
+        # Live geometry applies at an idle planner boundary, never from a read.
         if self._identification_pending(now):
             raise gcmd.error("Wait for head identification to finish before saving nozzle settings")
         if gcmd.get("SESSION") != self.material.session_id:
@@ -142,10 +156,15 @@ class MaterialSettings:
         try:
             diameter = float(gcmd.get("DIAMETER"))
             material = gcmd.get_int("MATERIAL", minval=0, maxval=1)
+            live = self._nozzle_runtime.supported(heater)
+            if live:
+                self._nozzle_runtime.prepare(heater, diameter)
             heads, revision = self.material._nozzles.save(head, diameter, wmp_nozzles.MATERIALS[material], gcmd.get("EXPECT"))
+            if live:
+                self._nozzle_runtime.committed(heater, diameter, now)
             result.update(state="complete", values=heads["h%d" % head], revision=revision)
             self.nozzle_save = result
-            gcmd.respond_info("Nozzle settings saved; diameter changes take effect after a Klipper restart")
+            gcmd.respond_info("Nozzle settings saved" + ("; diameter not applied: " + self._nozzle_runtime.errors[heater] if heater in self._nozzle_runtime.errors else "; diameter will apply when idle" if heater in self._nozzle_runtime.pending else ""))
         except (OSError, ValueError) as error:
             result.update(state="failed", message=str(error))
             self.nozzle_save = result
@@ -277,7 +296,8 @@ class MaterialSettings:
 
 
     def _usage_macros(self, now):
-        settings = self.material.printer.lookup_object("configfile").get_status(now)["settings"]
+        settings = wmp_nozzle_runtime.active_settings(self.material.printer,
+                self.material.printer.lookup_object("configfile").get_status(now)["settings"])
         return {name: settings.get('gcode_macro ' + name.lower(), {}).get('gcode')
                 for name in wmp_recovery_file_envelope.MACROS}
 

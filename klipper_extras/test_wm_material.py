@@ -114,7 +114,7 @@ def test_nozzle_save_reports_restart_without_changing_active_config(material, tm
     material.cmd_SET_NOZZLE(cmd)
     state = material._nozzle_status(1)
     assert state["nozzle_save"]["state"] == "complete"
-    assert state["nozzles"]["h2"] == {"diameter": 0.6, "material": "Stainless steel", "active_diameter": 0.4, "restart_required": True}
+    assert state["nozzles"]["h2"] == {"diameter": 0.6, "material": "Stainless steel", "active_diameter": 0.4, "restart_required": True, "live_update_supported": False, "apply_pending": False, "apply_error": ""}
     assert active["extruder2"]["nozzle_diameter"] == 0.4
     active["extruder2"]["nozzle_diameter"] = 0.6
     assert not material._nozzle_status(1)["nozzles"]["h2"]["restart_required"]
@@ -122,18 +122,21 @@ def test_nozzle_save_reports_restart_without_changing_active_config(material, tm
         material.cmd_SET_NOZZLE(cmd)
 
 
-@pytest.mark.parametrize("condition", ["owner", "afc", "session"])
+@pytest.mark.parametrize("condition", ["owner", "afc", "session", "printing", "paused", "sd_active"])
 def test_nozzle_save_admission_rejects_before_storage(material, condition):
     from types import SimpleNamespace
     material._nozzles = SimpleNamespace(save=lambda *args: pytest.fail("Rejected request reached storage"))
+    if condition == "printing": material.printer.state = "printing"
     if condition == "paused": material.printer.paused = True
+    if condition == "sd_active": material.printer.sd_active = True
     if condition == "owner": material.printer.owner = object()
     if condition == "afc":
         lookup = material.printer.lookup_object
         material.printer.lookup_object = lambda name, default=None: object() if name == 'AFC' else lookup(name, default)
     if condition == "operation": material.toolhead_operation = {"state": "running"}
     cmd = FakeCommand(HEAD=2, DIAMETER="0.6", MATERIAL=1, EXPECT="a" * 64, SESSION="old-session" if condition == "session" else "test-session", ID="test")
-    with pytest.raises(ValueError):
+    reason = "Finish or cancel" if condition in ("printing", "paused", "sd_active") else ""
+    with pytest.raises(ValueError, match=reason):
         material.cmd_SET_NOZZLE(cmd)
 
 
@@ -10307,3 +10310,41 @@ def test_toolhead_progress_notification_cannot_change_other_operation(toolhead_m
     before = dict(material.toolhead_operation)
     material.cmd_TOOLHEAD_PROGRESS(FakeCommand(T='3', PHASE='moving'))
     assert material.toolhead_operation == before and scripts == []
+
+
+def test_nozzle_save_applies_live_only_after_persistence(material, tmp_path):
+    from types import SimpleNamespace
+    from wmp_nozzles import NozzleSettings
+    import math
+    cfg, ini = tmp_path/'printer.cfg', tmp_path/'tmt1.ini'
+    cfg.write_text('[extruder2]\nnozzle_diameter: 0.4\n')
+    ini.write_text('[nozzle]\ntype2=0\n')
+    material._nozzles = NozzleSettings(cfg, ini)
+    extruder = SimpleNamespace(nozzle_diameter=.4, filament_area=math.pi*.875**2,
+        max_extrude_ratio=5000., max_e_velocity=200., max_e_accel=10000.)
+    settings = {'extruder2': {'nozzle_diameter': .4}}
+    explicit = {'extruder2': dict.fromkeys(('max_extrude_cross_section',
+        'max_extrude_only_velocity', 'max_extrude_only_accel'), 'configured')}
+    flushes = []
+    def flush():
+        assert '0.6' in cfg.read_text()  # File commit precedes runtime application.
+        flushes.append(1)
+    original = material.printer.lookup_object
+    objects = {'extruder2': extruder,
+        'toolhead': SimpleNamespace(flush_step_generation=flush),
+        'configfile': SimpleNamespace(get_status=lambda now: {'settings':settings, 'config':explicit})}
+    material.printer.lookup_object = lambda name, default=None: objects.get(name, original(name, default))
+    state = material._nozzle_status(1)
+    cmd = FakeCommand(HEAD=2, DIAMETER='0.6', MATERIAL=1,
+        EXPECT=state['nozzle_revision'], SESSION='test-session', ID='live-nozzle')
+    material.cmd_SET_NOZZLE(cmd)
+    current = material._nozzle_status(1)['nozzles']['h2']
+    assert current['active_diameter'] == .6 and not current['restart_required']
+    assert current['live_update_supported'] and not current['apply_pending'] and not current['apply_error']
+    assert (extruder.max_extrude_ratio, extruder.max_e_velocity, extruder.max_e_accel) == (5000.,200.,10000.)
+    assert settings['extruder2']['nozzle_diameter'] == .4 and flushes == [1]
+    # A stale save fails without changing live geometry.
+    cmd.args['DIAMETER'] = '0.8'
+    with pytest.raises(ValueError, match='changed'):
+        material.cmd_SET_NOZZLE(cmd)
+    assert extruder.nozzle_diameter == .6 and flushes == [1]

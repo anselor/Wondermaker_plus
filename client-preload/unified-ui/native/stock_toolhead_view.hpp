@@ -124,7 +124,7 @@ public:
   const auto tool_state=data.value("toolhead_operation",Json::object()).value("state","");
   enabled("take-dock",take_allowed_=!pending&&data.value("fresh",false)&&data.value("owner","")=="standalone"&&data.value("capabilities",Json::object()).value("toolhead_action",false)&&mounting!="Attachment unknown"&&tool_state!="running"&&(data.value("job",Json::object()).value("state","")=="idle"||data.value("job",Json::object()).value("state","")=="complete"||paused_toolhead_action_available(data,"h"+std::to_string(head),mounting=="Mounted"?"dock":"take")));
   const auto nozzle=selected.is_object()?selected.value("nozzle",Json::object()):Json::object();
-  button("nozzle",nozzle.value("diameter","Unknown")+" / "+nozzle.value("material","Unknown")+(nozzle.value("restart_required",false)?"\nRestart required":""),208,height-104,middle,48);
+  button("nozzle",nozzle.value("diameter","Unknown")+" / "+nozzle.value("material","Unknown")+(nozzle.value("apply_pending",false)?"\nApplies when idle":nozzle.value("restart_required",false)?"\nRestart required":""),208,height-104,middle,48);
   for(auto property:{lv_obj_set_style_bg_opa,lv_obj_set_style_border_width,lv_obj_set_style_outline_width})stock_function<void(*)(void*,int,unsigned)>(property)(objects_.at("nozzle").first,0,0);
   enabled("nozzle",nozzle_allowed_=(data.value("owner","")=="standalone"||!pending)&&data.value("fresh",false)&&data.value("capabilities",Json::object()).value("save_nozzle",false));
  }

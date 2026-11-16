@@ -129,7 +129,7 @@ public:
     const auto result=snapshot_.value("nozzle_save",Json::object());
     if(result.value("id","")==id_&&result.value("session","")==session_&&result.value("head","")==arguments_.value("head","")){
      const auto values=snapshot_.value("nozzle_settings",Json::object()).value(arguments_.at("head").get<std::string>(),Json::object());
-     if(result.value("state","")=="complete"&&values.value("diameter",0.0)==arguments_.value("diameter",-1.0)&&values.value("material","")==arguments_.value("material",""))finish("complete",values.value("restart_required",false)?"Saved. Restart Klipper to apply the diameter.":"Nozzle settings saved.");
+     if(result.value("state","")=="complete"&&values.value("diameter",0.0)==arguments_.value("diameter",-1.0)&&values.value("material","")==arguments_.value("material",""))finish("complete",!values.value("apply_error",std::string()).empty()?("Saved. Diameter not applied: "+values.value("apply_error",std::string())+". Reopen and Save to retry.").c_str():values.value("apply_pending",false)?"Saved. Diameter will apply when the printer is idle.":values.value("restart_required",false)?"Saved. Restart Klipper to apply the diameter.":"Nozzle settings saved.");
      else if(result.value("state","")=="failed")finish("failed",operation_display_text(result,"message","Nozzle save failed").c_str());
      else if(++readbacks_>=3)finish("unknown","Nozzle save readback did not match; reopen the editor.");
     }else if(++readbacks_>=3)finish("unknown","Nozzle save was not confirmed; reopen the editor.");
@@ -388,6 +388,8 @@ private:
  }
  std::string validate(const std::string&action,const Json&args)const {
   if(action=="save_nozzle"){
+   const auto job=snapshot_.value("job",Json::object()).value("state","");
+   if(job=="printing"||job=="paused")return "Finish or cancel the print before changing nozzle settings: job.state="+rejection_value(job)+".";
    if(!snapshot_.value("capabilities",Json::object()).value("save_nozzle",false))return "Nozzle save capability is unavailable.";
    const auto identification=snapshot_.value("identification",Json::object()).value("state","");
    if(identification=="pending"||identification=="running")return "Wait for head identification to finish before saving nozzle settings: identification.state="+rejection_value(identification)+".";

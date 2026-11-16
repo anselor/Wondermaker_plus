@@ -87,7 +87,7 @@ int main(){
  }
  // Restored unknown outcomes do not reserve standalone settings or mutually
  // strand explicit reconciliation. Pending/running work still owns motion,
- // but future-only nozzle settings can be saved without changing active hardware.
+ // but idle nozzle settings remain independent of those operation records.
  for(const auto*other_state:{"unknown","pending","running"}){
   Json data={{"owner","standalone"},{"fresh",true},{"session","session"},{"revision","rev"},{"command_generation",0},
    {"job",{{"state","idle"}}},{"capabilities",{{"save_nozzle",true}}},
@@ -107,9 +107,10 @@ int main(){
    auto current=data;current["job"]["state"]=job;current["identification"]={{"state",identification}};
    StandaloneBackend backend;Http wire;backend.observe(current);
    auto result=backend.submit({"save_nozzle","rev","standalone",{{"head","h2"},{"expected",std::string(64,'a')},{"diameter",0.6},{"material","Hardened steel"}}});
-   const bool conflict=std::string(identification)=="pending"||std::string(identification)=="running";
+   const bool print_active=std::string(job)=="printing"||std::string(job)=="paused";
+   const bool conflict=print_active||std::string(identification)=="pending"||std::string(identification)=="running";
    assert(result.state==(conflict?"refused":"pending"));backend.deliver(wire);assert(wire.posts==(conflict?0:1));
-   if(conflict)assert(result.message.find("identification.state=")!=std::string::npos);
+   if(conflict)assert(result.message.find(print_active?"job.state=":"identification.state=")!=std::string::npos);
   }
   for(bool tool:{true,false}){
    auto current=data;current[tool?"filament_operation":"toolhead_operation"]["state"]=other_state;
@@ -296,6 +297,24 @@ int main(){
   assert(nozzles.submit(save).state=="refused");
   save.arguments["expected"]=std::string(64,'b');save.arguments["diameter"]=0.5;
   assert(nozzles.submit(save).state=="refused"&&nh.posts==1);
+ }
+ for(const auto mode:{"live","pending","error"}){
+  StandaloneBackend backend;Http transport;
+  auto current=s;current["session"]="nozzle-live-session";current["capabilities"]["save_nozzle"]=true;
+  current["nozzle_revision"]=std::string(64,'a');
+  current["nozzle_settings"]["h2"]={{"diameter",0.4},{"material","Hardened steel"}};
+  backend.observe(current);
+  auto result=backend.submit({"save_nozzle",current["revision"],"standalone",{{"head","h2"},{"diameter",0.6},{"material","Stainless steel"},{"expected",std::string(64,'a')}}});
+  assert(result.state=="pending");backend.deliver(transport);
+  current["nozzle_settings"]["h2"]={{"diameter",0.6},{"active_diameter",std::string(mode)=="live"?0.6:0.4},{"material","Stainless steel"},{"restart_required",false},{"apply_pending",std::string(mode)=="pending"},{"apply_error",std::string(mode)=="error"?"planner unavailable":""}};
+  current["nozzle_revision"]=std::string(64,'b');
+  current["nozzle_save"]={{"id",result.id},{"session","nozzle-live-session"},{"head","h2"},{"state","complete"}};
+  backend.observe(current);
+  const auto message=current["receipts"][result.id]["message"].get<std::string>();
+  assert(message.find("Restart")==std::string::npos);
+  if(std::string(mode)=="live")assert(message=="Nozzle settings saved.");
+  if(std::string(mode)=="pending")assert(message.find("idle")!=std::string::npos);
+  if(std::string(mode)=="error")assert(message.find("planner unavailable")!=std::string::npos);
  }
  StandaloneBackend b;Http http;b.observe(s);
  Request r={"temperature",s.at("revision"),"standalone",{{"head","h2"},{"target",220}}};
