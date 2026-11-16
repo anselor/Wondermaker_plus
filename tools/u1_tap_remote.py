@@ -28,6 +28,12 @@ def emit(f, evs):
 
 
 def down(f, x, y):
+    # evdev suppresses unchanged ABS values. A newly restarted client has not
+    # seen the kernel's retained coordinates, so repeated taps can otherwise
+    # arrive as press/release at (0, 0). Prime both axes while released, then
+    # publish the requested coordinates with the contact below. XOR 1 stays
+    # in bounds for the stock 800x480 panel, including the last row/column.
+    emit(f, [(EV_ABS, ABS_X, x ^ 1), (EV_ABS, ABS_Y, y ^ 1)])
     _tid[0] = (_tid[0] + 1) % 65535
     emit(f, [(EV_ABS, ABS_MT_SLOT, 0),
              (EV_ABS, ABS_MT_TRACKING_ID, _tid[0]),

@@ -23,3 +23,10 @@ issues/
 
 # Windows download metadata attached to contributor files
 *:Zone.Identifier
+
+# Curated historical UI mockups are documentation, not local test captures.
+!docs/ui/history/*.png
+!docs/ui/mockups/*.png
+
+# Private installation recovery receipts (may contain configuration snapshots).
+.wmp-install-journals/

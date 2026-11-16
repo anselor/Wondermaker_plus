@@ -9,7 +9,7 @@ REPO = Path(__file__).resolve().parents[1]
 def load_local_env(path=REPO / '.env'):
     """Load simple KEY=VALUE entries without overriding the process environment."""
     try:
-        lines = path.read_text().splitlines()
+        lines = path.read_text(encoding='utf-8-sig').splitlines()
     except FileNotFoundError:
         return
     for number, raw in enumerate(lines, 1):

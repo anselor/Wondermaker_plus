@@ -46,11 +46,11 @@ def merge_text(name, current, old, new):
     with tempfile.TemporaryDirectory(prefix='wmp-merge-') as td:
         paths = [Path(td) / n for n in ('live', 'old', 'new')]
         for p, text in zip(paths, (current, old, new)):
-            p.write_text(text)
+            p.write_text(text, encoding='utf-8', newline='\n')
         r = subprocess.run(['git', 'merge-file', '-p', '--diff3',
                             '-L', f'live/{name}', '-L', f'old/{name}',
                             '-L', f'new/{name}', *map(str, paths)],
-                           capture_output=True, text=True)
+                           capture_output=True, text=True, encoding='utf-8')
     # Git caps conflict counts at 127; errors are outside that interval.
     if not 0 <= r.returncode <= 127:
         raise RuntimeError(f'{name}: git merge-file failed ({r.returncode}): {r.stderr.strip()}')
@@ -116,7 +116,7 @@ def main(argv=None):
                 staged = Path(td) / 'candidate'
                 staged.mkdir()
                 for name, text in candidate.items():
-                    (staged / name).write_text(text)
+                    (staged / name).write_text(text, encoding='utf-8', newline='\n')
                 staged.rename(output)
             print(f'Wrote review candidate: {output}')
         for line in decisions:

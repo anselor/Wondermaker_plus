@@ -1,5 +1,6 @@
 """Read-only installation checks; compilation uses disposable remote temp files."""
 import ast
+import base64
 import configparser
 import fnmatch
 import json
@@ -15,14 +16,23 @@ sys.path.insert(0, str(ROOT / 'utils'))
 from config_sync import excluded, body_of  # noqa: E402
 
 
-def remote(ctx, code, sudo=False, python=None):
+def remote(ctx, code, sudo=False, python=None, quiet=False):
     """Send code via stdin, never upload it to an installed location."""
+    # Python 3.9's stdin tokenizer can split a UTF-8 character in a very long
+    # source line (our embedded stock configuration contains such lines).
+    # Keep transport lines short and ASCII; compile the original UTF-8 bytes
+    # only after the complete payload has arrived.
+    encoded = base64.b64encode(code.encode('utf-8')).decode('ascii')
+    transport = "import base64\nexec(compile(base64.b64decode(\n" + ''.join(
+        repr(encoded[offset:offset + 76]) + '\n'
+        for offset in range(0, max(1, len(encoded)), 76)
+    ) + "), '<stdin>', 'exec'))\n"
     command = ('sudo -S -p "" -- ' if sudo else '') + shlex.quote(python or 'python3') + ' -'
     stdin, stdout, stderr = ctx.ssh().exec_command(command, timeout=120)
     if sudo:
         stdin.write(ctx.password + '\n')
         stdin.flush()
-    stdin.write(code)
+    stdin.write(transport)
     stdin.flush()
     stdin.channel.shutdown_write()
     output = stdout.read().decode('utf-8', 'replace')
@@ -30,7 +40,7 @@ def remote(ctx, code, sudo=False, python=None):
     rc = stdout.channel.recv_exit_status()
     if rc:
         raise ctx.DeployError(error.strip() or output.strip() or 'remote validation failed')
-    if output.strip():
+    if output.strip() and not quiet:
         print(output.strip())
     return output
 
@@ -56,7 +66,7 @@ for command in p['commands']:
 
 
 def local_python(path):
-    ast.parse(Path(path).read_text(), filename=str(path))
+    ast.parse(Path(path).read_text(encoding='utf-8'), filename=str(path))
 
 
 def validate_klipper(ctx, texts):
@@ -69,13 +79,74 @@ def validate_klipper(ctx, texts):
         raise ctx.DeployError('Klipper config validation failed:\n' + '\n'.join(map(str, errors)))
 
 
+def standalone_owner(ctx):
+    """Refuse unsupported managers on disk or in the running Klipper config."""
+    import preload_bundle
+    if preload_bundle.bundle_relative(ROOT) != preload_bundle.CURRENT_BUNDLE:
+        return
+    try:
+        loaded = json.loads(ctx.moonraker('/printer/objects/query?configfile'))['result']['status']['configfile']['settings']
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        # A stopped/config-error backend may have no loaded objects. Still inspect
+        # disk configuration below; unavailable HTTP alone never implies ownership.
+        try:
+            state = json.loads(ctx.moonraker('/printer/info'))['result']['state']
+        except (OSError, ValueError, KeyError, TypeError):
+            state = None
+        stopped = False
+        if state not in ('error', 'shutdown'):
+            try:
+                service = ctx.backend_service_status()
+                stopped = (service.get('LoadState') == 'loaded'
+                           and service.get('ActiveState') in ('inactive', 'failed')
+                           and service.get('MainPID') == '0')
+            except (OSError, ValueError, AttributeError, ctx.DeployError):
+                pass
+        if state not in ('error', 'shutdown') and not stopped:
+            raise ctx.DeployError('Running filament owner is unavailable; verify Klipper is stopped before repair') from error
+        loaded = {}
+    if not isinstance(loaded, dict):
+        raise ctx.DeployError('Cannot verify the running filament owner')
+    owners = set(loaded) & {'openace', 'AFC'}
+    ctx.ssh()
+    path = '/home/' + ctx.user + '/printer_data/config/printer.cfg'
+    script = Path(preload_bundle.__file__).read_text(encoding='utf-8') + '\nprint(json.dumps(read_active_config(Path(%r)).sections()))\n' % path
+    sections = json.loads(remote(ctx, script, quiet=True))
+    if not isinstance(sections, list) or not all(isinstance(s, str) for s in sections):
+        raise ctx.DeployError('Cannot verify the configured filament owner')
+    owners.update(set(sections) & {'openace', 'AFC'})
+    if owners:
+        raise ctx.DeployError('This screen release supports standalone WM+ only; active '
+                              + ', '.join(sorted(owners))
+                              + ' is unsupported. Disable the manager and restart Klipper before installing.')
+
+
 def config_plan(ctx):
     """Validate includes against the configuration that this invocation will leave."""
+    import preload_bundle
+    if preload_bundle.bundle_relative(ROOT) == preload_bundle.CURRENT_BUNDLE:
+        if ctx.config_only or ctx.files:
+            raise ctx.DeployError('The unified screen installer preserves configuration through SSH; --config-only and --files are not supported for this package.')
+        preload_bundle.verify_source_binding(ROOT)
+        standalone_owner(ctx)
+        import reconcile_screen_config
+        ctx.ssh()
+        directory = '/home/' + ctx.user + '/printer_data/config'
+        result = json.loads(remote(ctx, reconcile_screen_config.remote_script(ROOT, directory), quiet=True))
+        ctx.screen_config_plan = result['plan']
+        print('Reviewed configuration preservation: %d file changes' % len(result['plan']['changes']))
+        for warning in result['plan'].get('warnings', []):
+            print('Configuration note: ' + warning)
+        texts = result['texts']
+        # Validate the behavior we publish, not untouched factory/custom macros.
+        validate_klipper(ctx, {reconcile_screen_config.FILENAME:
+                               texts[reconcile_screen_config.FILENAME]})
+        return texts, '\n'.join(texts.values())
     listing = json.loads(ctx.moonraker('/server/files/list?root=config'))['result']
     names = {item['path'] for item in listing}
     live = ROOT / 'config/live'
     # Match config_sync ownership/exclusion rules rather than pushing machine IDs.
-    managed = {p.name: p.read_text() for p in live.iterdir() if p.is_file() and not excluded(p.name)}
+    managed = {p.name: p.read_text(encoding='utf-8') for p in live.iterdir() if p.is_file() and not excluded(p.name)}
     targets = set(ctx.files) if ctx.files else set(managed)
     unknown = targets - managed.keys()
     if unknown:
@@ -158,7 +229,8 @@ def config(ctx):
         return
     ctx.ssh()
     ctx.sftp()
-    extras = [ROOT / 'klipper_extras/wmp_recovery.py']
+    extras = [ROOT / 'klipper_extras/wmp_identification.py',
+              ROOT / 'klipper_extras/wmp_recovery.py']
     if needs_light:
         extras.append(ROOT / 'klipper_extras/wmp_case_light.py')
     for extra in extras:
@@ -176,30 +248,44 @@ def config(ctx):
                   files=required_files, commands=['python3'],
                   writable_files=['/sys/class/gpio/gpio76/value']
                   if needs_light and 'preload' not in getattr(ctx, 'installing_components', set()) else [])
-    # Parse with the printer's Python and Jinja, without loading modules or moving hardware.
-    remote(ctx, r'''import ast, jinja2, re
+    # Extract actual config options, rather than treating the rest of a section
+    # (including subsequent settings and comments) as executable Jinja.
+    from validate_klipper_config import options
+    templates = [(name, section, option, line, source)
+                 for name, text in texts.items()
+                 for section, option, line, source in options(text)
+                 if option == 'gcode' or option.endswith('_gcode')]
+    # Use the printer's Python/Jinja without importing extras or moving hardware.
+    remote(ctx, r'''import ast, jinja2
 for source in %r:
     ast.parse(source)
 env = jinja2.Environment('{%%', '%%}', '{', '}')
-for name, text in %r.items():
-    for section in re.split(r'(?m)^\[', text)[1:]:
-        body = section.split(']', 1)[1]
-        match = re.search(r'(?m)^gcode\s*[:=]\s*\n([\s\S]*)', body)
-        if match:
-            env.parse('\n'.join(line.split('#', 1)[0] for line in match[1].splitlines()))
-''' % ([extra.read_text() for extra in extras], texts), python=home + '/klippy-env/bin/python')
+for name, section, option, line, source in %r:
+    try:
+        env.parse(source)
+    except jinja2.TemplateSyntaxError as error:
+        raise SystemExit('%%s:%%d: [%%s] %%s: %%s' %% (
+            name, line + error.lineno - 1, section, option, error.message))
+''' % ([extra.read_text(encoding='utf-8') for extra in extras], templates), python=home + '/klippy-env/bin/python')
+
 
 
 def material(ctx):
     ctx.ssh()
     ctx.sftp()
     home = '/home/' + ctx.user
-    local_python(ROOT / 'klipper_extras/wm_material.py')
+    sources = {name: ROOT / 'klipper_extras' / name for name in
+               ('wm_material.py', 'wmp_orca_profiles.py', 'wmp_nozzles.py', 'wmp_saved_variables.py', 'wmp_recovery_retirement.py', 'wmp_recovery_file_envelope.py')}
+    for source in sources.values():
+        local_python(source)
     validate_klipper(ctx, {str(ROOT / 'klipper_extras/wm_material.cfg'):
-                           (ROOT / 'klipper_extras/wm_material.cfg').read_text()})
-    configparser.RawConfigParser(strict=False).read_string((ROOT / 'klipper_extras/wm_material.cfg').read_text())
+                           (ROOT / 'klipper_extras/wm_material.cfg').read_text(encoding='utf-8')})
+    configparser.RawConfigParser(strict=False).read_string((ROOT / 'klipper_extras/wm_material.cfg').read_text(encoding='utf-8'))
     require_paths(ctx, directories=[home + '/klipper/klippy/extras', home + '/printer_data/config'], commands=['python3'])
-    remote(ctx, 'import ast; ast.parse(%r)' % (ROOT / 'klipper_extras/wm_material.py').read_text(),
+    # Parse every shipped helper with Klipper's interpreter, without importing
+    # modules or touching running printer objects. Host Python may be newer.
+    payload = {name: path.read_text(encoding='utf-8') for name, path in sources.items()}
+    remote(ctx, 'import ast\nfor name, source in %r.items():\n    ast.parse(source, filename=name)\n' % payload,
            python=home + '/klippy-env/bin/python')
 
 
@@ -209,13 +295,24 @@ def touchscreen(ctx):
     for name in ('device/wmp_screen.py', 'device/nginx-screen.conf', 'device/wmp-screen.service',
                  'device/wmp-timelapse-camera.service', 'device/timelapse-camera-fix.sh',
                  'scripts/install.sh'):
-        (ROOT / name).read_text()
+        (ROOT / name).read_text(encoding='utf-8')
+    for name in ('touchscreen_settings', 'touchscreen_transaction', 'touchscreen_runtime'):
+        local_python(ROOT / 'tools' / (name+'.py'))
     if not (ROOT / 'device/www/index.html').is_file():
         raise ctx.DeployError('Touchscreen web page is missing; restore device/www/index.html in the repository')
     require_paths(ctx, directories=['/opt', '/etc/systemd/system'],
                   files=['/etc/nginx/sites-available/fluidd'],
                   commands=['python3', 'nginx', 'systemctl', 'curl', 'ffmpeg'], sudo=True)
-    json.loads(ctx.moonraker('/server/webcams/list'))['result']['webcams']
+    import touchscreen_settings
+    def camera_read(method, path, params):
+        assert method == 'GET' and not params
+        try:
+            return json.loads(ctx.moonraker(path))['result']
+        except ctx.DeployError as error:
+            raise OSError(str(error)) from error
+    camera_plan = touchscreen_settings.prepare(camera_read)
+    if camera_plan.get('selection_note'):
+        print(camera_plan['selection_note'])
     remote(ctx, r'''import os, subprocess, ast, socket, tempfile, shutil
 ast.parse(%r)
 for path, mode in [('/dev/fb0', os.R_OK), ('/dev/input/event0', os.W_OK)]:
@@ -269,16 +366,19 @@ if not active:
     with socket.socket() as sock:
         try: sock.bind(('127.0.0.1', 8975))
         except OSError: raise SystemExit('Screen port 8975 is already in use; identify the listening service before retrying')
-''' % ((ROOT / 'device/wmp_screen.py').read_text(), (ROOT / 'device/nginx-screen.conf').read_text()), sudo=True)
+''' % ((ROOT / 'device/wmp_screen.py').read_text(encoding='utf-8'), (ROOT / 'device/nginx-screen.conf').read_text(encoding='utf-8')), sudo=True)
 
 
 def preload(ctx):
-    from components.preload import sources
+    from components.preload import sources, screen_bundle, screen_preflight
+    try:screen_bundle()  # Verify package integrity without loading its native code.
+    except (ValueError,OSError) as error:raise ctx.DeployError('invalid screen bundle: '+str(error)) from error
+    standalone_owner(ctx)
     ctx.ssh()
     ctx.sftp()
     payload = []
     for name, path in sources():
-        source = Path(path).read_text()
+        source = Path(path).read_text(encoding='utf-8')
         # Use the actual C identify() guard, not a parallel firmware-version list.
         call = 'unsigned char code[CODE_SIZE]; const struct profile *p = identify(f, code);' if name == 'wifi-fix' else 'const struct profile *p = identify(f);'
         harness = source + '\nint main(int argc, char **argv) { if(argc != 2) return 2; FILE *f=fopen(argv[1], "rb"); if(!f) return 2; ' + call + ' fclose(f); if(!p) return 3; puts(p->version); return 0; }\n'
@@ -305,3 +405,4 @@ with tempfile.TemporaryDirectory(prefix='wmp-preflight-') as directory:
             raise SystemExit(name + ': unsupported or modified client; no components installed')
         print(name + ': supports installed client ' + result.stdout.strip())
 ''' % (client, payload))
+    screen_preflight(ctx)

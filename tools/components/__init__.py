@@ -7,9 +7,7 @@
     RESTART_AFTER  -> "klipper" | None   # deploy.py restarts once at the end
 ctx is a tools.deploy.Context: ssh(), sftp(), moonraker(), host, user, no_restart, files.
 """
-from . import config, material, preload, touchscreen
+from . import config, material, moonraker, preload, shaper, touchscreen
 
-REGISTRY = {m.NAME: m for m in (config, touchscreen, material, preload)}
-# Stage Klipper dependencies before the stock screen can restart the backend.
-# Verify preload activation before proceeding to the optional Fluidd bridge.
-ORDER = [config.NAME, material.NAME, preload.NAME, touchscreen.NAME]
+REGISTRY = {m.NAME: m for m in (config, touchscreen, material, moonraker, preload, shaper)}
+ORDER = [config.NAME, material.NAME, moonraker.NAME, preload.NAME, touchscreen.NAME, shaper.NAME]

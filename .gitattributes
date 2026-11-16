@@ -1,0 +1,6 @@
+# Preserve source hashes and Linux printer scripts on Windows checkouts.
+* text=auto eol=lf
+*.so binary
+*.gz binary
+*.png binary
+*.jpg binary

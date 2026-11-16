@@ -1,9 +1,12 @@
 """Component: optional wm_material Klipper extra. Needs SSH (no sudo).
-install copies klipper_extras/wm_material.py to ~/klipper/klippy/extras/ and
-wm_material.cfg to ~/printer_data/config/. uninstall removes both. Klipper
+install atomically publishes material helpers and creates wm_material.cfg only
+when absent. Existing configuration and filament data are preserved. Klipper
 must restart afterwards (deploy.py does this).
 """
 import os
+import posixpath
+import errno
+import uuid
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 SRC = os.path.join(ROOT, "klipper_extras")
@@ -45,20 +48,140 @@ def preflight(ctx):
     checks.material(ctx)
 
 
-def install(ctx):
+def _read(sftp, path):
+    try:
+        with sftp.open(path, "rb") as stream:
+            return stream.read()
+    except IOError as error:
+        if error.errno != errno.ENOENT:
+            raise
+        return None
+
+
+def rollback(ctx, changes):
+    """Restore only our published bytes; never overwrite a later operator edit."""
+    sftp = ctx.sftp()
+    def check(change):
+        destination, _, backup, previous, content = change
+        current = _read(sftp, destination)
+        if current == previous:
+            return False
+        if current != content:
+            raise RuntimeError('Concurrent edit at ' + destination)
+        if previous is not None and _read(sftp, backup) != previous:
+            raise RuntimeError('Backup mismatch at ' + backup)
+        return True
+
+    try:
+        # Detect existing conflicts across the entire helper set before making
+        # it a mixture of old and new versions. Recheck immediately before each
+        # mutation as another writer may have changed a file since validation.
+        for change in changes:
+            check(change)
+        for change in reversed(changes):
+            destination, _, backup, previous, _ = change
+            if not check(change):
+                continue
+            if previous is None:
+                sftp.remove(destination)
+            else:
+                sftp.posix_rename(backup, destination)
+            if _read(sftp, destination) != previous:
+                raise RuntimeError('Rollback readback mismatch at ' + destination)
+    except Exception as error:
+        # Do not continue downgrading dependencies after an unconfirmed restore.
+        raise RuntimeError('Helper rollback needs inspection: ' + str(error)) from error
+
+
+def install(ctx, include_recovery=False, install_config=True, prepare=None):
     sftp = ctx.sftp()
     extra, cfg = _paths(ctx)
-    sftp.put(os.path.join(SRC, "wm_material.py"), extra)
-    sftp.put(os.path.join(SRC, "wm_material.cfg"), cfg)
-    print("installed %s and %s" % (extra, cfg))
+    token = uuid.uuid4().hex
+    changes = []
+    published = []
+    temporary = []
+    try:
+        # Read every destination before publishing anything. Existing user
+        # configuration is authoritative; defaults are only for first install.
+        destinations = [(name, posixpath.join(posixpath.dirname(extra), name))
+                        for name in ("wmp_orca_profiles.py", "wmp_nozzles.py", "wmp_saved_variables.py", "wmp_recovery_retirement.py", "wmp_recovery_file_envelope.py", "wm_material.py")]
+        if include_recovery:
+            destinations.append(('wmp_identification.py', posixpath.join(posixpath.dirname(extra), 'wmp_identification.py')))
+            destinations.append(('wmp_recovery.py', posixpath.join(posixpath.dirname(extra), 'wmp_recovery.py')))
+            destinations.append(('wmp_case_light.py', posixpath.join(posixpath.dirname(extra), 'wmp_case_light.py')))
+        if install_config and _read(sftp, cfg) is None:
+            destinations.append(("wm_material.cfg", cfg))
+        for name, destination in destinations:
+            previous = _read(sftp, destination)
+            with open(os.path.join(SRC, name), "rb") as stream:
+                content = stream.read()
+            if previous == content:
+                continue
+            staged = destination + ".wmp-upload-" + token
+            temporary.append(staged)
+            with sftp.open(staged, "wb") as stream:
+                stream.write(content)
+            if _read(sftp, staged) != content:
+                raise RuntimeError('Upload readback mismatch: ' + destination)
+            backup = destination + ".wmp-backup-" + token
+            if previous is not None:
+                with sftp.open(backup, "wb") as stream:
+                    stream.write(previous)
+                if _read(sftp, backup) != previous:
+                    raise RuntimeError('Backup readback mismatch: ' + destination)
+            changes.append((destination, staged, backup, previous, content))
+        # The top-level installer can recover a lost process using this complete
+        # undo plan, even if a rename committed without returning a response.
+        journal = getattr(getattr(ctx, 'rollback_backend', None), 'journal', None)
+        if prepare is not None:
+            prepare(changes)
+        elif journal is not None and journal.value['inflight'] == NAME:
+            journal.prepare_component(NAME, changes)
+        for change in changes:
+            destination, staged, _, previous, content = change
+            if _read(sftp, destination) != previous:
+                raise RuntimeError('Destination changed during installation: ' + destination)
+            # Record before rename: the server may commit and lose the reply.
+            published.append(change)
+            sftp.posix_rename(staged, destination)
+            if _read(sftp, destination) != content:
+                raise RuntimeError('Publication readback mismatch: ' + destination)
+    except Exception:
+        try:
+            rollback(ctx, published)
+        except Exception:
+            backend = getattr(ctx, 'rollback_backend', None)
+            if backend is not None:
+                backend.blocked = True
+            raise
+        raise
+    finally:
+        for path in temporary:
+            try:
+                sftp.remove(path)
+            except IOError as error:
+                if error.errno != errno.ENOENT:
+                    raise
+    print("Installed material helpers; preserved existing configuration and filament data")
+    return published
 
 
 def uninstall(ctx):
+    # Disable helper sections first. Retain helpers while legacy or user macros
+    # still call them; deleting files first would strand the next Klipper boot.
+    from . import config
+    planned = config.remove_configuration(ctx, material_only=True)
+    if planned['retained_dependencies']:
+        return
     sftp = ctx.sftp()
-    for p in _paths(ctx):
-        if exists(sftp, p):
-            sftp.remove(p)
-            print("removed %s" % p)
+    extra, _ = _paths(ctx)
+    for name in ('wm_material.py', 'wmp_orca_profiles.py', 'wmp_nozzles.py',
+                 'wmp_saved_variables.py', 'wmp_recovery_retirement.py', 'wmp_recovery_file_envelope.py'):
+        path = posixpath.join(posixpath.dirname(extra), name)
+        if _read(sftp, path) is not None:
+            sftp.remove(path)
+            print('removed ' + path)
+    # Keep the commented configuration and filament data for future reinstall.
 
 
 def status(ctx):
