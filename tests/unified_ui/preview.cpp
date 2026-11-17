@@ -195,6 +195,20 @@ int main(){
  native::project_preview(train_snapshot,"train.gcode",locomotive,"");
  auto train_request=standalone_print_request(train_snapshot,Json{{"file","train.gcode"},{"routes",{{"1","head:h1"},{"2","head:h2"}}},{"options",{{"leveling",true},{"timelapse",false}}}},"train-check");
  assert(train_request["mapping"]==Json({{"1",1},{"2",2}}));
+ // Choosing the second sliced row must not overwrite the first destination.
+ {
+  auto snapshot=train_snapshot;snapshot["capabilities"]["start_print"]=true;
+  App picker(ready_backend);picker.update(snapshot);picker.event("file:train.gcode");
+  picker.event("map:1");picker.event("choose:head:h1");
+  picker.update(snapshot); // ordinary status refresh between choices
+  picker.event("map:2");picker.event("choose:head:h2");
+  const auto rows=picker.preview_state()["rows"];Json selected=Json::object();
+  for(const auto&row:rows)selected[row["id"].get<std::string>()]=row["route"]["id"];
+  auto submitted=standalone_print_request(snapshot,{{"file","train.gcode"},{"routes",selected},{"options",{{"leveling",true},{"timelapse",false}}}},"picker-check");
+  assert(submitted["mapping"]==Json({{"1",1},{"2",2}}));
+  assert(picker.preview_state()["mapping_summary"]=="T1: Head 2\nT2: Head 3");
+  picker.event("start");assert(picker.preview_state().value("material_review",false));
+ }
  // New standalone consent is explicit, locally bound, and never a global hold.
  {
   auto raw=status;raw["wm_material"]["print_material_confirmation_protocol"]=1;
@@ -208,6 +222,10 @@ int main(){
   App consent(transport);consent.print_options(true,false,true);consent.update(snapshot);consent.event("file:part #1;*.gcode");consent.event("map:0");consent.event("choose:head:h1");
   assert(consent.preview_state().value("can_start",false));consent.event("start");
   assert(transport.sent==0&&consent.preview_state().value("material_review",false));
+  const auto warning=consent.preview_state().value("material_warning","");
+  assert(warning.find("Head 2: file PETG, loaded ")!=std::string::npos);
+  for(unsigned char c:warning)assert(c<128); // controlled punctuation uses stock glyphs
+
   consent.event("material-review-cancel");assert(!consent.preview_state().value("material_review",true));
   assert(consent.preview_state().value("editable",false));
   consent.event("start");auto changed=snapshot;changed["session"]="restarted";consent.update(changed);consent.event("material-review-confirm");assert(transport.sent==0);

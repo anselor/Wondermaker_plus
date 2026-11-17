@@ -281,7 +281,7 @@ public:
   auto reason=preview_problem();if(reason.empty())reason=unavailable("start_print");
   auto notice=notice_;
   if(notice.empty()&&reason.empty()&&file&&!file->value("usage_known",true))notice="Usage unavailable; all filament presets are shown.";
-  return {{"file",file?*file:Json()}, {"rows",rows},{"options",options_},
+  return {{"file",file?*file:Json()}, {"rows",rows},{"mapping_summary",mapping_summary()},{"options",options_},
    {"timelapse_available",timelapse_available_},{"fresh",data_.value("fresh",false)},
    {"editable",data_.value("fresh",false)&&!busy()&&data_.value("owner","unknown")!="unknown"&&(data_.value("job",Json::object()).value("state","")=="idle"||data_.value("job",Json::object()).value("state","")=="complete")},
    {"revision",data_.value("revision","")},{"session",data_.value("session","")},
@@ -414,7 +414,7 @@ public:
    if(!reason.empty()){material_review_=Json();notice_=reason;return;}
    const bool confirm=id=="material-review-confirm";
    if(confirm&&(material_review_.is_null()||material_review_!=material_binding())){material_review_=Json();notice_="Print context changed. Review the filament selection again.";return;}
-   if(!confirm&&!material_warning().empty()){material_review_=material_binding();return;}
+   if(!confirm&&(data_.value("owner","")=="standalone"||!material_warning().empty())){material_review_=material_binding();return;}
    Json args={{"file",file_},{"routes",selection_},{"options",options_}};
    if(data_.value("owner","")=="standalone"&&data_.value("print_material_confirmation_protocol",0)==1)args["material_confirmation"]=confirm;
    material_review_=Json();submit("start_print",args,"job");return;
@@ -537,6 +537,18 @@ private:
    {"route",route},{"warning",r.value("material_warnings",Json::object()).value(row,Json())},
    {"source",source},{"head",head.value("id","")},{"loaded",head.value("loaded",Json::object())},
    {"nozzle",head.value("nozzle",Json::object())}};
+ }
+ std::string mapping_summary()const {
+  std::string text;auto file=find("files",file_);if(!file)return text;
+  for(const auto&slice:file->value("sliced",Json::array())){
+   const auto id=slice.value("id","");auto route=selection_.contains(id)?find("routes",selection_[id]):nullptr;
+   if(!route)continue;
+   const auto head=route->value("head","");
+   if(head.size()!=2||head[0]!='h'||head[1]<'0'||head[1]>'3')continue;
+   if(!text.empty())text+='\n';
+   text+="T"+id+": Head "+std::to_string(head[1]-'0'+1);
+  }
+  return text;
  }
  Json material_binding()const {auto f=find("files",file_);return {{"file",file_},{"file_identity",f?f->value("file_identity",Json()):Json()},{"routes",selection_},{"options",options_},{"revision",data_.value("revision","")},{"session",data_.value("session","")}};}
  std::string material_warning()const {

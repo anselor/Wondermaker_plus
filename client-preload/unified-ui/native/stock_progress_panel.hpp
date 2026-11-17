@@ -36,6 +36,17 @@ class StockProgressPanel {
   return y+stock_function<int(*)(void*)>(lv_obj_get_height)(label)+8;
  }
  static int value_lines(const std::string&s){return s.empty()?0:1+int(std::count(s.begin(),s.end(),'\n'));}
+ // A step title belongs in the numbered list, not a second time in details.
+ static std::string detail_key(const std::string&s){
+  std::string key;for(unsigned char c:s){if(c>='A'&&c<='Z')c+=('a'-'A');
+   if((c>='a'&&c<='z')||(c>='0'&&c<='9')||c>=128)key+=char(c);}
+  return key;
+ }
+ static std::string additional_detail(const std::string&text,const Json&steps){
+  const auto key=detail_key(text);if(key.empty())return text;
+  for(const auto&step:steps)if(step.value("state","")=="running"&&key==detail_key(step.value("label","")))return "";
+  return text;
+ }
 public:
  StockProgressPanel()=default;
  StockProgressPanel(const StockProgressPanel&)=delete;
@@ -94,7 +105,7 @@ public:
    auto before=rendered_,after=view;before.erase("value");after.erase("value");
    if(before==after){text(value_,value);rendered_=view;return;}
   }
-  const auto instruction=view.value("instruction",""),heading=view.value("heading",""),note=view.value("note","");
+  const auto instruction=additional_detail(view.value("instruction",""),steps),heading=additional_detail(view.value("heading",""),steps),note=view.value("note","");
   const auto title=view.value("title","");
   hidden(title_,title.empty());text(title_,title);
   place(title_,8,0,std::max(1,std::min(width_-16,view.value("title_width",width_-16))),MyriadPro_Bold_24_line_height);

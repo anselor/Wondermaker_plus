@@ -115,7 +115,7 @@ public:
  const std::string&draft_colour()const{return source_colour_;}
  void colour_draft(const std::string&id,const std::string&colour){if(source_editor_.is_object()&&source_editor_.value("id","")==id){colour_save_ready_=true;source_colour_=colour;source_notice_="Unsaved changes";layout_.clear();}}
  void colour_result(const std::string&id,const std::string&message){if(source_editor_.is_object()&&source_editor_.value("id","")==id){colour_save_ready_=false;source_notice_=message;layout_.clear();}}
- void colour_saved(const Json&data,const Json&source){if(source_editor_.is_object()&&source_editor_.value("id","")==source.value("id","")){identity_busy_=false;source_editor_=source;source_context_=data;profile_draft_=Json();profile_name_.clear();source_colour_.clear();source_brand_.clear();source_material_.clear();source_notice_="Filament settings saved.";layout_.clear();}}
+ void colour_saved(const Json&data,const Json&source){if(source_editor_.is_object()&&source_editor_.value("id","")==source.value("id","")){identity_busy_=false;if(data.value("owner","")=="standalone"&&!loading_){brand_picker_=false;material_preview_=false;activate("source-back");return;}source_editor_=source;source_context_=data;profile_draft_=Json();profile_name_.clear();source_colour_.clear();source_brand_.clear();source_material_.clear();source_notice_="Filament settings saved.";layout_.clear();}}
  std::function<void(unsigned)>focus_head;
  std::function<void(const std::string&)>action;
  std::function<Receipt(const Json&,const Json&)>adopt;

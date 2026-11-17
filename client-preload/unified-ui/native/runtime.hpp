@@ -32,6 +32,7 @@
 #include "../../openace-compat/screen1113/source/client/screen_diagnostics.hpp"
 #include "stock_pause_prompt.hpp"
 #include "stock_resume_progress.hpp"
+#include "stock_print_preparation.hpp"
 #include "stock_calibration_status.hpp"
 #include "stock_maintenance_command.hpp"
 #include "stock_calibration_flow.hpp"
@@ -85,20 +86,6 @@ public:
      tool_receipt_=standalone_.unresolved_request_id();
      stock_filament_.message(tool_receipt_.empty()?"Filament request could not be prepared; nothing sent.":"Filament submission outcome unknown; inspect printer state.");throw;
     }
-   };
-   filament_procedure_.confirm_filament=[this](const std::string&head,const std::string&state){
-    auto data=stock_snapshot();const auto operation=app_.operation();
-    std::string refusal;
-    if(!tool_mode_active_)refusal="Toolhead controls are no longer active.";
-    else if(head!="h"+std::to_string(tool_head_))refusal="Selected head changed: reviewed="+rejection_value(head)+", current=h"+std::to_string(tool_head_)+".";
-    else if(!stock_filament_.visible())refusal="Filament page is no longer visible.";
-    else if(!tool_receipt_.empty())refusal="Toolhead request is awaiting a receipt.";
-    else if(settings_block_machine())refusal="A settings operation holds the printer.";
-    else if(operation.value("state","")=="pending"||(data.value("owner","")!="standalone"&&operation.value("state","")=="unknown"))refusal="Printer operation is unresolved: action="+rejection_value(operation.value("action",""))+", state="+rejection_value(operation.value("state",""))+".";
-    else if(!filament_procedure_.check_ready(data))refusal="Filament check review is no longer ready.";
-    if(!refusal.empty()){report_rejection("confirm filament",refusal);return Receipt{"","refused",refusal+" Nothing recorded."};}
-    const auto receipt=standalone_.submit({"confirm_filament",data.value("revision",""),"standalone",{{"head",head},{"state",state}}});
-    tool_receipt_=receipt.id;tool_busy_action_="confirm_filament";tool_busy_head_=head;stock_filament_.message(receipt.message);return receipt;
    };
    mini_.open_filaments=[this](){request(7);};
    filament_procedure_.cancel=[this](const std::string&id){return standalone_.cancel_filament(id);};
@@ -344,6 +331,7 @@ public:
   }
   return {};
  }
+ void print_preparation_navigation(const char*name){print_preparation_.navigation(name);}
  bool stock_maintenance_allowed(){return stock_maintenance_reason().empty();}
  void request_maintenance_refusal(){
   auto reason=stock_maintenance_reason();
@@ -946,6 +934,7 @@ public:
     else if(stock_)stock_(calibration_destination.c_str());
    }
    resume_progress_.update(stock_snapshot());
+   print_preparation_.update(stock_snapshot());
    pause_prompt_.update(stock_snapshot(),req<0&&!active()&&!onboarding_&&tool_receipt_.empty()&&stock_edit_receipt_.empty()&&!stock_identity_.active());
    if(req>=0){usb_preview_.close();stock_preview_.close();if(native_preview_session_)pending_preview_.clear();}
    update_usb_preview();update_stock_preview();
@@ -1034,6 +1023,7 @@ private:
  std::unique_ptr<PrintCancelWorker>cancel_worker_;StockRecoveryProgress cancel_progress_;std::atomic<bool>show_cancel_{false},cancel_refused_{false};
  std::unique_ptr<RecoveryWorker>recovery_worker_;StockRecoveryProgress recovery_progress_;std::atomic<bool>show_recovery_{false};
  StockCalibrationStatus calibration_status_,guide_calibration_status_;
+ StockPrintPreparation print_preparation_;
  StockIdentification identification_panel_;StockIdentificationFlow identification_flow_;
  StockCalibrationFlow calibration_flow_;std::function<bool(const std::string&)>calibration_sender_;
  bool onboarding_=false;std::function<bool()>finish_onboarding_;
@@ -1347,12 +1337,12 @@ private:
    }))stock_filament_.message("Temperature keypad could not be opened.");
    return;
   }
-  if(action=="load"||action=="unload"||action=="check-filament"){
+  if(action=="load"||action=="unload"){
    if(!tool_receipt_.empty()||settings_block_machine()){reject(held_reason());return;}
    const auto data=stock_snapshot();const auto head="h"+std::to_string(tool_head_);
    if(action=="load"&&!StockToolheadView::ace_managed(data,head)){pending_external_load_=head;request(9+int(tool_head_));return;}
    if(action=="load"&&StockToolheadView::ace_managed(data,head)){stock_filament_.message("Select an ACE slot in Filaments / slots to load.");return;}
-   if(!filament_procedure_.open(stock_filament_.content(),data,head,action=="check-filament"?"confirm_filament":action,false,action=="load"?"external:"+head:""))stock_filament_.message("Filament procedure review could not be opened.");
+   if(!filament_procedure_.open(stock_filament_.content(),data,head,action,false,action=="load"?"external:"+head:""))stock_filament_.message("Filament procedure review could not be opened.");
    stock_filament_.interaction_blocked(filament_procedure_.active());return;
   }
   if(action!="extrude"&&action!="retract"&&action!="off"){
@@ -1374,7 +1364,7 @@ private:
   if(tool_receipt_.empty()||!data.value("fresh",false))return;
   auto receipts=data.value("receipts",Json::object());if(!receipts.contains(tool_receipt_))return;
   auto result=receipts.at(tool_receipt_);if(tool_mode_active_)stock_filament_.message(result.value("message","Waiting for backend."));
-  if(tool_busy_action_=="load"||tool_busy_action_=="unload"||tool_busy_action_=="confirm_filament"||((tool_busy_action_=="take"||tool_busy_action_=="dock")&&filament_procedure_.has_tool_result()))filament_procedure_.result(result);
+  if(tool_busy_action_=="load"||tool_busy_action_=="unload"||((tool_busy_action_=="take"||tool_busy_action_=="dock")&&filament_procedure_.has_tool_result()))filament_procedure_.result(result);
   auto state=result.value("state","");if(state=="complete"||state=="refused"||state=="failed"||(state=="unknown"&&(data.value("owner","")=="standalone"||(tool_busy_action_!="load"&&tool_busy_action_!="unload"&&tool_busy_action_!="take"&&tool_busy_action_!="dock"))))tool_receipt_.clear();
  }
  void update_stock_edit(){

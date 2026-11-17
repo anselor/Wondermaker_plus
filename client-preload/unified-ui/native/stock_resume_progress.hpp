@@ -12,7 +12,8 @@ inline Json resume_progress_view(const Json&data){
  const int active=phase=="checking"?0:(phase=="heating"||preheating)?1:phase=="returning"?2:-1;
  if(active<0)return view;
  const char*steps[]={"Check printer","Heat bed and nozzle","Return to print"};
- for(int i=0;i<3;++i)view["steps"].push_back({{"label",steps[i]},{"state",i==active?"running":i<active&&!preheating?"complete":"pending"}});
+ if(preheating)view["steps"].push_back({{"label","Preheat nozzle"},{"state","running"}});
+ else for(int i=0;i<3;++i)view["steps"].push_back({{"label",steps[i]},{"state",i==active?"running":i<active&&!preheating?"complete":"pending"}});
  if(active==1){
   std::string temperatures;
   for(const auto&head:data.value("heads",Json::array())){
@@ -22,7 +23,6 @@ inline Json resume_progress_view(const Json&data){
     temperatures+="Head "+std::to_string(id[1]-'0'+1)+": "+std::to_string(int(head.value("actual",0.0)))+" / "+std::to_string(int(target))+" C";
    }
   }
-  view["heading"]="Heating bed and nozzles";
   view["value"]=temperatures;
  }
  return view;

@@ -48,7 +48,7 @@ public:
  void tick(){
   if(!attached_||!stock_object_valid(widgets_.content))return;
   const auto state=app_.preview_state();const auto chooser=app_.source_picker_state();
-  if(state.value("material_review",false)){if(!material_review_.active())material_review_.show(widgets_.content,state.value("material_warning","Verify the selected filament."),"PRINT");}
+  if(state.value("material_review",false)){if(!material_review_.active())material_review_.show(widgets_.content,"Start print?\n\n"+state.value("mapping_summary","")+(state.value("material_warning","").empty()?"":"\n\n"+state.value("material_warning","")),"PRINT");}
   else material_review_.close();
   const bool picking=chooser.value("picker_open",false);
   const auto op=state.value("operation",Json::object());const auto status=op.value("state","");

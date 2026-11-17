@@ -275,7 +275,12 @@ public:
   text(summary_,summary+(temperature_text.empty()?"":"\n"+temperature_text));
   if(progress_.attached()){
    const bool terminal=failed||phase=="complete"||phase=="abandoned"||phase=="printing"||phase=="paused";
-   progress_.update({{"instruction",summary},{"value",temperature_text},{"steps",terminal?Json::array():plr_progress_steps(stages)}});
+   std::string details=summary;
+   const std::string generic="Power Loss Recovery in progress...";
+   if(!terminal&&details.compare(0,generic.size(),generic)==0){
+    details.erase(0,generic.size());if(!details.empty()&&details[0]=='\n')details.erase(0,1);
+   }
+   progress_.update({{"instruction",details},{"value",temperature_text},{"steps",terminal?Json::array():plr_progress_steps(stages)}});
    stock_function<void(*)(void*,unsigned)>(lv_obj_add_flag)(summary_,1);
     return;
   }

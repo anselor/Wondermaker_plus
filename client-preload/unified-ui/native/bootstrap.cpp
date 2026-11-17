@@ -599,6 +599,7 @@ extern "C" void unified_page_to(const char*name)noexcept {
   if(r&&r->calibration_navigation(name))return;
   if(r&&name&&(std::strcmp(name,"filament_page")==0||wmp_ui::native::stock_filament_service_page(name))){r->request(7);return;}
   if(r&&r->active())r->request(0);
+  if(r)r->print_preparation_navigation(name);
   video_page_destination.store(name&&std::strcmp(name,"camera_page")==0);
   auto original=original_page.load();if(original)original(name);
  }catch(...){}
@@ -765,6 +766,7 @@ extern "C" __attribute__((constructor)) void wmp_openace_screen_initialize()noex
   (void)diagnostic_log().open_process_file();
   auto*http=new UnifiedLoopbackHttp;
   auto*screen=new ScreenRuntime(*http,*ui,*channel);
+  screen->print_preparation_navigation(reinterpret_cast<const char*>(0x463c500));
   if(!screen->initialize())return;
   auto*usb_http=new wmp_ui::native::UsbCopyHttp;
   screen->enable_usb(*usb_http,"/home/t13dp/printer_data/gcodes/USB");

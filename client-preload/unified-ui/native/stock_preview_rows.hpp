@@ -70,7 +70,7 @@ public:
    const auto source=row.value("source",Json());const auto route=row.value("route",Json());
    colour(left,identity_display_text(slice,"color","#888888"),8,y+2,view.slot>=0);
    colour(right,source.is_object()?identity_display_text(source.value("identity",Json::object()),"color","#888888"):"#555555",width/2,y+2,false);
-   auto text=slice.value("material","Unknown");const auto brand=identity_display_text(slice,"brand","");if(!brand.empty())text+="\n"+brand;
+   auto text="T"+id+": "+slice.value("material","Unknown");const auto brand=identity_display_text(slice,"brand","");if(!brand.empty())text+="\n"+brand;
    const auto usage=filament_usage_text(slice);if(!usage.empty())text+="\n"+usage;
    auto destination=route.is_object()?route.value("label","Choose source"):"Choose source";
    // Give route components explicit lines; counting only newlines while LVGL

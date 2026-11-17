@@ -289,6 +289,7 @@ inline Json project(const Json&status,const Json&ace,bool present,const std::str
   out["filament_recipe_write"]=helper.value("filament_recipe_write",Json::object());
   out["paused_filament"]=helper.value("paused_filament",Json::object());
   out["resume_progress"]=helper.value("resume_progress",Json::object());
+  out["print_preparation"]=helper.value("print_preparation",Json::object());
   out["paused_toolhead_actions"]=helper.value("paused_toolhead_actions",Json::object());
  }
   out["heater_limits"]=Json::object();

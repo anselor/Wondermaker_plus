@@ -19,6 +19,9 @@ public:
   data_=data;if(!active())return;
   if(!request_.empty()){
    const auto receipt=data.value("receipts",Json::object()).value(request_,Json::object());const auto state=receipt.value("state","");
+   if(state=="complete"&&data.value("nozzle_settings",Json::object()).value(head_,Json::object()).value("apply_error",std::string()).empty()){
+    close();return;
+   }
    if(state=="complete"||state=="failed"||state=="refused"||state=="unknown"){
     caption(notice_,receipt.value("message","Nozzle save outcome unavailable"));request_.clear();terminal_=true;
    }

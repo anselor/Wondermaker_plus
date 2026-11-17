@@ -571,7 +571,7 @@ int main(int argc,char**argv){
  mapping_state["rows"][0]["sliced"]["filament_used_g"]=49.31;
  std::string selected_row;mapping_rows.select=[&](const std::string&id){selected_row=id;};
  mapping_rows.update(mapping_state,389);assert(rows_panel->dir==12&&stock_filename->text=="part.gcode");
- bool usage_visible=false;for(const auto&n:fake::nodes)if(n->live&&n->parent==rows_panel&&n->text=="PLA\nGeneric\n49.31 g"){usage_visible=true;assert(n->h>=66);}assert(usage_visible);
+ bool usage_visible=false;for(const auto&n:fake::nodes)if(n->live&&n->parent==rows_panel&&n->text=="T0: PLA\nGeneric\n49.31 g"){usage_visible=true;assert(n->h>=66);}assert(usage_visible);
  assert(fake::live(row_widgets.sources[0])&&fake::parent(row_widgets.sources[0])==rows_panel);
  assert(static_cast<fake::Node*>(row_widgets.sources[0])->tint[0]==0xff123456);
  rows_panel->scroll=84;auto row_allocations=fake::nodes.size();mapping_rows.update(mapping_state,389);
@@ -640,9 +640,9 @@ int main(int argc,char**argv){
    if(node->parent==rows_panel&&!node->text.empty())captions.push_back(node->text);
    if(node->text=="Choose source"&&node->parent&&node->parent->parent==rows_panel)buttons.push_back(node->parent);
   }
-  const std::vector<std::string>expected=scenario==0?std::vector<std::string>{"PETG\n0.38 g","ABS\n0.75 g"}:
-   scenario==1?std::vector<std::string>{"PETG\n125.00 mm","ABS\n250.00 mm"}:
-   std::vector<std::string>{"PLA","PETG","PLA","ABS"};
+  const std::vector<std::string>expected=scenario==0?std::vector<std::string>{"T1: PETG\n0.38 g","T3: ABS\n0.75 g"}:
+   scenario==1?std::vector<std::string>{"T1: PETG\n125.00 mm","T3: ABS\n250.00 mm"}:
+   std::vector<std::string>{"T0: PLA","T1: PETG","T2: PLA","T3: ABS"};
   std::vector<fake::Node*>row_labels;
   for(const auto&node:fake::nodes)if(node->live&&node->parent==rows_panel&&!node->text.empty())row_labels.push_back(node.get());
   std::sort(row_labels.begin(),row_labels.end(),[](fake::Node*a,fake::Node*b){return a->y<b->y;});
@@ -2501,15 +2501,23 @@ int main(int argc,char**argv){
   panel.update(result);assert(!panel.active()); // status does not reopen dismissed views
   assert(panel.open(parent,result));fake::del(parent);assert(!panel.active());panel.close();
  }
+ // Print preparation shows measurements, not a duplicate step title.
+ {
+  Json prep={{"phase","mesh"},{"steps",Json::array({{{"phase","mesh"},{"label","Prepare bed mesh"}}})},{"mesh_progress",{{"point",7},{"total",36}}}};
+  auto view=print_preparation_view({{"print_preparation",prep}});
+  assert(view["value"]=="Probing point 7 of 36");
+  prep["phase"]="bed";prep["temperatures"]={{"bed",{{"actual",43.5},{"target",60.}}}};
+  view=print_preparation_view({{"print_preparation",prep}});assert(view["value"]=="Bed: 43 / 60 C");
+ }
  // Stock prefix heating precedes the Resume checks; do not claim they ran.
  {
   const auto view=resume_progress_view({{"fresh",true},{"resume_progress",{{"phase","preheating"}}}});
-  assert(view["steps"][0]["state"]=="pending"&&view["steps"][1]["state"]=="running");
+  assert(view["steps"].size()==1&&view["steps"][0]["label"]=="Preheat nozzle"&&view["steps"][0]["state"]=="running");
  }
  // PLR groups are complete only when every reported constituent completed.
  {
   const auto rows=plr_progress_steps(Json::array({{{"name","review"},{"state","complete"}},{{"name","home_xy"},{"state","failed"}},{{"name","select_head"},{"state","complete"}},{{"name","heating"},{"state","running"}},{{"name","return_xy"},{"state","complete"}},{{"name","return_z"},{"state","pending"}}}));
-  assert(rows.size()==4&&rows[0]["state"]=="complete"&&rows[1]["state"]=="failed"&&rows[2]["state"]=="running"&&rows[3]["state"]=="pending");
+  assert(rows.size()==5&&rows[0]["state"]=="complete"&&rows[1]["label"]=="Home X/Y"&&rows[1]["state"]=="failed"&&rows[2]["label"]=="Select print head"&&rows[2]["state"]=="complete"&&rows[3]["state"]=="running"&&rows[4]["state"]=="pending");
   assert(plr_progress_steps(Json::array()).empty());
  }
  // Shared progress layout retains decision controls and has no operation state.
@@ -2535,6 +2543,13 @@ int main(int argc,char**argv){
   assert(steps->children[1]->text_color==0xffff6666U&&steps->w==520);
   view["instruction"]="";view["decisions"]=false;panel.update(view);
   assert(steps->w==680&&(choices->parent->parent->flags&1)&&decision->live);
+  view["steps"][1]["state"]="running";view["heading"]="Head 3";view["instruction"]="Head 3...";panel.update(view);
+  assert(steps->w==680&&(choices->parent->parent->flags&1));
+  view["value"]="120 / 160 C";panel.update(view);
+  assert(steps->w<680&&!(choices->parent->parent->flags&1));
+  view["value"]="";view["note"]="The nozzle is hot.";panel.update(view);
+  assert(steps->w<680&&!(choices->parent->parent->flags&1));
+  view["note"]="";view["heading"]="";view["instruction"]="";
   view["steps"]=Json::array();view["instruction"]="Print cancelled.";panel.update(view);
   assert((steps->flags&1)&&choices->parent->parent->x==0&&choices->parent->parent->w==680);
   fake::del(parent);assert(!panel.attached()&&!panel.choices_parent());panel.close();
@@ -3035,10 +3050,10 @@ int main(int argc,char**argv){
  }
  // Compact filament confirmations retain a full input shield, legible captions,
  // and exactly the existing submission action; progress expands in place.
- for(const auto*action:{"load","unload","confirm_filament"}){
+ for(const auto*action:{"load","unload"}){
   fake::DeferredSizes deferred_layout;
   StockFilamentProcedure modal;auto*parent=fake::make(fake::screen);parent->w=800;parent->h=480;
-  const bool unload=std::string(action)=="unload",check=std::string(action)=="confirm_filament";
+  const bool unload=std::string(action)=="unload";
   Json data={{"owner","standalone"},{"session","compact-session"},{"revision","recipe"},{"identity_revision","identity"},{"fresh",true},
    {"job",{{"state","idle"}}},{"capabilities",{{"load",true},{"unload",true},{"confirm_filament",true}}},
    {"heads",Json::array({{{"id","h2"},{"loaded",{{"state",unload?"loaded":"empty"},{"source","external:h2"}}}}})},
@@ -3047,7 +3062,6 @@ int main(int argc,char**argv){
     {"token",std::string(64,'a')},{"target_temperature","210"},{"description","Heat and feed"}}})}};
   const std::string long_note=std::string(900,'x')+" End of transition instructions.";data["procedures"][0]["transition_note"]=long_note;
   unsigned submissions=0;modal.submit=[&](FilamentProcedureReview&){++submissions;return Receipt{"compact-result","pending","Heating nozzle"};};
-  modal.confirm_filament=[&](const std::string&head,const std::string&state){assert(head=="h2"&&state=="loaded");++submissions;return Receipt{"check","complete","Saved"};};
   assert(!modal.open(nullptr,data,"h2",action)&&modal.open_failure()=="Filament page parent is unavailable.");
   parent->w=300;assert(!modal.open(parent,data,"h2",action));
   assert(modal.open_failure().find("width=300, height=480")!=std::string::npos);parent->w=800;
@@ -3057,21 +3071,20 @@ int main(int argc,char**argv){
   auto caption=[&](const std::string&text){for(auto*b:root->children)for(auto*l:b->children)if(l->text==text)return b;return static_cast<fake::Node*>(nullptr);};
   assert(root->w==800&&root->h==480&&root->background_opacity==0&&(root->flags&2));
   assert(card->x==48&&card->y==90&&card->w==704&&card->h==300&&!(card->flags&1));
-  auto*cancel=caption("CANCEL");auto*begin=caption(check?"LOADED":unload?"UNLOAD":"LOAD");assert(cancel&&begin);
+  auto*cancel=caption("CANCEL");auto*begin=caption(unload?"UNLOAD":"LOAD");assert(cancel&&begin);
   assert(begin->h==56&&begin->children.front()->h==40&&begin->children.front()->font_address==MyriadPro_Bold_24);
   assert(root->children.at(1)->font_address==MyriadPro_Bold_24);
   assert(begin->y>=card->y&&begin->y+begin->h<=card->y+card->h);
-  if(check)assert(caption("EMPTY")&&caption("EMPTY")->h==56);
-  else{
+  {
    auto*body=root->children.at(2);assert((body->flags&16)&&body->dir==12);
    auto*description=body->children.back();assert(description->label_long_mode==0&&description->w==640&&description->font_address==MyriadPro_Regular_22);
    assert(description->text.find(long_note)!=std::string::npos);
    body->scroll=96;modal.update(data);assert(body->scroll==96&&description->text.find("End of transition instructions.")!=std::string::npos);
   }
   fake::send(cancel,7);assert(!modal.active()&&submissions==0);
-  assert(modal.open(parent,data,"h2",action));root=parent->children.back();card=root->children.front();begin=caption(check?"LOADED":unload?"UNLOAD":"LOAD");
-  fake::send(begin,7);if(!check)fake::send(begin,7);assert(submissions==1);
-  assert(root->background_opacity==255&&(card->flags&1)&&begin->h==34&&caption(check?"DONE":"CLOSE"));
+  assert(modal.open(parent,data,"h2",action));root=parent->children.back();card=root->children.front();begin=caption(unload?"UNLOAD":"LOAD");
+  fake::send(begin,7);fake::send(begin,7);assert(submissions==1);
+  assert(root->background_opacity==255&&(card->flags&1)&&begin->h==34&&caption("CLOSE"));
   fake::del(parent);
  }
  {
@@ -3214,19 +3227,6 @@ int main(int argc,char**argv){
   assert(dialog.open_tracking(parent,tool_recovery,"h2","take",Receipt{"tool-interrupted","pending","Mounting head"}));
   assert(step("2. Verify attachment sensors"));assert(procedure_backend.calls==1);
   dialog.close();
-  unsigned confirmations=0;std::string confirmed_state;
-  procedure_data["identity_revision"]=std::string(64,'b');procedure_data["capabilities"]["confirm_filament"]=true;
-  dialog.confirm_filament=[&](const std::string&head,const std::string&state){assert(head=="h2"&&dialog.check_ready(procedure_data));++confirmations;confirmed_state=state;return Receipt{"check","pending","Recording operator check"};};
-  assert(dialog.open(parent,procedure_data,"h2","confirm_filament"));assert(dialog.check_ready(procedure_data));
-  auto changed_loaded=procedure_data;changed_loaded["heads"][0]["loaded"]["state"]="loaded";assert(!dialog.check_ready(changed_loaded));
-  fake::send(find("LOADED"),7);fake::send(find("EMPTY"),7);assert(confirmations==1&&confirmed_state=="loaded");
-  dialog.result({{"state","complete"},{"message","Operator filament check recorded."}});fake::send(find("DONE"),7);
-  assert(dialog.open(parent,procedure_data,"h2","confirm_filament"));fake::send(find("EMPTY"),7);assert(confirmations==2&&confirmed_state=="empty");fake::send(find("CLOSE"),7);
-  assert(dialog.open(parent,procedure_data,"h2","confirm_filament"));
-  auto changed_check=procedure_data;changed_check["identity_revision"]=std::string(64,'c');dialog.update(changed_check);
-  fake::send(find("LOADED"),7);assert(confirmations==2&&(find("LOADED")->state&128));fake::send(find("CANCEL"),7);
-  changed_check=procedure_data;changed_check["owner"]="openace";
-  assert(dialog.open(parent,changed_check,"h2","confirm_filament"));fake::send(find("LOADED"),7);assert(confirmations==2);fake::send(find("CLOSE"),7);
   auto multi_source=procedure_data;multi_source["owner"]="openace";
   multi_source["units"]=Json::array({{{"id","ace-a"},{"name","ACE"}},{{"id","ace-b"},{"name","ACE"}}});
   multi_source["sources"]=Json::array();
@@ -3395,7 +3395,7 @@ int main(int argc,char**argv){
  }
  // Terminal results have exactly one visible exit and cannot be reopened
  // through an old progress shortcut, including after a UI restart.
- for(const auto*action:{"load","unload","take","dock","confirm_filament"})for(const auto*state:{"complete","failed","refused"}){
+ for(const auto*action:{"load","unload","take","dock"})for(const auto*state:{"complete","failed","refused"}){
   auto*parent=fake::make(fake::screen);parent->w=670;parent->h=340;
   StockFilamentProcedure panel;unsigned submitted=0;
   panel.submit=[&](FilamentProcedureReview&){++submitted;return Receipt{};};
@@ -3513,8 +3513,8 @@ int main(int argc,char**argv){
   fake::send(find("SAVE"),7);assert(saves==1&&submitted["head"]=="h2"&&submitted["diameter"]==0.6&&submitted["material"]=="Stainless steel"&&submitted["expected"]=="revision-a");
   fake::send(find("SAVE"),7);assert(saves==1);
   status["receipts"]={{"nozzle-1",{{"state","complete"},{"message","Saved. Restart required."}}}};
-  editor.update(status);assert(find("Saved. Restart required."));assert(find("SAVE")->state&128);
-  assert(find("DONE"));fake::send(find("DONE"),7);assert(editor.show(page,2));select("Select diameter",3);
+  editor.update(status);assert(!editor.active());
+  assert(editor.show(page,2));select("Select diameter",3);
   status["nozzle_revision"]="revision-b";editor.update(status);fake::send(find("SAVE"),7);assert(saves==1);
   assert(find("Settings changed. Go back and reopen."));
   editor.close();fake::fail_binding=true;assert(!editor.show(page,2));fake::fail_binding=false;assert(!editor.active());
@@ -3663,12 +3663,12 @@ int main(int argc,char**argv){
  auto inserted=mounted;inserted["capabilities"]["confirm_filament"]=true;
  inserted["heads"][0]["loaded"]={{"state","empty"},{"sensor_present",true}};
  stock_native.tool_data(inserted,25,220);stock_native.tick(true,true);
- assert(!(tool_button("Check filament")->flags&1));tool_action.clear();
- fake::send(tool_button("Check filament"),7);assert(tool_action=="check-filament");
+ assert(!tool_button("Check filament"));
+ assert(tool_button("Load")&&!(tool_button("Load")->state&128));
  inserted["heads"][0]["loaded"]["state"]="loaded";
  stock_native.tool_data(inserted,25,220);stock_native.tick(true,true);
  assert(stock_native.tool_controls().edit_allowed());
- assert(tool_button("Check filament")->flags&1);
+ assert(!tool_button("Check filament"));
  auto ace_empty=tool_state;ace_empty["sources"].push_back({{"id","ace:0"},{"kind","ace"},{"head","h2"},{"available",false}});
  stock_native.tool_data(ace_empty,25,220);stock_native.tick(true,true);
  assert(tool_button("Load")->flags&1);assert(!stock_native.tool_controls().edit_allowed());
@@ -3710,7 +3710,7 @@ int main(int argc,char**argv){
  tool_state["tool_ui_busy"]["pending"]=true;stock_native.tool_data(tool_state,25,220);stock_native.tick(true,true);
  assert(!(edit_icon->state&128));tool_action.clear();fake::send(edit_icon,7);assert(tool_action=="edit-filament");
  tool_state["tool_ui_busy"]["pending"]=false;stock_native.tool_data(tool_state,25,220);stock_native.tick(true,true);
- assert(tool_button("Check filament")->flags&1);
+ assert(!tool_button("Check filament"));
  tool_state["heads"][0]["mounting"]="Mounted";
  stock_native.tool_data(tool_state,25,220);stock_native.message("");stock_native.tick(true,true);
  assert(tool_tips->text=="Toolhead management - Mounted"&&tool_tips->y+tool_tips->h<=32);assert(tool_button("Dock")&&(tool_button("Dock")->state&128));
@@ -3729,14 +3729,10 @@ int main(int argc,char**argv){
  tool_state["tool_ui_busy"]={{"reviewable",true}};stock_native.tool_data(tool_state,25,220);
  for(int content_width:{640,670})for(int content_height:{300,320,340}){
   tool_content->w=content_width;
-  tool_content->h=content_height;stock_native.tick(true,true);auto*check=tool_button("Check filament");
-  assert(check->y+check->h<=content_height);
+  tool_content->h=content_height;stock_native.tick(true,true);assert(!tool_button("Check filament"));
   auto*result=tool_button("Progress");assert((result->flags&1)&&result->x+result->w<=content_width);
-  for(const auto*caption:{"Mount state unknown","Check filament","X"}){
-   auto*other=tool_button(caption);assert(result->x+result->w<=other->x||other->x+other->w<=result->x||result->y+result->h<=other->y||other->y+other->h<=result->y);
-  }
   for(const auto*caption:{"Mount state unknown","X"}){
-   auto*other=tool_button(caption);assert(check->x+check->w<=other->x||other->x+other->w<=check->x||check->y+check->h<=other->y||other->y+other->h<=check->y);
+   auto*other=tool_button(caption);assert(result->x+result->w<=other->x||other->x+other->w<=result->x||result->y+result->h<=other->y||other->y+other->h<=result->y);
   }
  }
  tool_content->h=340;stock_native.tick(true,true);
@@ -3768,7 +3764,7 @@ int main(int argc,char**argv){
  tool_content->flags|=1;tool_head_selected=99;fake::send(tool_button("Head 1"),7);assert(tool_head_selected==99);tool_content->flags&=~1U;
 
  tool_state["owner"]="openace";stock_native.tool_data(tool_state,25,220);stock_native.tick(true,true);
- assert(tool_button("Check filament")->flags&1);
+ assert(!tool_button("Check filament"));
 
 
  // Reconstruct stock page for ACE mode (same structure as the stock constructor).
@@ -4023,6 +4019,20 @@ fake::send(slot_card,7);assert(ace_action.empty());
  assert(ace_view.draft_identity()==before_material_preview);
  // A material edit after a successful save must retire the success notice.
  auto saved_source=ace_view.selected_source();
+ {
+  StockAceFilaments standalone_editor;auto*parent=fake::make(fake::screen);
+  auto standalone_data=data;standalone_data["owner"]="standalone";
+  standalone_data["sources"]=Json::array({saved_source});
+  const auto head=saved_source.value("head","h0");
+  for(auto&entry:standalone_data["heads"])if(entry.value("id","")==head)entry["loaded"]={{"state","empty"}};
+  std::string destination;standalone_editor.action=[&](const std::string&value){destination=value;};
+  standalone_editor.mount(parent);standalone_editor.update(standalone_data,head,670,340);
+  assert(standalone_editor.open_head_identity(head));standalone_editor.source_origin(2);
+  standalone_editor.update(standalone_data,head,670,340);assert(standalone_editor.modal_active());
+  standalone_editor.colour_saved(standalone_data,saved_source);
+  assert(!standalone_editor.modal_active()&&destination=="toolhead:2");
+  fake::del(parent);
+ }
  ace_view.colour_saved(data,saved_source);ace_view.update(data,"h0",670,340);
  auto notice_visible=[&](const std::string&text){for(auto*node:pane->children)if(node->live&&node->text==text)return true;return false;};
  assert(notice_visible("Filament settings saved."));
@@ -4165,5 +4175,20 @@ fake::send(slot_card,7);assert(ace_action.empty());
  ace_tap("CANCEL");assert(!picker_app.source_picker_state()["picker_open"].get<bool>());
  fake::del(ace_page);ace_view.update(data,"h0",670,340);
 
+
+ {
+  StockPrintPreparation preparation;
+  Json data={{"owner","standalone"},{"fresh",true},{"print_preparation",{{"active",true},{"id","job1"},{"phase","homing"},
+   {"steps",Json::array({{{"phase","preheat"},{"label","Preheat probe nozzle"}},{{"phase","homing"},{"label","Home printer"}}})}}}};
+  auto find_preparation=[&](const std::string&text){for(auto it=fake::nodes.rbegin();it!=fake::nodes.rend();++it){const auto&n=*it;if(n->live&&n->text==text&&!(n->flags&1))return n.get();}return static_cast<fake::Node*>(nullptr);};
+  preparation.navigation("main_page");preparation.update(data);
+  auto*step=find_preparation("2. Home printer");assert(step&&step->text_color==0xffff6600U);
+  auto*close=find_preparation("CLOSE");assert(close);fake::send(close->parent,7);
+  assert(!step->live);preparation.update(data);assert(!find_preparation("2. Home printer"));
+  data["print_preparation"]["id"]="job2";preparation.update(data);assert(find_preparation("2. Home printer"));
+  preparation.navigation("setting_page");assert(!find_preparation("2. Home printer"));
+  preparation.navigation("main_page");preparation.update(data);assert(find_preparation("2. Home printer"));
+  data["print_preparation"]["active"]=false;preparation.update(data);assert(!find_preparation("2. Home printer"));
+ }
 
 }

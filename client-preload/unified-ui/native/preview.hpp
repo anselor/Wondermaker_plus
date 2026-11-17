@@ -94,7 +94,12 @@ inline void project_preview(Json&out,const std::string&path,const Json&metadata,
     // Compare full material names here; cosmetic-family equivalence is not consent.
     for(const auto&source:out["sources"])if(source.value("id","")==route.value("source","")){actual=source.value("identity",Json::object()).value("material","");for(char&c:actual)if(c>='a'&&c<='z')c=char(c-'a'+'A');}
     if(route.value("material_confirmation_required",false)||actual.empty()||actual=="UNKNOWN"||sliced.empty()||sliced=="UNKNOWN"||actual!=sliced)
-     route["material_warnings"][id]="T"+id+" → "+route.value("label",route.value("head",""))+": sliced "+(sliced.empty()?"unknown":sliced)+", loaded "+(actual.empty()?"unknown":actual)+". Verify the filament is suitable.";
+     {
+      const auto head=route.value("head","");
+      const auto caption=head.size()==2&&head[0]=='h'&&head[1]>='0'&&head[1]<='3'
+       ?"Head "+std::to_string(head[1]-'0'+1):"Tool "+id;
+      route["material_warnings"][id]=caption+": file "+(sliced.empty()?"unknown":sliced)+", loaded "+(actual.empty()?"unknown":actual)+".";
+     }
    }continue;
   }
   if(material.empty()||material=="UNKNOWN")continue;

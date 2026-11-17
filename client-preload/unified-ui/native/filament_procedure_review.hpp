@@ -76,7 +76,7 @@ public:
   context_=data;
   const auto loaded=head(data,head_).value("loaded",Json::object());
   if(action=="unload"&&loaded.value("state","")!="loaded"){reason_="No confirmed loaded filament. Check the head first.";return true;}
-  if(action=="load"&&loaded.value("state","")!="empty"){reason_="The head is not confirmed empty. Check filament before loading.";return true;}
+  if(action=="load"&&loaded.value("state","")!="empty"){reason_="Unload the remaining filament before loading.";return true;}
   for(const auto&s:data.value("sources",Json::array()))if(s.value("head","")==head_&&
     (action=="load"?s.value("available",false):s.value("id","")==loaded.value("source","")))sources_.push_back(s);
   if(sources_.size()==1)return select(data,sources_[0].value("id",""));
