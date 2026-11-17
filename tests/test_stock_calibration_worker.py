@@ -87,10 +87,10 @@ def test_every_worker_sender_is_profile_bound_and_guarded(tmp_path):
         pytest.skip('exact vendor client required')
     data = CLIENT.read_bytes()
     profile = json.loads((ROOT / 'client-preload/unified-ui/native/profile1113.json').read_text())
-    inventory = json.loads((ROOT / 'analysis/validation/2026-11-07-stock-callers/calibration-auto-check-literals.json').read_text())
-    calls = [int(row['instruction'], 16) for row in inventory[2]['direct_sender_calls'] if row['target'] == '0x614338']
-    # Independently enumerate BL instructions in all four exact vendor workers.
-    for start, size in ((0x509ef0,1080),(0x50a328,1176),(0x50a7c0,1804),(0x50aecc,1304)):
+    calls = []
+    # Independently enumerate the guide and four calibration workers directly
+    # from the exact vendor binary; no ignored analysis inventory is required.
+    for start, size in ((0x4b7558,5740),(0x509ef0,1080),(0x50a328,1176),(0x50a7c0,1804),(0x50aecc,1304)):
         for address in range(start,start+size,4):
             word = struct.unpack_from('<I', data, address-0x400000)[0]
             if word >> 26 != 0b100101:

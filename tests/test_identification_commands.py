@@ -42,6 +42,7 @@ def harness(files, observed_order=None):
         _read_recovery_job=lambda: {}, filament_operation={}, toolhead_operation={})
     material = printer.objects['wm_material']
     material.printer = printer
+    material._command_routing = lambda: WMMaterial._command_routing(material)
     material._material_operation_active = lambda name: WMMaterial._material_operation_active(material, name)
     material._attachment = lambda now: {'state': 'empty'}
     material._begin_explicit_physical_action = lambda action: WMMaterial._begin_explicit_physical_action(material, action)
