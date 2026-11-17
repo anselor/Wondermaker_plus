@@ -19,7 +19,8 @@ def settings():
     return {name.lower():dict(parser.items(name)) for name in parser.sections()}
 
 
-@pytest.mark.parametrize('data,expected', [(STAMP,[2,3]),(STAMP.replace(b'T3\n',b'T1\n'),[1,2])])
+@pytest.mark.parametrize('data,expected', [(STAMP,[2,3]),(STAMP.replace(b'T3\n',b'T1\n'),[1,2]),
+    (STAMP.replace(b'CHAMBER=0 ', b'CHAMBER=45 CHAMBER_HOLD=120 '), [2,3])])
 def test_whole_supported_stamp_membership(data,expected):
     scan=envelope.ToolUsage()
     for line in data.splitlines(keepends=True): scan.feed(line)

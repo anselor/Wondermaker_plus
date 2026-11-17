@@ -14,7 +14,9 @@ EXTRA_DST = "klipper/klippy/extras/wm_material.py"      # relative to the printe
 CFG_DST = "printer_data/config/wm_material.cfg"
 
 HELPERS = (
+    'wmp_xy_homing.py',
     'wmp_orca_profiles.py',
+    'wmp_orca_mapping.py',
     'wmp_nozzles.py',
     'wmp_nozzle_runtime.py',
     'wmp_saved_variables.py',
@@ -36,6 +38,7 @@ HELPERS = (
     'wmp_plr_review.py',
     'wmp_plr_jobs.py',
     'wmp_print_submission.py',
+    'wmp_print_preparation.py',
     'wmp_filament_planning.py',
     'wmp_filament_service.py',
     'wmp_toolchange_repair.py',

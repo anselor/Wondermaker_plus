@@ -127,6 +127,12 @@ class RecoveryModel:
                         self.run('HOMING_OVERRIDE', **{parts[i]: parts[i+1].strip() for i in range(3, len(parts), 2)})
                     finally:
                         self.in_home = False
+            elif command == '_WMP_HOME_XY':
+                # Physical helper is exercised in test_xy_homing; this macro
+                # interpreter records its native XY-only homing contract.
+                for axis in ('Y', 'X', 'Y'):
+                    self.events.append(('NATIVE_HOME', {'axes':[axis], 'probe':self.sv['probe_tool']}))
+                self.p['toolhead']['homed_axes'] = ''.join(sorted(set(self.p['toolhead']['homed_axes']) | {'x','y'}))
             elif command == '_WMP_HOME_Z_BOTTOM':
                 self.events.append(('BOTTOM_HOME', {}))
                 self.p['toolhead']['homed_axes'] = ''.join(sorted(set(self.p['toolhead']['homed_axes']) | {'z'}))
@@ -143,7 +149,8 @@ class RecoveryModel:
                 self.material_handlers[command]()
             elif command == '_WMP_PROBE_PREPARE_CHECK':
                 self.probe_prepare_check()
-            elif command in ('_WMP_CASE_LIGHT_PRINT_START', '_WMP_CASE_LIGHT_PRINT_END'):
+            elif command in ('_WMP_CASE_LIGHT_PRINT_START', '_WMP_CASE_LIGHT_PRINT_END',
+                             '_WMP_PRINT_PREPARE_BEGIN', '_WMP_PRINT_STAGE', '_WMP_WAIT_CHAMBER'):
                 # Python light/timer endpoints are covered in test_case_light;
                 # they do not change this model's motion or recovery state.
                 pass
@@ -504,7 +511,7 @@ def test_explicit_xy_homing_never_invokes_z_or_tool_selection(reference, paused)
     script = model.templates['HOMING_OVERRIDE'].render(
         printer=model.p, params={'X': '', 'Y': ''}, action_raise_error=model.stop)
     lines = [line.strip() for line in script.splitlines() if line.strip()]
-    assert 'G28  Y' in lines and 'G28  X' in lines
+    assert '_WMP_HOME_XY' in lines
     assert not any('z_rise' in line or 'Z_HOMING' in line or 'HOME_Z' in line
                    or '_WMP_SELECT_HOME_TOOL' in line or re.search(r'G[0128]+\s+Z', line)
                    for line in lines)

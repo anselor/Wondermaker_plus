@@ -166,3 +166,22 @@ def test_cleanup_dock_pose_uses_cleared_nonzero_tool_offset(pickup, offset):
         execute('_LOCK_TOOL T=2')
     assert calls.count('home') == 2
     assert saved['fail_flag'] == -2 and saved['current_extruder'] == 99
+
+
+@pytest.mark.parametrize('delay,retries', [(.7, 0), (1.8, 0), (2.1, 1)])
+def test_real_pickup_macros_wait_for_lock_report_before_adjusting(pickup, delay, retries):
+    material, saved, states, calls, faults, events, options, execute = pickup
+    clock=[0.]
+    states['custom_hall']['Raw']=4500.
+    states['filament_switch_sensor sensor_b']['filament_detected']=False
+    def pause(deadline):
+        clock[0]=deadline
+        if deadline+1e-9>=delay:
+            states['filament_switch_sensor sensor_b']['filament_detected']=True
+    material.printer.get_reactor=lambda:NS(monotonic=lambda:clock[0],pause=pause)
+    execute('_LOCK_TOOL T=2')
+    adjustments=[event for event in events if event.startswith('_WMP_COUPLING_STROKE ') and ' RETRY=' in event]
+    assert len(adjustments)==retries
+    assert calls.count('home')==1 and calls.count('post')==1
+    assert not any(event.startswith('_WMP_FAILED_PICKUP_CLEANUP') for event in events)
+    assert '_CHECK_T_SEQUENCE T=2' in events and saved['fail_flag']==0

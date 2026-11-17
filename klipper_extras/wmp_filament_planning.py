@@ -10,6 +10,22 @@ try:
 except ImportError:
     from wmp_filament_types import MATERIALS, GENERIC_NOZZLE_RANGES, material_family, cross_family_purge, transition_temperature
 
+def service_progress_steps(head, context, phase_name="preparing"):
+    """Describe the existing service path; this never schedules movement."""
+    prefix = "" if phase_name == "preparing" else "return_"
+    steps = []
+    if context.get("needs_home"):
+        steps.append((prefix + "homing", "Home X/Y"))
+    attachment = context.get("attachment", {})
+    current = attachment.get("head", "")
+    if "head" in attachment and current != "h%d" % head:
+        if current:
+            steps.append((prefix + "docking", "Dock Head %d" % (int(current[1:]) + 1)))
+        steps.append((prefix + "mounting", "Mount Head %d" % (head + 1)))
+    steps.append((phase_name, "Position Head %d" % (head + 1)))
+    return steps
+
+
 class FilamentPlanning:
     def __init__(self, material):
         self.material = material
@@ -83,18 +99,18 @@ class FilamentPlanning:
         gcode = self.material.printer.lookup_object("gcode")
         run = gcode.run_script_from_command
         reactor = self.material.printer.get_reactor()
-        def phase(text):
-            self.material.filament_operation.update(message=text)
-        def observed(expected):
-            run("M400")
-            if self.material._attachment(reactor.monotonic()) != expected:
-                raise ValueError("Head attachment sensors do not confirm the move")
+        prefix = "" if phase_name == "preparing" else "return_"
+        def phase(text, step=phase_name):
+            self.material.filament_operation.update(message=text, phase=step)
+        # Enter the first action, not the final positioning row. Otherwise the
+        # UI marks docking/mounting complete before either has happened.
+        self.material._filament_checkpoint(service_progress_steps(head, context, phase_name)[0][0])
         if context.get("needs_home", False):
-            self.material._filament_checkpoint("homing")
-            phase("Homing X/Y")
+            self.material._filament_checkpoint(prefix + "homing")
+            phase("Homing X/Y", prefix + "homing")
             # XY-only homing must preserve the existing Z datum and probe head.
             run("G28 X Y\nM400")
-            self.material._filament_checkpoint("homing")
+            self.material._filament_checkpoint(prefix + "homing")
             now = reactor.monotonic()
             if not self.material._filament_context_valid(self.material.filament_operation, now):
                 raise ValueError("Printer became busy during homing: " + getattr(self.material, "_filament_context_refusal", "context admission was not confirmed"))
@@ -109,43 +125,25 @@ class FilamentPlanning:
             if "restore_offset" in context:
                 homed["restore_offset"] = context["restore_offset"]
             context = homed
-        self.material._filament_checkpoint(phase_name)
         current = context["attachment"]["head"]
-        phase("Moving to filament service position")
         # Filament service uses the dock/purge XY path at the existing bed height.
         # Never home, lift, or synthesize a Z reference, including mid-print.
         run("G90\nSET_GCODE_OFFSET X=0 Y=0 Z=0 MOVE=0")
         if current != "h%d" % head:
             if current:
-                index = int(current[1]); x, y = context["positions"][index]
-                phase("Docking Head %d" % (index + 1))
-                run("G1 Y270 F6000\nG1 X%.5f F6000\nG1 Y310 F6000\nG1 Y%.5f F1000\nG4 P1000\nM400" % (x, y))
-                dock = self.material.printer.lookup_object("filament_switch_sensor docked%d" % index).get_status(reactor.monotonic())
-                if dock.get("filament_detected") is not True:
-                    run("SAVE_VARIABLE VARIABLE=fail_tool VALUE=%d\nSAVE_VARIABLE VARIABLE=fail_flag VALUE=-3" % index)
-                    raise ValueError("Head is not seated in its dock")
-                run("UNLOCK\nG4 P1000\nM400")
-                # Match stock docking: proximity to the seated head can still
-                # trip presence sensors until the unlocked carriage retreats.
-                run("G1 Y310 F6000\nM400")
-                hall = self.material.printer.lookup_object("custom_hall").get_status(reactor.monotonic()).get("Raw", 0)
-                lock = self.material.printer.lookup_object("filament_switch_sensor sensor_b").get_status(reactor.monotonic())
-                if not isinstance(hall, (int, float)) or not hall >= 4700 or lock.get("filament_detected") is not False:
-                    run("SAVE_VARIABLE VARIABLE=fail_tool VALUE=%d\nSAVE_VARIABLE VARIABLE=fail_flag VALUE=-3" % index)
-                    raise ValueError("Head coupling did not release after retreat (Hall=%r, sensor_b=%r); inspect the dock before recovery" %
-                                     (hall, lock.get("filament_detected")))
-                observed({"state": "empty", "head": ""})
-            x, y = context["positions"][head]
-            phase("Mounting Head %d" % (head + 1))
-            run("G1 Y310 F6000\nG1 X%.5f F6000\nG1 Y%.5f F6000\nM400\nLOCK" % (x, y + .4))
-            # At the dock the head still trips the dock switch; verify the
-            # coupling before leaving, then verify the unique missing head.
-            hall = self.material.printer.lookup_object("custom_hall").get_status(reactor.monotonic()).get("Raw", 0)
-            lock = self.material.printer.lookup_object("filament_switch_sensor sensor_b").get_status(reactor.monotonic())
-            if not 3450 <= hall < 4700 or lock.get("filament_detected") is not True:
-                raise ValueError("Head coupling did not lock")
-            run("G1 Y310 F6000\nG1 Y270 F6000")
-        observed({"state": "attached", "head": "h%d" % head})
+                index = int(current[1])
+                phase("Docking Head %d" % (index + 1), prefix + "docking")
+                run("_UNLOCK_TOOL T=%d SERVICE=1" % index)
+            phase("Mounting Head %d" % (head + 1), prefix + "mounting")
+            run("_LOCK_TOOL T=%d SERVICE=1" % head)
+            # This is physical pickup only. _CHECK_CHANGE_TOOL also applies
+            # print offsets, heats and wipes; service owns those later stages.
+            saved = self.material.printer.lookup_object("save_variables").get_status(
+                reactor.monotonic()).get("variables", {})
+            if saved.get("fail_flag", 0) != 0:
+                raise ValueError("Head %d mounting failed: current fail_flag=%r" %
+                                 (head + 1, saved.get("fail_flag")))
+        phase("Moving to filament service position")
         heater = "extruder" if head == 0 else "extruder%d" % head
         run("ACTIVATE_EXTRUDER EXTRUDER=%s\nSAVE_VARIABLE VARIABLE=current_extruder VALUE=%d" % (heater, head))
         # Off-bed purge in machine coordinates. Restore head-relative offsets

@@ -1291,3 +1291,77 @@ def test_cancel_bed_lowering_is_z_only_and_preserves_gcode_state(homed, physical
 def test_default_finish_bed_drop_is_150_mm():
     source = (ROOT / 'config/live/macros.cfg').read_text()
     assert 'variable_bed_drop: 150.0' in source
+
+
+@pytest.mark.parametrize('chamber,hold', [('0',None),('45',None),('45','90'),('45','0')])
+def test_chamber_preparation_uses_slicer_target_before_mesh(chamber,hold):
+    model=HeaterModel(ROOT/'config/live')
+    model.p['wm_material']={}
+    model.p['configfile']['settings']['printer']={'max_velocity':600,'max_accel':10000}
+    params={'BED':'100','EXTRUDER':'250','INITIAL_TOOL':'2','CHAMBER':chamber}
+    if hold is not None:params['CHAMBER_HOLD']=hold
+    script=model.templates['START_PRINT'].render(printer=model.p,params=params,
+        adaptive_mesh_enable=True,action_respond_info=lambda *args:'')
+    assert '_WMP_PRINT_PREPARE_BEGIN CHAMBER='+str(float(chamber)) in script
+    assert 'M141 S'+str(float(chamber)) in script
+    if float(chamber)>0:
+        command='_WMP_WAIT_CHAMBER TARGET=45.0 BED=100 HOLD='+str(float(hold or 60))
+        assert command in script
+        assert script.index('M190 S100')<script.index(command)<script.index('BED_MESH_CALIBRATE PROFILE=wmp_print')
+    else:assert '_WMP_WAIT_CHAMBER' not in script
+    assert script.index('VARIABLE=print_body_ready VALUE=True')<script.index('_WMP_PRINT_STAGE PHASE=printing')
+
+
+def test_chamber_preparation_does_not_change_other_filament_owners():
+    model=HeaterModel(ROOT/'config/live')
+    model.p['wm_material']={};model.p['AFC']={}
+    model.p['configfile']['settings']['printer']={'max_velocity':600,'max_accel':10000}
+    script=model.templates['START_PRINT'].render(printer=model.p,
+        params={'BED':'60','EXTRUDER':'220','INITIAL_TOOL':'2','CHAMBER':'45'},
+        adaptive_mesh_enable=True,action_respond_info=lambda *args:'')
+    assert '_WMP_WAIT_CHAMBER' not in script and '_WMP_PRINT_PREPARE_BEGIN' not in script
+
+
+@pytest.mark.parametrize('entry', ['_UNLOCK_TOOL', '_LOCK_TOOL'])
+@pytest.mark.parametrize('service', [False, True])
+def test_shared_dock_mount_service_preserves_bed_height(entry, service):
+    printer = {'save_variables': {'variables': {'fail_flag': 0, 'current_extruder': 2,
+        **{'t%d_position' % i: [50 + i * 60, 335] for i in range(4)}}},
+        'toolhead': {'homed_axes': 'xyz'}, 'gcode_move': {'position': {'y': 80}},
+        'wm_material': {'session_id': 'session', 'command_generation': 4}}
+    script = templates(ROOT / 'config/live')[entry].render(
+        printer=printer, params={'T': '2', 'SERVICE': str(int(service))})
+    reset = next(line.strip() for line in script.splitlines() if 'SET_GCODE_OFFSET' in line)
+    assert reset.endswith('MOVE=%d' % (not service))
+    assert not any(line.strip().startswith(('G0 Z', 'G1 Z', 'G28 Z')) for line in script.splitlines())
+    if entry == '_LOCK_TOOL':
+        assert script.index('G0 Y310 F9600') < script.index('_CHECK_T_SEQUENCE T=2')
+
+
+@pytest.mark.parametrize('owner', ['standalone', 'openace', 'AFC'])
+@pytest.mark.parametrize('recovery', [False, True])
+def test_shared_mount_plr_keeps_one_actuator_attempt(owner, recovery):
+    printer = {'save_variables': {'variables': {'is_nozzle_setting': 0}},
+        'filament_switch_sensor docked2': {'filament_detected': True},
+        'wm_material': {'session_id': 'session', 'command_generation': 4}}
+    if owner != 'standalone': printer[owner] = {}
+    script = templates(ROOT / 'config/live')['_CHECK_AND_LOCK'].render(
+        printer=printer, params={'T': '2', 'RECOVERY': str(int(recovery))})
+    commands = [line.strip() for line in script.splitlines() if line.strip() and not line.lstrip().startswith('#')]
+    single = owner == 'standalone' and recovery
+    assert ('LOCK' in commands) is not single
+    assert sum(line.startswith('_WMP_COUPLING_STROKE ') for line in commands) == int(single)
+    assert commands[-1] == '_LOCK_TOOL_FINISH T=2'
+
+
+@pytest.mark.parametrize('params,expected', [({'Y':''},1),({'X':'','Y':''},1),({},1),({'X':''},0),({'Z':''},0)])
+def test_y_homing_routes_through_fixed_corner_helper(params,expected):
+    text=(ROOT/'config/live/printer.cfg').read_text()
+    block=text.split('[homing_override]',1)[1].split('[gcode_macro ',1)[0].split('gcode:',1)[1]
+    env=jinja2.Environment('{%','%}','{','}',undefined=jinja2.StrictUndefined)
+    p={'save_variables':{'variables':{'fail_flag':0,'current_extruder':3}},
+       'gcode_macro Z_HOMING':{'z_raise':1},'toolhead':{'homed_axes':'xyz'},'extruder':{'target':0}}
+    rendered=env.from_string(block).render(printer=p,params=params)
+    commands=[line.strip() for line in rendered.splitlines() if line.strip() and not line.lstrip().startswith('#')]
+    assert commands.count('_WMP_HOME_XY')==expected
+    assert 'G28 Y' not in commands and 'G28  Y' not in commands

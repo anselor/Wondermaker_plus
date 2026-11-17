@@ -160,13 +160,14 @@ class ToolheadService:
         # never admit/refuse motion or create a receipt from this notification.
         operation = self.toolhead_operation
         phase = gcmd.get("PHASE", "")
-        if (operation.get("state") == "running" and operation.get("action") == "take"
+        if (operation.get("state") == "running" and operation.get("action") in ("take", "dock")
                 and operation.get("head") == "h" + gcmd.get("T", "")
                 and phase in {step["phase"] for step in operation.get("steps", [])}
-                and phase in ("docking", "moving")):
+                and phase in ("homing", "docking", "moving")):
             operation["phase"] = phase
-            operation["message"] = ("Docking Head %d..." % (int(operation["previous_head"][1]) + 1)
-                                    if phase == "docking" else "Mounting Head %d..." % (int(operation["head"][1]) + 1))
+            operation["message"] = ("Homing axes..." if phase == "homing" else
+                "Docking Head %d..." % (int(operation["previous_head"][1]) + 1) if phase == "docking" else
+                "Mounting Head %d..." % (int(operation["head"][1]) + 1) if operation["action"] == "take" else "Docking head...")
 
     def cmd_TOOLHEAD_ACTION(self, gcmd):
         request_id = gcmd.get("ID")
@@ -209,6 +210,10 @@ class ToolheadService:
         previous_head = attachment["head"] if attachment["state"] == "attached" else ""
         switching = action == "take" and previous_head and previous_head != "h%d" % head
         steps = [{"phase": "checking", "label": "Check head attachment"}]
+        th = self.material.printer.lookup_object("toolhead").get_status(reactor.monotonic())
+        recovery = self.material.printer.lookup_object("wmp_recovery").get_status(reactor.monotonic())
+        if not all(axis in th.get("homed_axes", "") for axis in "xy") or (action == "take" and not recovery.get("z_reference_valid")):
+            steps.append({"phase": "homing", "label": "Home axes"})
         if switching:
             steps.append({"phase": "docking", "label": "Dock Head %d" % (int(previous_head[1]) + 1)})
         steps.extend([{"phase": "moving", "label": "Mount Head %d" % (head + 1) if action == "take" else "Dock head"},
@@ -242,8 +247,11 @@ class ToolheadService:
                     if attachment["state"] == "attached":
                         run("SAVE_VARIABLE VARIABLE=current_extruder VALUE=%d" % int(attachment["head"][1]))
                     dispatched = True
-                    self.toolhead_operation["phase"] = "docking" if switching else "moving"
-                    if switching:
+                    first_phase = steps[1]["phase"]
+                    self.toolhead_operation["phase"] = first_phase
+                    if first_phase == "homing":
+                        self.toolhead_operation["message"] = "Homing axes..."
+                    elif switching:
                         self.toolhead_operation["message"] = "Docking Head %d..." % (int(previous_head[1]) + 1)
                     run("_CHANGE_TOOL T=%d" % head if action == "take" else "PARK_CURRENT_TOOL")
                     run("M400")
@@ -357,6 +365,9 @@ class ToolheadService:
                 raise gcmd.error("Pickup cleanup stopped: current fail_flag=%r" % saved.get("fail_flag"))
             return saved
         guard()
+        evidence = self._pickup_sensors()
+        logging.warning("Pickup lock confirmation failed before retreat head=%d hall=%r sensor_b=%r docks=%r",
+                        head, evidence["hall"], evidence["locked"], evidence["docks"])
         stage = "dock support"
         message = ""
         try:
@@ -560,6 +571,29 @@ class ToolheadService:
         raise error
 
 
+    def _settle_lock_report(self, guard, retry):
+        # Wait for the MCU button callback before a fresh _LOCK_CHECK macro
+        # decides whether another stock adjustment is needed. No motion, fault
+        # flag or rejection is created by a sensor mismatch in this window.
+        reactor = self.material.printer.get_reactor()
+        def detected():
+            sensor = self.material.printer.lookup_object("filament_switch_sensor sensor_b", None)
+            return sensor.get_status(reactor.monotonic()).get("filament_detected") if sensor else None
+        guard()
+        start = reactor.monotonic()
+        initial = value = detected()
+        while value is not True and reactor.monotonic() < start + 2.:
+            reactor.pause(min(start + 2., reactor.monotonic() + .05))
+            guard()
+            value = detected()
+        guard()
+        hall = self.material.printer.lookup_object("custom_hall", None)
+        raw = hall.get_status(reactor.monotonic()).get("Raw") if hall else None
+        logging.info("Lock confirmation retry=%d initial=%r final=%r elapsed=%.3fs hall=%r",
+                     retry, initial, value, reactor.monotonic()-start, raw)
+        return value is True
+
+
     def cmd_COUPLING_STROKE(self, gcmd):
         lock = gcmd.get_int("LOCK", minval=0, maxval=1) == 1
         retry = gcmd.get_int("RETRY", 0, minval=0, maxval=4)
@@ -583,6 +617,7 @@ class ToolheadService:
                 gcode.run_script_from_command(
                     "ECHELON_STEPPER STEPPER=trans_stepper SPEED=10 MOVE=%d" %
                     (-125 - retry * 10))
+                self.material.printer.lookup_object("toolhead").wait_moves()
                 guard()
             else:
                 self.material._recovery_actuator_stroke(lock, guard, disable_on_success=False)
@@ -611,5 +646,7 @@ class ToolheadService:
             failure = gcmd.error(str(error))
             failure.wmp_toolchange_fault = (expected_fault, "coupling_stroke")
             raise failure from error
+        if lock:
+            self._settle_lock_report(guard, retry)
 
 

@@ -114,6 +114,16 @@ def test_inline_quoted_suffix_changes_macro_proof():
     assert analysis.macro_digest('RESPOND MSG="a;b"') != analysis.macro_digest('RESPOND MSG="a;c"')
     assert analysis.macro_digest('RESPOND MSG="a#b"') != analysis.macro_digest('RESPOND MSG="a#c"')
 
+
+def test_macro_proof_matches_vendor_inline_comment_parsing():
+    source = 'G1 X10 ; travel\nRESPOND MSG="a#b" # note\n# whole comment\n'
+    parser = configparser.RawConfigParser(inline_comment_prefixes=(';', '#'))
+    parser.read_string('[gcode_macro sample]\ngcode:\n' +
+                       ''.join('  ' + line + '\n' for line in source.splitlines()))
+    loaded = parser.get('gcode_macro sample', 'gcode')
+    assert analysis.macro_digest(source) == analysis.macro_digest(loaded)
+    assert analysis.macro_digest(source) != analysis.macro_digest(source + 'G1 Z200 E5\n')
+
 def test_negative_later_frame_does_not_reduce_startup_purge():
     def edit(execution, context):
         execution['parser_position'][2] -= 20

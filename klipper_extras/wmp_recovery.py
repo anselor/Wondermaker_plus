@@ -20,11 +20,13 @@ from contextlib import contextmanager
 
 
 try:
+    from .wmp_xy_homing import XYHoming
     from .wmp_calibration_records import ProbeSaveRecord, CalibrationSaveRecord
     from .wmp_probe_state import ProbeConfigChange, ProbeEditorReceipt
     from .wmp_probe_editor import ProbeEditorCommands
     from .wmp_calibration import CalibrationHeaterOwnership, CalibrationCommands
 except ImportError:
+    from wmp_xy_homing import XYHoming
     from wmp_calibration_records import ProbeSaveRecord, CalibrationSaveRecord
     from wmp_probe_state import ProbeConfigChange, ProbeEditorReceipt
     from wmp_probe_editor import ProbeEditorCommands
@@ -35,6 +37,7 @@ class BottomZ:
     def __init__(self, config):
         self.printer = config.get_printer()
         self.gcode = self.printer.lookup_object('gcode')
+        self.xy_homing = XYHoming(self.printer)
         self.valid = False
         self.active = False
         self.calibration = CalibrationCommands(self.printer, self.gcode)

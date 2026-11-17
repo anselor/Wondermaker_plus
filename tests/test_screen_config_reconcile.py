@@ -1075,3 +1075,23 @@ def test_finish_bed_drop_upgrade_migrates_old_default_only(printer, distance, ex
         apply_plan(printer, reconcile.plan(ROOT, printer))
         current = bundle.read_active_config(printer / 'printer.cfg')
         assert current.getfloat('gcode_macro PRINT_END', 'variable_bed_drop') == expected
+
+
+def test_install_and_upgrade_preserve_all_extruder_rotation_distances(printer):
+    import re
+    values = {'extruder': 21.6485, 'extruder1': 21.6485,
+              'extruder2': 21.6485, 'extruder3': 21.7441}
+    path = printer / 'printer.cfg'
+    text = path.read_text()
+    for section, value in values.items():
+        pattern = r'(?ms)(^\[' + re.escape(section) + r'\]\n.*?^rotation_distance\s*[:=])[^\n]*'
+        text, count = re.subn(pattern, lambda match: match[1] + str(value), text)
+        assert count == 1
+    path.write_text(text)
+    for _ in range(2):  # First installation and subsequent upgrade.
+        apply_plan(printer, reconcile.plan(ROOT, printer))
+        actual = vendor_parser(printer)
+        assert {section: actual.getfloat(section, 'rotation_distance')
+                for section in values} == values
+        managed = (printer / reconcile.FILENAME).read_text()
+        assert 'rotation_distance' not in managed

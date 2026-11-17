@@ -8,6 +8,14 @@ Your printer's calibration and hardware identifiers stay on your printer.
 The repository contains sanitized reference files, not another machine's
 calibration to copy.
 
+## XY homing
+
+Y homing first establishes front clearance, then homes X. The carriage moves
+10 mm away from the X-home corner before establishing a new slow Y reference and checking it with two more contacts.
+Each contact follows a 5 mm backoff. A sensor that does not clear or inconsistent
+contact positions stop homing; another explicit home can retry. Requesting Y
+homing therefore also homes X. This sequence does not select or change a head.
+
 ## Install and compare
 
 Set connection details using the [project README](../README.md), then run:
@@ -391,8 +399,18 @@ reheating. Other heating, probing, and wipe-temperature waits retain their bands
 
 The auxiliary-fan cooling detour was removed after measurements found no benefit
 over the part fan alone. See [the experiment](../docs/cooling-assist.md).
-The proposed `START_PRINT CHAMBER` heating changes remain deferred: current startup
-does not use that parameter. Separate `M141`/`M191` chamber commands remain available.
+For standalone WM+, `START_PRINT CHAMBER=<temperature>` uses the slicer's chamber
+target. A zero or omitted target skips chamber preparation. With a positive target,
+startup waits before meshing until the chamber is within 1°C and the bed within
+2°C of their requested temperatures, with both doors closed, for 60 continuous
+seconds. A temperature deviation or opened door restarts that hold. If door sensing
+is unavailable, the progress screen asks you to check the doors manually.
+
+Set `START_PRINT.variable_chamber_stability_seconds` to change the default hold,
+or pass `CHAMBER_HOLD=<seconds>` for one print. `CHAMBER_HOLD=0` skips the timed
+hold but still waits for temperature and closed-door conditions. The touchscreen
+shows numbered preparation steps; closing that view does not cancel the print.
+Separate `M141`/`M191` chamber commands remain available.
 
 ### Motion limits and bottom-Z recovery
 

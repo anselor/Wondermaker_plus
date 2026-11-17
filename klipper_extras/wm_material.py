@@ -48,6 +48,7 @@ try:
     from .wmp_command_routing import CommandRouting
     from .wmp_material_owners import MaterialOwners
     from .wmp_print_cancel import PrintCancellation
+    from .wmp_print_preparation import PrintPreparation
     from .wmp_component import component_state, component_method, component_accessor
     from .wmp_persistence import atomic_write
     from . import wmp_filament_profiles
@@ -81,6 +82,7 @@ except ImportError:
     from wmp_command_routing import CommandRouting
     from wmp_material_owners import MaterialOwners
     from wmp_print_cancel import PrintCancellation
+    from wmp_print_preparation import PrintPreparation
     from wmp_component import component_state, component_method, component_accessor
     from wmp_persistence import atomic_write
     import wmp_filament_profiles
@@ -231,6 +233,12 @@ class WMMaterial:
                                desc="Invalidate a standalone operator filament check; no motion")
         gcode.register_command("WMP_CONFIRM_FILAMENT", self.cmd_CONFIRM_FILAMENT,
                                desc="Record an operator filament check; no motion or heating")
+        gcode.register_command("_WMP_PRINT_PREPARE_BEGIN", self.cmd_PRINT_PREPARE_BEGIN,
+                               desc="Begin display-only print preparation progress")
+        gcode.register_command("_WMP_PRINT_STAGE", self.cmd_PRINT_STAGE,
+                               desc="Update display-only print preparation progress")
+        gcode.register_command("_WMP_WAIT_CHAMBER", self.cmd_WAIT_CHAMBER,
+                               desc="Wait for slicer temperatures and closed doors to stabilize")
         gcode.register_command("WMP_START_PRINT", self.cmd_START_PRINT,
                                desc="Submit a validated standalone print with explicit mappings")
         gcode.register_command("_WMP_DISPATCH_SD_PRINT", self.cmd_DISPATCH_SD_PRINT,
@@ -325,6 +333,10 @@ class WMMaterial:
     _recovery_submission = component_state("_recovery_review_service", "_recovery_submission")
     _recovery_retirement_result = component_state("_recovery_review_service", "_recovery_retirement_result")
     _print_service = component_accessor(PrintSubmission, '_print_submission_component')
+    _print_preparation = component_accessor(PrintPreparation, '_print_preparation_component')
+    cmd_PRINT_PREPARE_BEGIN = component_method('_print_preparation', 'cmd_BEGIN')
+    cmd_PRINT_STAGE = component_method('_print_preparation', 'cmd_STAGE')
+    cmd_WAIT_CHAMBER = component_method('_print_preparation', 'cmd_WAIT_CHAMBER')
 
     _print_requests = component_state("_print_service", "_print_requests")
     print_submission = component_state("_print_service", "print_submission")

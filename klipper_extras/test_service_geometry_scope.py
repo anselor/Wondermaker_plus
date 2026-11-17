@@ -57,7 +57,7 @@ def test_homing_revalidates_newly_visited_dock_before_travel(service_material):
 
 
 @pytest.mark.parametrize('busy', ['printing', 'paused', 'toolhead', 'filament'])
-def test_nozzle_saved_future_settings_do_not_require_motion_idle(material, tmp_path, busy):
+def test_nozzle_settings_refuse_prints_but_allow_nonprinting_operations(material, tmp_path, busy):
     from wmp_nozzles import NozzleSettings
     cfg, ini = tmp_path/'printer.cfg', tmp_path/'tmt1.ini'
     cfg.write_text('[extruder2]\nnozzle_diameter: 0.4\n')
@@ -68,6 +68,12 @@ def test_nozzle_saved_future_settings_do_not_require_motion_idle(material, tmp_p
     if busy == 'toolhead': material.toolhead_operation = {'state': 'running'}
     if busy == 'filament': material.filament_operation = {'state': 'running'}
     revision = material._nozzles.read()[1]
+    if busy in ('printing', 'paused'):
+        before = (cfg.read_bytes(), ini.read_bytes())
+        with pytest.raises(ValueError, match='Finish or cancel the print'):
+            material.cmd_SET_NOZZLE(FakeCommand(HEAD=2, DIAMETER='0.6', MATERIAL=1, EXPECT=revision, SESSION='test-session', ID='save'))
+        assert (cfg.read_bytes(), ini.read_bytes()) == before
+        return
     material.cmd_SET_NOZZLE(FakeCommand(HEAD=2, DIAMETER='0.6', MATERIAL=1, EXPECT=revision, SESSION='test-session', ID='save'))
     assert material.nozzle_save['state'] == 'complete'
     assert 'nozzle_diameter: 0.6' in cfg.read_text()

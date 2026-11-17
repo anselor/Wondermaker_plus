@@ -2,7 +2,26 @@
 
 The printer's bed-leveling and timelapse options can be sent as G-code before
 `START_PRINT`. OrcaSlicer's normal Moonraker upload-and-print flow needs no change.
-The commands below were observed from the U1 touchscreen on August 18, 2026.
+
+
+## Filament mapping
+
+Standalone WM+ publishes four physical heads as `wmplus_tool_0` through
+`wmplus_tool_3`. These lane identities do not change with the last print's mapping.
+Use Orca's **Sync from printer** to refresh the inventory before selecting heads.
+
+The send-time mapping commands are supported without openACE or AFC installed:
+
+```gcode
+RESET_AFC_MAPPING
+SET_MAP LANE=wmplus_tool_2 MAP=T0
+SET_MAP LANE=wmplus_tool_3 MAP=T2
+SDCARD_PRINT_FILE FILENAME="example.gcode"
+```
+
+This example sends sliced T0 to Head 3 and sliced T2 to Head 4. Mapping changes
+require an idle printer. On the touchscreen, check the tool-to-head summary in
+the print confirmation before pressing **PRINT**.
 
 ## Bed leveling
 

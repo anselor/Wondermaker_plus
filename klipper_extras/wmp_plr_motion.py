@@ -47,36 +47,6 @@ class RecoveryMotion:
             raise
 
 
-    def _recovery_couple_head(self, lock, guard):
-        """One coupling attempt; never enter stock LOCK/_LOCK_CHECK retries.
-
-        The caller owns dock positioning and verifies seating before release.
-        A verified coupling alone does not prove which physical head is mounted.
-        """
-        if type(lock) is not bool:
-            raise ValueError("Invalid recovery coupling direction")
-        guard()
-        gcode = self.material.printer.lookup_object("gcode")
-        if not gcode.get_mutex().test():
-            raise ValueError("Recovery coupling requires command ownership")
-        self._recovery_actuator_stroke(lock, guard)
-        guard()
-        if not lock:
-            # The caller must retreat and verify an empty attachment before
-            # further travel. Presence readings at the dock are ambiguous.
-            return True
-        now = self.material.printer.get_reactor().monotonic()
-        hall = self.material.printer.lookup_object("custom_hall").get_status(now).get("Raw")
-        detected = self.material.printer.lookup_object("filament_switch_sensor sensor_b").get_status(now).get("filament_detected")
-        valid_hall = type(hall) in (int, float) and math.isfinite(hall)
-        confirmed = valid_hall and ((3450 <= hall < 4700 and detected is True) if lock
-                                    else (hall >= 4700 and detected is False))
-        if not confirmed:
-            raise ValueError("Recovery coupling did not %s; inspect attachment before continuing" %
-                             ("lock" if lock else "release"))
-        return True
-
-
     def _recovery_bottom_reference(self, toolhead_state):
         """Native homing ends at position_endstop, not the travel maximum."""
         now = self.material.printer.get_reactor().monotonic()
@@ -153,20 +123,9 @@ class RecoveryMotion:
         run("G90\nSET_GCODE_OFFSET X=0 Y=0 Z=0 MOVE=0")
         if current != target:
             if current["head"]:
-                index = int(current["head"][1])
-                x, y = context["positions"][index]
-                run("G1 Y270 F6000\nG1 X%.5f F6000\nG1 Y310 F6000\nG1 Y%.5f F1000\nG4 P1000\nM400" % (x, y))
-                if status("filament_switch_sensor docked%d" % index).get("filament_detected") is not True:
-                    raise ValueError("Recovery head is not seated in its dock")
-                self._recovery_couple_head(False, check)
-                run("G1 Y310 F6000\nM400")
+                run("_UNLOCK_TOOL T=%d SERVICE=1" % int(current["head"][1]))
                 attachment({"state": "empty", "head": ""})
-            x, y = context["positions"][head]
-            if status("filament_switch_sensor docked%d" % head).get("filament_detected") is not True:
-                raise ValueError("Recovery target head is not in its dock")
-            run("G1 Y310 F6000\nG1 X%.5f F6000\nG1 Y%.5f F6000\nM400" % (x, y + .4))
-            self._recovery_couple_head(True, check)
-            run("G1 Y310 F6000\nG1 Y270 F6000\nM400")
+            run("_LOCK_TOOL T=%d SERVICE=1 RECOVERY=1" % head)
         attachment(target)
         heater = "extruder" + (str(head) if head else "")
         run("ACTIVATE_EXTRUDER EXTRUDER=%s\nSAVE_VARIABLE VARIABLE=current_extruder VALUE=%d" % (heater, head))

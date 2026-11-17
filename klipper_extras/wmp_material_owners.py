@@ -11,15 +11,19 @@ import urllib.error
 import urllib.parse
 
 try:
+    from .wmp_orca_mapping import OrcaMapping
     from .wmp_filament_types import MATERIALS
 except ImportError:
+    from wmp_orca_mapping import OrcaMapping
     from wmp_filament_types import MATERIALS
 
 class MaterialOwners:
     def __init__(self, material):
         self.material = material
+        self.orca_mapping = OrcaMapping(material)
 
     def _afc_ready(self):
+        self.orca_mapping.register()
         self._afc_stopped = False
         self._afc_busy = False
         self._afc_last = None
@@ -54,11 +58,10 @@ class MaterialOwners:
             return {}
         profiles, revision = self.material._profiles()
         presence = self.material._loaded_filament_status(now)
-        saved = self.material.printer.lookup_object("save_variables", None)
-        variables = saved.get_status(now).get("variables", {}) if saved else {}
         rows = {}
         for tool in range(4):
-            head = variables.get("box_modify_t%d" % tool, tool)
+            # Inventory lanes describe physical heads, independent of job routing.
+            head = tool
             if type(head) is not int or not 0 <= head < 4:
                 continue
             heater = "extruder" if head == 0 else "extruder%d" % head
@@ -88,8 +91,7 @@ class MaterialOwners:
             raise gcmd.error("Another filament manager owns this printer")
         now = self.material.printer.get_reactor().monotonic()
         lane = gcmd.get("LANE").strip()
-        # Match openACE's public lane forms, resolving logical tools through the
-        # same current mapping used to publish lane_data (not as physical IDs).
+        # Lane names refer to stable physical inventory, as published below.
         match = re.fullmatch(r"(?:wmplus_tool_|[Tt])?([0-3])", lane)
         if match is None:
             raise gcmd.error("Unknown WM+ lane; use wmplus_tool_N, TN or N (0-3)")

@@ -404,7 +404,9 @@ def test_toolhead_progress_brackets_stock_dock_and_mount_without_changing_motion
             if line.strip()]
     stock = render(False)
     managed = render(True)
-    assert [line for line in managed if not line.startswith('_WMP_TOOLHEAD_PROGRESS')] == stock
+    assert [line.removesuffix(' DEFER_CHECK=1') for line in managed
+            if not line.startswith('_WMP_TOOLHEAD_PROGRESS')] == stock
+    assert '_LOCK_TOOL T=1 DEFER_CHECK=1' in managed
     assert managed.index('_WMP_TOOLHEAD_PROGRESS T=1 PHASE=docking') < managed.index('_UNLOCK_TOOL T=0')
     assert managed.index('_UNLOCK_TOOL T=0') < managed.index('_WMP_TOOLHEAD_PROGRESS T=1 PHASE=moving')
-    assert managed.index('_WMP_TOOLHEAD_PROGRESS T=1 PHASE=moving') < managed.index('_LOCK_TOOL T=1')
+    assert managed.index('_WMP_TOOLHEAD_PROGRESS T=1 PHASE=moving') < managed.index('_LOCK_TOOL T=1 DEFER_CHECK=1')

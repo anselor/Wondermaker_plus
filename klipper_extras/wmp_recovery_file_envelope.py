@@ -26,7 +26,11 @@ def finite(value):
 
 def macro_digest(body):
     # Match Klipper's config whitespace handling, not arbitrary macro semantics.
-    lines = [line.strip() for line in body.splitlines()]
+    # WM's RawConfigParser strips ;/# only at a line start or after whitespace.
+    # Apply the same rule to source fixtures and already-parsed live settings.
+    # Embedded characters such as MSG="a#b" remain part of the command.
+    lines = [re.split(r'(?<!\S)[;#]', line, maxsplit=1)[0].strip()
+             for line in body.splitlines()]
     return hashlib.sha256('\n'.join(line for line in lines if line).encode()).hexdigest()
 
 
@@ -53,7 +57,7 @@ def classified_command(line, started, ended):
         if any(not re.fullmatch(r'[A-Z_]+=' + NUMBER, token) for token in tokens):
             raise ValueError('Unsupported startup parameters')
         values = dict(token.split('=', 1) for token in tokens)
-        allowed = {'EXTRUDER','BED','CHAMBER','INITIAL_TOOL','MESH_MIN_X','MESH_MIN_Y','MESH_MAX_X','MESH_MAX_Y','PROBE_COUNT_X','PROBE_COUNT_Y','ADAPTIVE','ADAPTIVE_MARGIN'}
+        allowed = {'EXTRUDER','BED','CHAMBER','CHAMBER_HOLD','INITIAL_TOOL','MESH_MIN_X','MESH_MIN_Y','MESH_MAX_X','MESH_MAX_Y','PROBE_COUNT_X','PROBE_COUNT_Y','ADAPTIVE','ADAPTIVE_MARGIN'}
         if len(values) != len(tokens) or set(values)-allowed or not re.fullmatch('[0-3]', values.get('INITIAL_TOOL','0')):
             raise ValueError('Unsupported startup parameters')
         return command, values
@@ -221,7 +225,7 @@ TRANSFORMS = {'bed_mesh': 'a003072f5b0884fdc94cc53c7cb3a8ee970e66591d8a3dbeb83ab
 MACROS = {'BED_MESH_CALIBRATE': 'a8e427576c00d47d42734ad1b2ee3a3e44174001ae78a3ef9662a5d27efca972',
  'BED_MESH_PROFILE': 'c940b1137b0353060f3d2afd3c91a6ae1087411c9e4087acf47cee9d82023365',
  'E_axis_move': '0ce073e297d0667343180e4d176df4cfa616794107b0f31900ece92383e1483c',
- 'LOCK': '947e9b5612503fc42d57fc7e08c7b068685b3ad2a6af28654808f1bb53c068c0',
+ 'LOCK': '1967ef372c3662c08bf6c60b1aa6512b3bd785b13f2e7f447cc4bb443efae5b7',
  'M104': 'c17c29905ec12b7a5558667785340455ca84c049189f6d3cdbf9af77fea64eb8',
  'M106': '695a112ac3288d9b8c4b2e1fb3459bd4f0c2eb18c27c4e4d4bc0751685f689a9',
  'M107': '52d90226e4c2ee3e77e26afcbcb93642c94d1cfd001136ba2857a3addac3ae59',
@@ -229,35 +233,35 @@ MACROS = {'BED_MESH_CALIBRATE': 'a8e427576c00d47d42734ad1b2ee3a3e44174001ae78a3e
  'M190': '2085a4d0b675fb982ff7df78959a6d65cf6ee2938792ec54b71a753213503bf9',
  'M221': '5fae08e19a1ff1d5b908033159bd77024a0a5e1304ee49f56ddda740346bde6f',
  'PAUSE': 'aa9b1875673676c6bb9ac21ca4583ba9b0d7e135713c717c632e23ab7b369dff',
- 'PRINT_END': 'a50bacb8ee0cb9d0ae88360598c50c06246256c6e2a046358ca0231ea67cc7d2',
+ 'PRINT_END': '9442cc5eb2b46f5e5de3b6735c217ecab61323124702c6142f49b5cccc8a2998',
  'RESET_FLOW_EXTRUDER': 'de7604820e2d4ac07bda71c721f184539ee6b914ae0fd40b5887e0fc0480e4c5',
- 'START_PRINT': 'eed46f7b31b343ddb17674844b1595211cec92cde0be50b8ddc1795e44faa792',
+ 'START_PRINT': 'bc05eaec633d8fe6972469f4f8db1bece0110e0a2991123586945138b48a6e01',
  'T0': 'c0d34e22efdbfdbe61b6a8aebbfb11fdb6904da0523a0a362890da0e0c6fd829',
  'T1': '8b5d1a64be635a646957ee39e5d0a982769e8dd0aa2a9266df64a1ff63ab9a8d',
  'T2': 'b363c6ebdf4a7b56e2b757ee0525b5c659289f83099947bf45c78a512dd83a03',
  'T3': '100982e709549e70d2adec3e4187963c5f38756161ad4e440df2a7e2912d03bf',
- 'UNLOCK': '8b39edaeef41b764341c8a87c692882f57f49472a990a79a1f093798f75dbefc',
+ 'UNLOCK': '6ab4ae2e3286c2b4785f34b8a1230d8eb3d6505431720056d64a8d669a3655b4',
  'UNLOCK_TOOL_FINISH': 'a290e3b161cd9cbc097f6c29e5a16f880f1526ac664464ff09ab54e644300dd2',
  'WIPE_NOZZLE': '0c57073cc7d495e1dbcffadb3dd1fc384b2ab84cfcf5847841a424931f9a1d1d',
- '_CHANGE_TOOL': 'c02a44844df4626c9c1b36ea3841e3d4777d1bd2be862cbac691df3fb34740cd',
- '_CHANGING_TOOL': 'd328c2d5e0ad1d1a9458705d6c67252bdae402024e517d69c215cfa4a6867743',
- '_CHECK_AND_LOCK': 'afae2f4d9266703134b38e02e3d196eff1923e617dbcbbedace8c5ee6ba341ed',
+ '_CHANGE_TOOL': 'b1ccde7a4e349193a7ef3c7442014b10f4ff44e4aeca7a4106275f692bae0ff9',
+ '_CHANGING_TOOL': 'b00bad338d3dd4c6cc08c3f02a0f2afb48d03dae279a922edd99a54ce815aede',
+ '_CHECK_AND_LOCK': '887f1ea2574052299ec08f54c87615a6838bf9f3be7b675cf57ff367bd312ccf',
  '_CHECK_AND_UNLOCK': '4c089f602e3059bcb6a82834c3ec7944acd8c26c0e687f34d7b28dbcfcbb7186',
- '_CHECK_CHANGE_TOOL': '92c1a48322672550c6bdfbf1479ecf0bfd80a35e8ba0b05c44b5f9a8500c192d',
+ '_CHECK_CHANGE_TOOL': '7b32827f578cb59916c1c8a239efff2882dd422d0fd8e5d905bfa384357c39a7',
  '_CHECK_CHANGE_TOOL_AGAIN': '1a13bb77f05507db06c53210d5abb8d66bee038a4d24af99c574ce6ba2e24eaa',
  '_CHECK_T_SEQUENCE': '46ce7be73d491ddb0f1df2994d341624cf5f23e8b8d25470f52daecc3b8c5b23',
  '_ENABLE_SENSOR': 'd6fec5f6362847e2fe7f5411d10c9a382500e44f8796c3ea6549f1cdb3af1889',
  '_LOCK_CHECK': 'f0ddd66e7c1ffebe267dfb04b5c02409b6ac6d7e771fdcbfb95ad7f892b8a7c5',
- '_LOCK_TOOL': '8bfb13044ca7b9964cbdf2d8c3eda11ffdb7875013f5a19a38ffe87cc93fe59f',
+ '_LOCK_TOOL': '74d076bde6370ada84fd028a85f334d6971c4740cebea0693e31f0e03a34f97a',
  '_LOCK_TOOL_FINISH': 'aca105d157c4b38e7a570edaa54f0c5eaaec96ba494da2b2d95ef4aa3fea8133',
  '_OFFSET_SET': 'b9c8f8c2f06456c3909f306ee02618a7b66ebcb4c5e4c6ebe601dc7232f1bbb9',
- '_UNLOCK_TOOL': '89ca443d96c0719b0c6cb610cdc953606c50f0676e1b85459f6d359ca054fa1b',
+ '_UNLOCK_TOOL': '9fdfaf7cceb117a9f62735b952a6ddc200a54d69f92cc1b8f9b9abdb0bd77d1e',
  '_WAIT_TOOL_TEMPERATURE': 'e473d8f078be682a9f15c413a7c77d707773d07f56c04a52181688edba957d72',
  '_WMP_ABORT_DOCKING': 'f10414b038b0e38918d7f05bf089c2e10286c86fcf7a507ba59a409e794b3b44',
  '_WMP_CALIBRATION_CLEARANCE': '198fbd7b8a9dc0e1fc1ed3fd429e2fe45430ec28a8d8fe1e8a0b14094193de1c',
  '_WMP_PRINT_CONTEXT_CLEAR': '8767679d745b68ba596910ed93de13aab43176280b1e7ca8b079d07aa9f7c61e',
  '_WMP_PRINT_CONTEXT_COMMIT': '7ffa276bc03a4641ccf857b085607c3738eee290df1ab1852505255a3c8ca8d0',
- '_WMP_PRINT_END_CLEARANCE_AND_WIPE': 'c2a0ba1ffe8ba5892c9234e1bac7f6be11aa36dd5f220002eb2b8f95d0bb7f05',
+ '_WMP_PRINT_END_CLEARANCE_AND_WIPE': '69801fa8d42c0b4178f8e2351dd2ba15c07611b6dc5d8ca1e65127bcd48debf9',
  # Clearance refusal now pauses at a typed, non-extruding stage boundary.
  # Successful stock movement/offset effects are unchanged; explicit retries
  # preserve the original return context and never replay completed wiping.

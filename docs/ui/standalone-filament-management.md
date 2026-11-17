@@ -311,13 +311,12 @@ adopt the loaded state of valid stock head records while idle. This happens only
 once, including when every configured head is empty. Existing WM+ loaded-state
 records are never replaced by this adoption.
 
-An idle head's filament properties can be edited even while loaded. If its inlet
-sensor detects filament but WM+ has no loaded confirmation, **Check filament**
-allows the operator to record an already-loaded head without heating or motion.
-The confirmation must agree with the sensor and persists across restarts;
-subsequent removal clears it as before. Saving metadata alone does not confirm
-that filament is loaded.
+An idle head's filament properties can be edited even while loaded. Use
+**Load** or **Unload** to change filament; saving its properties does not load
+or unload it.
 
-The filament editor uses **Back**, with an unsaved-change notice when applicable.
+A successful **Save** closes the filament or nozzle editor and returns to its
+calling screen. **Back** leaves without saving, with an unsaved-change notice
+when applicable. A failed save keeps the editor open and reports the error.
 Opening Nozzle Type from General keeps the editor on that screen, so closing it
 does not navigate to Toolheads or change the selected toolhead.

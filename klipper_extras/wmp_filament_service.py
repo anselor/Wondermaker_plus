@@ -13,6 +13,12 @@ except ImportError:
     from wmp_persistence import atomic_write
     from wmp_filament_types import FilamentCancelled
 
+try:
+    from .wmp_filament_planning import service_progress_steps
+except ImportError:
+    from wmp_filament_planning import service_progress_steps
+
+
 class FilamentService:
     def __init__(self, material):
         self.material = material
@@ -451,9 +457,8 @@ class FilamentService:
             return
         steps = []
         if "service" in plan:
-            if plan["service"].get("needs_home"):
-                steps.append(("homing", "Home X/Y"))
-            steps.extend([("preparing", "Position head"), ("heating", "Heat nozzle")])
+            steps.extend(service_progress_steps(head, plan["service"]))
+            steps.append(("heating", "Heat nozzle"))
             if action == "load":
                 steps.append(("inserting", "Insert filament"))
         steps.append(("feeding", "Feed filament" if action == "load" else "Retract filament"))
@@ -462,7 +467,8 @@ class FilamentService:
             if "service" in plan:
                 steps.append(("wiping", "Wipe nozzle"))
         if plan.get("service", {}).get("return_head") is not None:
-            steps.append(("returning", "Return original paused head"))
+            returning = dict(plan["service"], needs_home=False, attachment={"head": "h%d" % head})
+            steps.extend(service_progress_steps(plan["service"]["return_head"], returning, "returning"))
         steps.append(("finishing", "Finish and turn heater off"))
         self.filament_operation["steps"] = [{"phase": phase, "label": label} for phase, label in steps]
         try:
@@ -536,7 +542,7 @@ class FilamentService:
                         raise ValueError("Printer or attachment changed before wiping")
                     self.material.printer.lookup_object("gcode").run_script_from_command("WIPE_NOZZLE XY_ONLY=1\nM400")
             if plan.get("service", {}).get("return_head") is not None:
-                self._filament_checkpoint("returning")
+                self._filament_checkpoint("return_docking")
                 self.material.printer.lookup_object("gcode").run_script_from_command("SET_HEATER_TEMPERATURE HEATER=%s TARGET=0" % heater)
                 now = self.material.printer.get_reactor().monotonic()
                 return_head = plan["service"]["return_head"]

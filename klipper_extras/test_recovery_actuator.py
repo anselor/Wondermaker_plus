@@ -105,6 +105,8 @@ def coupling_command(material, objects, calls, lock=True):
     material.printer.get_reactor=lambda: NS(monotonic=lambda: 0.)
     saved={'fail_flag':0}
     objects['save_variables']=NS(get_status=lambda now: {'variables':saved})
+    objects['filament_switch_sensor sensor_b']=NS(get_status=lambda now: {'filament_detected':True})
+    objects['custom_hall']=NS(get_status=lambda now: {'Raw':4500.})
     def script(value):
         calls.append(value)
         saved['fail_flag']=int(value.rsplit('=',1)[1])
@@ -197,7 +199,7 @@ def test_lock_confirmation_uses_stock_absolute_move(actuator_machine, retry):
     command.get_int = lambda name, default=None, **kw: retry if name == 'RETRY' else original(name, default, **kw)
     objects['gcode'].run_script_from_command = calls.append
     material.cmd_COUPLING_STROKE(command)
-    assert calls == ['ECHELON_STEPPER STEPPER=trans_stepper SPEED=10 MOVE=%d' % (-125-retry*10)]
+    assert calls == ['ECHELON_STEPPER STEPPER=trans_stepper SPEED=10 MOVE=%d' % (-125-retry*10), 'wait']
     assert saved['fail_flag'] == 0
 
 
@@ -234,3 +236,31 @@ def test_lock_confirmation_error_after_owner_change_does_not_disable(actuator_ma
         material.cmd_COUPLING_STROKE(command)
     assert len(calls) == 1 and 'disable' not in calls
     assert saved['fail_flag'] == 0 and material._command_generation == 1
+
+
+@pytest.mark.parametrize('delay', [0., .7, 1.8, None])
+def test_lock_report_settles_before_stock_retry_decision(actuator_machine, delay):
+    material, objects, calls, fault, unused = actuator_machine
+    command, saved = coupling_command(material, objects, calls)
+    clock, observations = [0.], []
+    def pause(deadline): observations.append(deadline);clock[0]=deadline
+    material.printer.get_reactor=lambda: NS(monotonic=lambda:clock[0],pause=pause)
+    objects['filament_switch_sensor sensor_b']=NS(get_status=lambda now:{'filament_detected':delay is not None and now+1e-9>=delay})
+    material.cmd_COUPLING_STROKE(command)
+    assert calls==['home','zero','post','wait']
+    assert clock[0]==pytest.approx(2. if delay is None else delay,abs=.051)
+    assert saved['fail_flag']==0 and material._command_generation==0
+    if delay==0:assert observations==[]
+    elif delay is not None:assert len(observations)>1
+
+
+def test_lock_report_wait_honors_cancel_without_adjustment(actuator_machine):
+    material, objects, calls, fault, unused=actuator_machine
+    command,saved=coupling_command(material,objects,calls)
+    clock=[0.]
+    def pause(deadline):clock[0]=deadline;material._command_generation+=1
+    material.printer.get_reactor=lambda:NS(monotonic=lambda:clock[0],pause=pause)
+    objects['filament_switch_sensor sensor_b']=NS(get_status=lambda now:{'filament_detected':False})
+    with pytest.raises(ValueError,match='invalidated'):
+        material.cmd_COUPLING_STROKE(command)
+    assert calls==['home','zero','post','wait'] and saved['fail_flag']==0

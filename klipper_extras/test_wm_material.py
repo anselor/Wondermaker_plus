@@ -2140,20 +2140,20 @@ def test_lane_publisher_reconciles_only_verified_owner_projections(material, mon
 
 
 @pytest.mark.parametrize('lane', ['wmplus_tool_0', 'T0', 't0', '0'])
-def test_remote_lane_alias_uses_logical_to_physical_mapping(filament_check, lane):
+def test_remote_lane_alias_identifies_physical_head_despite_job_mapping(filament_check, lane):
     from types import SimpleNamespace
     material, sensor, _ = filament_check
     original = material.printer.lookup_object
     gcode = SimpleNamespace(create_gcode_command=lambda command, line, args: FakeCommand(**args))
     saved = SimpleNamespace(get_status=lambda now: {'variables': {'box_modify_t0': 2}})
-    material.printer.lookup_object = lambda name, default=None: gcode if name == 'gcode' else saved if name == 'save_variables' else original(name, default)
+    material.printer.lookup_object = lambda name, default=None: gcode if name == 'gcode' else saved if name == 'save_variables' else original('extruder2', default) if name == 'extruder' else original(name, default)
     class Command(FakeCommand):
         def get_command(self): return 'SET_COLOR'
     material.cmd_AFC_METADATA(Command(LANE=lane, COLOR='123456'))
     profiles = material._profiles()[0]
-    assert set(profiles) == {'h2'}
-    assert profiles['h2']['color'] == '#123456'
-    assert material._lane_data(1)['wmplus_tool_0']['color'] == '#123456'
+    assert profiles['h0']['color'] == '#123456'
+    assert profiles['h2']['color'] != '#123456'
+    assert material._lane_data(1)['wmplus_tool_0']['extruder_index'] == 0
 
 
 @pytest.mark.parametrize('lane', ['openace_tool_2', 'h2', 'T4', '-1', '2.0', 'T2 extra', ''])
@@ -2419,31 +2419,24 @@ def test_service_homing_precedes_travel_and_stops_on_failure(service_material, r
         assert scripts == ['G28 X Y\nM400']
 
 
-@pytest.mark.parametrize('seated,hall,locked', [
-    (False, 4500, True), (True, 4500, True), (True, 4900, True),
-    (True, 4500, False), (True, float('nan'), False), (True, 4900, None),
-])
-def test_service_failed_release_stops_after_stock_retreat(service_material, seated, hall, locked):
+@pytest.mark.parametrize('failed_macro', ['_UNLOCK_TOOL', '_LOCK_TOOL'])
+def test_service_shared_dock_mount_failure_stops_before_filament_service(service_material, failed_macro):
     from types import SimpleNamespace
     material, objects, state = service_material
     material._material_status()._attachment = lambda now: {'state': 'attached', 'head': 'h1'}
-    for name, values in {
-        'filament_switch_sensor docked1': {'filament_detected': seated},
-        'custom_hall': {'Raw': hall},
-        'filament_switch_sensor sensor_b': {'filament_detected': locked},
-    }.items():
-        objects[name] = SimpleNamespace(get_status=lambda now, values=values: values)
     calls = []
-    objects['gcode'] = SimpleNamespace(run_script_from_command=calls.append)
+    def run(command):
+        calls.append(command)
+        if command.startswith(failed_macro + ' '):
+            raise ValueError('shared toolhead check failed')
+    objects['gcode'] = SimpleNamespace(run_script_from_command=run)
     context = material._service_context(2, 1)
-    with pytest.raises(ValueError, match='not seated|did not release'):
+    with pytest.raises(ValueError, match='shared toolhead check failed'):
         material._prepare_service(2, context)
-    dock_move = next(i for i, cmd in enumerate(calls) if 'G1 Y330.00000 F1000' in cmd)
-    assert calls[dock_move].endswith('G4 P1000\nM400')
-    moves = [cmd for cmd in calls[dock_move+1:] if 'G1 ' in cmd or 'LOCK\n' in cmd if not cmd.startswith('UNLOCK')]
-    assert moves == (['G1 Y310 F6000\nM400'] if seated else [])
-    assert calls[-1] == 'SAVE_VARIABLE VARIABLE=fail_tool VALUE=1\nSAVE_VARIABLE VARIABLE=fail_flag VALUE=-3'
-    assert any(cmd.startswith('UNLOCK') for cmd in calls) == seated
+    assert '_UNLOCK_TOOL T=1 SERVICE=1' in calls
+    assert calls[-1].startswith(failed_macro + ' ')
+    assert not any('ACTIVATE_EXTRUDER' in command or 'G1 X-13' in command for command in calls)
+    assert not any(command.startswith('_CHECK_CHANGE_TOOL ') for command in calls)
 
 
 def test_loaded_flag_persists_but_present_sensor_does_not_reload(filament_check):
@@ -3431,17 +3424,15 @@ def test_cross_head_paused_load_returns_origin_without_touching_z(paused_origin_
     objects['filament_switch_sensor docked3'] = SimpleNamespace(get_status=lambda now: {'filament_detected': True})
     objects['custom_hall'] = SimpleNamespace(get_status=lambda now: {'Raw': 4000 if mounted['head'] else 5000})
     objects['filament_switch_sensor sensor_b'] = SimpleNamespace(get_status=lambda now: {'filament_detected': bool(mounted['head'])})
-    calls, feeds, dock_x = [], [], [None]
+    calls, feeds = [], []
     def run(script):
         calls.append(script)
         for line in script.splitlines():
-            if line.startswith('G1 X'):
-                x = float(line.split()[1][1:])
-                if x in (150., 225.): dock_x[0] = x
-            if line == 'UNLOCK': mounted['head'] = ''
-            if line == 'LOCK':
-                if failure == 'return_lock' and dock_x[0] == 150.: raise ValueError('return lock failed')
-                mounted['head'] = 'h2' if dock_x[0] == 150. else 'h3'
+            if line.startswith('_UNLOCK_TOOL '): mounted['head'] = ''
+            if line.startswith('_LOCK_TOOL '):
+                target = int(line.split('T=')[1].split()[0])
+                if failure == 'return_lock' and target == 2: raise ValueError('return lock failed')
+                mounted['head'] = 'h%d' % target
             if line.startswith('ACTIVATE_EXTRUDER'):
                 objects['toolhead'].get_status(1)['extruder'] = line.split('=')[1]
             if line.startswith('SET_HEATER_TEMPERATURE'):
@@ -5353,55 +5344,6 @@ def test_recovery_abandon_preserves_another_selected_file(recovery_abandon_machi
     assert material._recovery_lifecycle()._recovery_attempt_unresolved()
 
 
-@pytest.mark.parametrize('lock,hall,detected,accepted', [
-    (True, 3450, True, True), (True, 4699, True, True),
-    (False, 4700, False, True), (True, 4700, True, False),
-    (True, 3449, True, False), (True, 4000, False, False),
-    (False, 4600, False, False), (False, 4900, True, False),
-    (True, float('nan'), True, False), (False, float('inf'), False, False),
-    (True, '4000', True, False), (False, 4900, 0, False),
-])
-def test_recovery_coupling_is_one_attempt(material, lock, hall, detected, accepted):
-    from types import SimpleNamespace
-    calls, checks = [], []
-    objects = {
-        'gcode': SimpleNamespace(run_script_from_command=calls.append,
-                                get_mutex=lambda: SimpleNamespace(test=lambda: True)),
-        'custom_hall': SimpleNamespace(get_status=lambda now: {'Raw': hall}),
-        'filament_switch_sensor sensor_b': SimpleNamespace(
-            get_status=lambda now: {'filament_detected': detected}),
-    }
-    material.printer.lookup_object = lambda name, default=None: objects.get(name, default)
-    material._recovery_motion()._recovery_actuator_stroke = lambda lock, guard: calls.append(
-        'ECHELON_STEPPER_HOMING STEPPER=trans_stepper MOVE=150 SPEED=100 PDI=%d\nM400\n'
-        'ECHELON_STEPPER_DISABLE STEPPER=trans_stepper\nM400' % (-125 if lock else 0))
-    guard = lambda: checks.append(True)
-    if accepted or not lock:
-        assert material._recovery_motion()._recovery_couple_head(lock, guard) is True
-    else:
-        with pytest.raises(ValueError, match='Recovery coupling did not'):
-            material._recovery_motion()._recovery_couple_head(lock, guard)
-    assert len(calls) == 1 and len(checks) == 2
-    assert calls[0] == (
-        'ECHELON_STEPPER_HOMING STEPPER=trans_stepper MOVE=150 SPEED=100 PDI=%d\nM400\n'
-        'ECHELON_STEPPER_DISABLE STEPPER=trans_stepper\nM400' % (-125 if lock else 0))
-
-
-def test_recovery_coupling_guard_failure_does_not_retry(material):
-    from types import SimpleNamespace
-    calls = []
-    gcode = SimpleNamespace(run_script_from_command=calls.append,
-                           get_mutex=lambda: SimpleNamespace(test=lambda: True))
-    material.printer.lookup_object = lambda name, default=None: gcode if name == 'gcode' else None
-    material._recovery_motion()._recovery_actuator_stroke = lambda lock, guard: calls.append('stroke')
-    def guard():
-        if calls:
-            raise ValueError('ownership changed')
-    with pytest.raises(ValueError, match='ownership changed'):
-        material._recovery_motion()._recovery_couple_head(True, guard)
-    assert len(calls) == 1
-
-
 @pytest.fixture
 def recovery_head_machine(service_material):
     from types import SimpleNamespace
@@ -5425,15 +5367,14 @@ def recovery_head_machine(service_material):
     calls = []
     def dispatch(script):
         calls.append(script)
-        if 'G1 Y330.00000 F1000' in script:
+        if script.startswith('_UNLOCK_TOOL '):
             states['filament_switch_sensor docked1']['filament_detected'] = True
-        elif 'PDI=0\n' in script:
             states['custom_hall']['Raw'] = 4900
             states['filament_switch_sensor sensor_b']['filament_detected'] = False
-        elif 'PDI=-125\n' in script:
+            saved['current_extruder'] = 99
+        elif script.startswith('_LOCK_TOOL '):
             states['custom_hall']['Raw'] = 4000
             states['filament_switch_sensor sensor_b']['filament_detected'] = True
-        elif script == 'G1 Y310 F6000\nG1 Y270 F6000\nM400':
             states['filament_switch_sensor docked2']['filament_detected'] = False
         elif script.startswith('ACTIVATE_EXTRUDER'):
             states['toolhead']['extruder'] = 'extruder2'
@@ -5451,7 +5392,9 @@ def test_recovery_selects_verified_physical_head_without_stock_retry(recovery_he
     material, objects, states, calls, context = recovery_head_machine
     assert material._recovery_motion()._recovery_select_head(2, context, lambda: None)
     assert material._attachment(1) == {'state': 'attached', 'head': 'h2'}
-    assert len([cmd for cmd in calls if 'ECHELON_STEPPER_HOMING' in cmd]) == 2
+    assert calls.count('_UNLOCK_TOOL T=1 SERVICE=1') == 1
+    assert calls.count('_LOCK_TOOL T=2 SERVICE=1 RECOVERY=1') == 1
+    assert not any(cmd.startswith('_CHECK_CHANGE_TOOL ') for cmd in calls)
     assert not any(line.startswith(('LOCK', 'UNLOCK', '_CHANGE_TOOL', 'G28', 'G1 Z'))
                    for cmd in calls for line in cmd.splitlines())
     assert not any('VARIABLE=fail_flag' in cmd for cmd in calls)
@@ -5471,30 +5414,25 @@ def test_recovery_head_preconditions_prevent_commands(recovery_head_machine, fai
     assert calls == []
 
 
-@pytest.mark.parametrize('failure', ['seating', 'release', 'locking', 'departure', 'activation'])
+@pytest.mark.parametrize('failure', ['dock', 'mount', 'activation'])
 def test_recovery_head_failure_does_not_continue_or_retry(recovery_head_machine, failure):
     material, objects, states, calls, context = recovery_head_machine
     original = objects['gcode'].run_script_from_command
     def dispatch(script):
+        if ((failure == 'dock' and script.startswith('_UNLOCK_TOOL ')) or
+                (failure == 'mount' and script.startswith('_LOCK_TOOL '))):
+            calls.append(script)
+            raise ValueError('shared dock/mount verification failed')
         original(script)
-        if failure == 'seating' and 'G1 Y330.00000 F1000' in script:
-            states['filament_switch_sensor docked1']['filament_detected'] = False
-        elif failure == 'release' and 'PDI=0\n' in script:
-            states['custom_hall']['Raw'] = 4000
-        elif failure == 'locking' and 'PDI=-125\n' in script:
-            states['filament_switch_sensor sensor_b']['filament_detected'] = False
-        elif failure == 'departure' and script == 'G1 Y310 F6000\nG1 Y270 F6000\nM400':
-            states['filament_switch_sensor docked0']['filament_detected'] = False
-        elif failure == 'activation' and script.startswith('ACTIVATE_EXTRUDER'):
+        if failure == 'activation' and script.startswith('ACTIVATE_EXTRUDER'):
             states['toolhead']['extruder'] = 'extruder1'
     objects['gcode'].run_script_from_command = dispatch
     with pytest.raises(ValueError):
         material._recovery_motion()._recovery_select_head(2, context, lambda: None)
-    expected = {'seating': 'G1 Y270', 'release': 'G1 Y310', 'locking': 'ECHELON',
-                'departure': 'G1 Y310', 'activation': 'ACTIVATE_EXTRUDER'}[failure]
+    expected = {'dock': '_UNLOCK_TOOL', 'mount': '_LOCK_TOOL', 'activation': 'ACTIVATE_EXTRUDER'}[failure]
     assert calls[-1].startswith(expected)
-    assert len([cmd for cmd in calls if 'PDI=-125\n' in cmd]) <= 1
-    assert len([cmd for cmd in calls if 'PDI=0\n' in cmd]) <= 1
+    assert sum(cmd.startswith('_UNLOCK_TOOL ') for cmd in calls) <= 1
+    assert sum(cmd.startswith('_LOCK_TOOL ') for cmd in calls) <= 1
 
 
 @pytest.mark.parametrize('initial', ['same', 'empty'])
@@ -5508,8 +5446,8 @@ def test_recovery_head_selection_same_or_empty_carriage(recovery_head_machine, i
         states['filament_switch_sensor sensor_b']['filament_detected'] = False
     context['attachment'] = material._attachment(1)
     assert material._recovery_motion()._recovery_select_head(2, context, lambda: None)
-    assert not any('PDI=0\n' in cmd for cmd in calls)
-    assert len([cmd for cmd in calls if 'PDI=-125\n' in cmd]) == (initial == 'empty')
+    assert not any(cmd.startswith('_UNLOCK_TOOL ') for cmd in calls)
+    assert sum(cmd.startswith('_LOCK_TOOL ') for cmd in calls) == (initial == 'empty')
     if initial == 'same':
         assert not any('G1 ' in cmd for cmd in calls)
 
@@ -5519,7 +5457,7 @@ def test_recovery_fault_while_docking_prevents_unlock(recovery_head_machine):
     original = objects['gcode'].run_script_from_command
     def dispatch(script):
         original(script)
-        if 'G1 Y330.00000 F1000' in script:
+        if script.startswith('_UNLOCK_TOOL '):
             states['save_variables']['variables']['fail_flag'] = -3
     objects['gcode'].run_script_from_command = dispatch
     with pytest.raises(ValueError, match='fault state changed'):
@@ -10352,3 +10290,106 @@ def test_nozzle_save_applies_live_only_after_persistence(material, tmp_path):
     with pytest.raises(ValueError, match='changed'):
         material.cmd_SET_NOZZLE(cmd)
     assert extruder.nozzle_diameter == .6 and flushes == [1]
+
+
+@pytest.mark.parametrize('attachment,needs_home,expected', [
+    ({'state':'attached','head':'h2'},False,['Position Head 3']),
+    ({'state':'attached','head':'h0'},True,['Home X/Y','Dock Head 1','Mount Head 3','Position Head 3']),
+    ({'state':'empty','head':''},False,['Mount Head 3','Position Head 3']),
+])
+def test_filament_progress_lists_existing_service_moves(attachment, needs_home, expected):
+    from wmp_filament_planning import service_progress_steps
+    steps = service_progress_steps(2, {'attachment':attachment, 'needs_home':needs_home})
+    assert [label for _,label in steps] == expected
+
+def test_progress_details_do_not_require_extra_motion_context():
+    from wmp_filament_planning import service_progress_steps
+    assert service_progress_steps(2,{}) == [('preparing','Position Head 3')]
+
+@pytest.mark.parametrize('axes,z_valid,action,homing', [('xy',False,'take',True),('',False,'dock',True),('xyz',True,'take',False)])
+def test_toolhead_progress_reports_stock_homing_only_when_needed(toolhead_material,axes,z_valid,action,homing):
+    material,objects,state,scripts,callbacks=toolhead_material
+    state['toolhead']['homed_axes']=axes
+    state['wmp_recovery']['z_reference_valid']=z_valid
+    material.cmd_TOOLHEAD_ACTION(toolhead_command(material,ACTION=action))
+    assert ('homing' in [step['phase'] for step in material.toolhead_operation['steps']]) is homing
+    if homing:
+        material.cmd_TOOLHEAD_PROGRESS(FakeCommand(T='2',PHASE='homing'))
+        assert material.toolhead_operation['phase']=='homing'
+        assert material.toolhead_operation['message']=='Homing axes...'
+    assert scripts == []
+
+
+def test_toolhead_dispatch_does_not_claim_mount_before_required_homing(toolhead_material):
+    material, objects, state, scripts, callbacks = toolhead_material
+    state['toolhead']['homed_axes'] = ''
+    state['wmp_recovery']['z_reference_valid'] = False
+    observed = []
+    original = objects['gcode'].run_script_from_command
+    def run(command):
+        if command.startswith('_CHANGE_TOOL '):
+            observed.append(material.toolhead_operation['phase'])
+        return original(command)
+    objects['gcode'].run_script_from_command = run
+    material.cmd_TOOLHEAD_ACTION(toolhead_command(material, ACTION='take'))
+    callbacks.pop()(1)
+    assert observed == ['homing']
+
+
+def test_service_shared_pickup_checks_result_without_print_finalization(service_material):
+    from types import SimpleNamespace
+    material, objects, state = service_material
+    material._material_status()._attachment = lambda now: {'state': 'empty', 'head': ''}
+    calls = []
+    objects['gcode'] = SimpleNamespace(run_script_from_command=calls.append)
+    context = material._service_context(2, 1)
+    material._prepare_service(2, context)
+    assert '_LOCK_TOOL T=2 SERVICE=1' in calls
+    assert not any(command.startswith('_CHECK_CHANGE_TOOL ') for command in calls)
+    assert not any('MOVE=1' in command for command in calls)
+
+
+@pytest.mark.parametrize('returning', [False, True])
+@pytest.mark.parametrize('needs_home', [False, True])
+def test_service_progress_follows_physical_commands_without_jumping_ahead(service_material, returning, needs_home):
+    from types import SimpleNamespace
+    from wmp_filament_planning import service_progress_steps
+    material, objects, state = service_material
+    material._material_status()._attachment = lambda now: {'state': 'attached', 'head': 'h0'}
+    state['toolhead']['homed_axes'] = 'z' if needs_home else 'xyz'
+    context = material._service_context(2, 1, allow_homing=True)
+    phase_name = 'returning' if returning else 'preparing'
+    planned = [phase for phase, _ in service_progress_steps(2, context, phase_name)]
+    observed = []
+    prefix = 'return_' if returning else ''
+    def run(command):
+        phase = material.filament_operation['phase']
+        observed.append(planned.index(phase))
+        if command.startswith('G28'):
+            assert phase == prefix + 'homing'
+            state['toolhead']['homed_axes'] = 'xyz'
+        elif command.startswith('_UNLOCK_TOOL'):
+            assert phase == prefix + 'docking'
+        elif command.startswith('_LOCK_TOOL'):
+            assert phase == prefix + 'mounting'
+        elif command.startswith('G1 X-13'):
+            assert phase == phase_name
+    objects['gcode'] = SimpleNamespace(run_script_from_command=run)
+    material._prepare_service(2, context, phase_name=phase_name)
+    assert observed == sorted(observed)
+
+
+@pytest.mark.parametrize('fault', [-1, -2, -5])
+def test_service_shared_pickup_failure_cannot_proceed_to_heating(service_material, fault):
+    from types import SimpleNamespace
+    material, objects, state = service_material
+    material._material_status()._attachment = lambda now: {'state': 'empty', 'head': ''}
+    calls = []
+    def run(command):
+        calls.append(command)
+        if command.startswith('_LOCK_TOOL '):state['save_variables']['variables']['fail_flag'] = fault
+    objects['gcode'] = SimpleNamespace(run_script_from_command=run)
+    context = material._service_context(2, 1)
+    with pytest.raises(ValueError, match='current fail_flag=%d' % fault):
+        material._prepare_service(2, context)
+    assert calls[-1] == '_LOCK_TOOL T=2 SERVICE=1'
