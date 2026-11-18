@@ -2005,7 +2005,9 @@ def test_filament_cancel_at_checkpoints_stops_then_confirms_heater_off(service_m
             if target == 0 and cleanup_fails: raise ValueError('heater cleanup failed')
             heater['target'] = target
     objects['gcode'] = SimpleNamespace(run_script_from_command=run)
-    material._filament_planning()._prepare_service = lambda *args: None
+    # Positioning now owns starting the selected physical heater.
+    material._filament_planning()._prepare_service = lambda head, context: run(
+        "SET_HEATER_TEMPERATURE HEATER=extruder%d TARGET=%.3f" % (head, context["heat_target"]))
     def feed(printer, sequence):
         feeds.append(sequence)
         cancel()
@@ -2051,7 +2053,9 @@ def test_service_completion_requires_heater_off_and_sensor_readback(service_mate
                 raise ValueError('heater off failed')
         heater['target'] = target
     objects['gcode'] = SimpleNamespace(run_script_from_command=run)
-    material._filament_planning()._prepare_service = lambda *args: None
+    # Positioning now owns starting the selected physical heater.
+    material._filament_planning()._prepare_service = lambda head, context: run(
+        "SET_HEATER_TEMPERATURE HEATER=extruder%d TARGET=%.3f" % (head, context["heat_target"]))
     def feed(printer, sequence):
         feeds.append(sequence)
         if fault == "purge" and len(feeds) == 2: raise ValueError("purge failed")
@@ -2462,11 +2466,75 @@ def test_loaded_flag_persists_but_present_sensor_does_not_reload(filament_check)
 def test_present_unloaded_head_admits_load(service_material):
     material, objects, state = service_material
     material._set_filament_loaded('h2', False)
+    reviewed = material._filament_plan(2, 'load', 1)
     state['filament_switch_sensor filament2']['filament_detected'] = True
     plan = material._filament_plan(2, 'load', 1)
     assert plan['head'] == 'h2'
+    assert plan['token'] == reviewed['token']
     with pytest.raises(ValueError):
         material._filament_plan(2, 'unload', 1)
+
+
+@pytest.mark.parametrize('needs_home', [False, True])
+def test_filament_service_starts_heating_after_xy_home_before_tool_travel(service_material, needs_home):
+    from types import SimpleNamespace
+    material, objects, state = service_material
+    material._material_status()._attachment = lambda now: {'state': 'attached', 'head': 'h0'}
+    state['toolhead']['homed_axes'] = 'z' if needs_home else 'xyz'
+    context = material._service_context(2, 1, allow_homing=True)
+    calls = []
+    def run(command):
+        calls.append(command)
+        if command.startswith('G28'):
+            state['toolhead']['homed_axes'] = 'xyz'
+    objects['gcode'] = SimpleNamespace(run_script_from_command=run)
+    material._prepare_service(2, dict(context, heat_target=250))
+    heat = calls.index('SET_HEATER_TEMPERATURE HEATER=extruder2 TARGET=250.000')
+    assert heat < calls.index('_UNLOCK_TOOL T=0 SERVICE=1')
+    assert heat < calls.index('_LOCK_TOOL T=2 SERVICE=1')
+    assert heat < next(i for i, command in enumerate(calls) if command.startswith('G1 X-13'))
+    if needs_home:
+        assert calls.index('G28 X Y\nM400') < heat
+    assert 'heat_target' not in context
+
+
+def test_filament_service_homing_failure_does_not_start_heating(service_material):
+    from types import SimpleNamespace
+    material, objects, state = service_material
+    state['toolhead']['homed_axes'] = 'z'
+    context = material._service_context(2, 1, allow_homing=True)
+    calls = []
+    def run(command):
+        calls.append(command)
+        if command.startswith('G28'):
+            raise ValueError('homing failed')
+    objects['gcode'] = SimpleNamespace(run_script_from_command=run)
+    with pytest.raises(ValueError, match='homing failed'):
+        material._prepare_service(2, dict(context, heat_target=250))
+    assert not any('SET_HEATER_TEMPERATURE' in command for command in calls)
+
+
+def test_filament_service_mount_failure_turns_early_heating_off(service_material):
+    from types import SimpleNamespace
+    material, objects, state = service_material
+    material._material_status()._attachment = lambda now: {'state': 'empty', 'head': ''}
+    plan = material._filament_plan(2, 'load', 1)
+    heater = {'temperature': 25, 'target': 0, 'can_extrude': False}
+    objects['extruder2'] = SimpleNamespace(get_status=lambda now: dict(heater))
+    calls = []
+    def run(command):
+        calls.append(command)
+        if command.startswith('SET_HEATER_TEMPERATURE'):
+            heater['target'] = float(command.split('TARGET=')[1])
+        if command.startswith('_LOCK_TOOL'):
+            raise ValueError('mount failed')
+    objects['gcode'] = SimpleNamespace(run_script_from_command=run)
+    with pytest.raises(ValueError, match='mount failed'):
+        material._filament_service()._execute_filament(FakeCommand(), 2, 'load', plan)
+    assert 'SET_HEATER_TEMPERATURE HEATER=extruder2 TARGET=250.000' in calls
+    assert calls[-1] == 'SET_HEATER_TEMPERATURE HEATER=extruder2 TARGET=0'
+    assert heater['target'] == 0
+    assert not any(command.startswith('G1 E') for command in calls)
 
 
 def test_load_recipe_distances_are_bound_to_plan_and_wipe_is_required(service_material):

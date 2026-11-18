@@ -126,6 +126,16 @@ inline bool filament_identity_editable(const Json&data,const std::string&head){
  for(const auto&h:data.value("heads",Json::array()))if(h.value("id","")==head)return h.value("loaded",Json::object()).value("state","")=="empty";
  return false;
 }
+inline bool filament_source_edit_context_matches(const Json&data,const Json&context,const Json&source){
+ // Routing eligibility changes when filament reaches the switch. It is not
+ // a profile edit and must not invalidate an external-filament draft.
+ const bool external=data.value("owner","")=="standalone"&&source.value("kind","")=="external";
+ for(const auto*key:{"owner","session","identity_revision"})if(data.value(key,"")!=context.value(key,""))return false;
+ if(!external&&data.value("revision","")!=context.value("revision",""))return false;
+ for(const auto*key:{"job","paused_filament","command_generation"})if(data.value(key,Json())!=context.value(key,Json()))return false;
+ unsigned matches=0;for(const auto&s:data.value("sources",Json::array()))if(s.value("id","")==source.value("id","")){if(s!=source)return false;++matches;}
+ return matches==1;
+}
 inline std::string filament_identity_reason(const Json&data,const std::string&head){
  if(filament_recipe_write_allowed(data,head))return {};
  const auto job=data.value("job",Json::object()).value("state","");

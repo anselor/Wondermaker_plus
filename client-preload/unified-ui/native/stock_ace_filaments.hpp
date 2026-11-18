@@ -104,10 +104,7 @@ public:
   if(!source_editor_.is_object())return "Filament editor has no source draft.";
   if(!fresh_)return "Filament editor requires fresh status.";
   if(!filament_identity_editable(snapshot_,source_editor_.value("head","")))return filament_identity_reason(snapshot_,source_editor_.value("head",""));
-  for(const auto*key:{"owner","session","revision","identity_revision"})if(snapshot_.value(key,"")!=source_context_.value(key,""))return "Filament editor "+std::string(key)+" changed.";
-  for(const auto*key:{"job","paused_filament"})if(snapshot_.value(key,Json::object())!=source_context_.value(key,Json::object()))return "Filament editor "+std::string(key)+" changed.";
-  unsigned matches=0;for(const auto&source:snapshot_.value("sources",Json::array()))if(source.value("id","")==source_editor_.value("id","")){if(source!=source_editor_)return "Reviewed filament source changed.";++matches;}
-  if(matches!=1)return "Filament source match count="+std::to_string(matches)+"; expected=1.";
+  if(!filament_source_edit_context_matches(snapshot_,source_context_,source_editor_))return "Filament source or editing context changed.";
   if(!colour_save_ready_)return "Filament colour save is not ready.";
   return "Filament identity has no pending edits.";
  }
@@ -373,10 +370,7 @@ private:
  }
  bool source_editor_valid()const{
   if(!source_editor_.is_object()||!fresh_||!filament_identity_editable(snapshot_,source_editor_.value("head","")))return false;
-  for(const auto*key:{"owner","session","revision","identity_revision"})if(snapshot_.value(key,"")!=source_context_.value(key,""))return false;
-  for(const auto*key:{"job","paused_filament"})if(snapshot_.value(key,Json::object())!=source_context_.value(key,Json::object()))return false;
-  unsigned matches=0;for(const auto&s:snapshot_.value("sources",Json::array()))if(s.value("id","")==source_editor_.value("id","")){if(s!=source_editor_)return false;++matches;}
-  return matches==1;
+  return filament_source_edit_context_matches(snapshot_,source_context_,source_editor_);
  }
  unsigned brands_per_page()const{return 3*unsigned(std::max(3,(height_-106)/48));}
  void render_brand(int width,const std::string&selected,bool editable){

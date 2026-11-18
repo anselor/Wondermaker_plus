@@ -458,7 +458,7 @@ class FilamentService:
         steps = []
         if "service" in plan:
             steps.extend(service_progress_steps(head, plan["service"]))
-            steps.append(("heating", "Heat nozzle"))
+            steps.append(("heating", "Wait for nozzle temperature"))
             if action == "load":
                 steps.append(("inserting", "Insert filament"))
         steps.append(("feeding", "Feed filament" if action == "load" else "Retract filament"))
@@ -474,12 +474,10 @@ class FilamentService:
         try:
             self._filament_checkpoint(steps[0][0])
             if "service" in plan:
-                self.material._prepare_service(head, plan["service"])
+                self.material._prepare_service(head, dict(plan["service"], heat_target=plan["target"]))
                 self._filament_checkpoint("heating")
                 heater = "extruder" if head == 0 else "extruder%d" % head
-                gcode = self.material.printer.lookup_object("gcode")
                 self.filament_operation.update(message="Heating Head %d" % (head + 1))
-                gcode.run_script_from_command("SET_HEATER_TEMPERATURE HEATER=%s TARGET=%.3f" % (heater, plan["target"]))
                 reactor = self.material.printer.get_reactor(); heat_deadline = reactor.monotonic() + 300
                 while True:
                     self._filament_checkpoint("heating")

@@ -2,11 +2,27 @@
 #pragma once
 #include "../model.hpp"
 namespace wmp_ui { namespace native {
+inline Json filament_temperature_detail(const Json&data,const std::string&physical_head){
+ Json detail=Json::object();
+ for(const auto&head:data.value("heads",Json::array()))if(head.value("id","")==physical_head){
+  const int actual=head.value("actual",0),target=head.value("target",0);
+  if(target>0||actual>=50)detail["value"]=std::to_string(actual)+" / "+std::to_string(target)+" °C";
+  if(actual>=50)detail["note"]="The nozzle is hot.";
+ }
+ return detail;
+}
 // Captures a physical head/source and the backend's complete procedure before
 // a stock dialog offers Begin. Browsing and source selection never dispatch.
 class FilamentProcedureReview {
  Json context_,source_,plan_,sources_=Json::array();
  std::string head_,action_,reason_;bool attempted_=false;
+ bool presence_matches(const Json&data)const{
+  auto before=head(context_,head_).value("loaded",Json::object()),after=head(data,head_).value("loaded",Json::object());
+  if(action_=="load"&&data.value("owner","")=="standalone"&&before.value("state","")=="empty"&&after.value("state","")=="empty"){
+   before.erase("sensor_present");after.erase("sensor_present");
+  }
+  return before==after;
+ }
  static std::string current_reason(const Json&data){
   if(data.value("calibration_active",false))return "Calibration is active.";
   if(data.value("owner","")!="standalone"&&!data.value("calibration_failed","").empty())return "Calibration failure remains unresolved: "+rejection_value(data.value("calibration_failed",""))+".";
@@ -27,7 +43,7 @@ class FilamentProcedureReview {
   if(data.value("job",Json::object())!=context_.value("job",Json::object()))return "Filament review print job changed.";
   if(data.value("paused_filament",Json::object())!=context_.value("paused_filament",Json::object()))return "Filament review paused context changed.";
   const auto h=head(data,head_);if(!h.is_object())return "Reviewed physical head is missing or duplicated: head="+rejection_value(head_)+".";
-  if(h.value("loaded",Json::object())!=head(context_,head_).value("loaded",Json::object()))return "Reviewed head filament presence or source changed.";
+  if(!presence_matches(data))return "Reviewed head filament presence or source changed.";
   return {};
  }
  static bool current(const Json&data){
@@ -55,7 +71,7 @@ class FilamentProcedureReview {
   if(data.value("job",Json::object())!=context_.value("job",Json::object())||data.value("paused_filament",Json::object())!=context_.value("paused_filament",Json::object()))return false;
   const auto h=head(data,head_);if(!h.is_object())return false;
   // Loaded source/state changes invalidate a review, even without a config revision.
-  return h.value("loaded",Json::object())==head(context_,head_).value("loaded",Json::object());
+  return presence_matches(data);
  }
  Json find_plan(const Json&data)const{
   Json found;
@@ -98,7 +114,7 @@ public:
   if(attempted_||data.value("owner","")!="standalone"||!context_.is_object()||!source_.is_object()||!current(data))return false;
   for(const auto*key:{"owner","session"})if(data.value(key,"")!=context_.value(key,""))return false;
   for(const auto*key:{"job","paused_filament"})if(data.value(key,Json::object())!=context_.value(key,Json::object()))return false;
-  const auto h=head(data,head_);if(!h.is_object()||h.value("loaded",Json::object())!=head(context_,head_).value("loaded",Json::object()))return false;
+  const auto h=head(data,head_);if(!h.is_object()||!presence_matches(data))return false;
   FilamentProcedureReview refreshed;
   if(!refreshed.open(data,head_,action_)||!refreshed.select(data,source_.value("id","")))return false;
   if(refreshed.plan_==plan_&&refreshed.source_==source_&&data.value("revision","")==context_.value("revision",""))return false;

@@ -1162,9 +1162,7 @@ private:
   if(!data.is_object()){reject_action("filament SAVE","Printer status object is unavailable.");return;}
   data["fresh"]=data.value("fresh",false)&&at>=0&&ui_.now_ms()>=at&&ui_.now_ms()-at<=2000;
   const auto context=view.selected_source_context();const auto source=view.selected_source();
-  for(const auto*key:{"owner","session","revision","identity_revision"})if(data.value(key,"")!=context.value(key,"")){reject_action("filament SAVE",std::string(key)+" changed since editor entry.");return;}
-  unsigned matches=0;for(const auto&s:data.value("sources",Json::array()))if(s==source)++matches;
-  if(matches!=1){reject_action("filament SAVE","Source match count="+std::to_string(matches)+"; expected=1.");return;}
+  if(!filament_source_edit_context_matches(data,context,source)){reject_action("filament SAVE","Filament source or editing context changed since editor entry.");return;}
   if(!stock_identity_.begin_source(data,source.value("id",""),"brand")){reject_action("filament SAVE",stock_identity_.reason());return;}
   backend_.update(raw,data.value("revision",""),data.value("fresh",false));
   auto fields=view.draft_identity();for(auto it=fields.begin();it!=fields.end();)if(it.key()!="brand"&&it.key()!="material"&&it.key()!="color"&&(data.value("owner","")!="standalone"||(it.key()!="nozzle_temp"&&it.key()!="nozzle_temp_min"&&it.key()!="nozzle_temp_max"&&it.key()!="bed_temp")))it=fields.erase(it);else ++it;

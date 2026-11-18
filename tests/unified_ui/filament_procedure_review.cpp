@@ -13,6 +13,32 @@ int main(){
   Json plan={{"head","h2"},{"source","source-a"},{"action","load"},{"revision","rev"},{"token",std::string(64,'a')},{"description","Heat physical Head 3 to 210 C, then feed 20 mm."}};
   Json data={{"owner",owner},{"session","session"},{"revision","rev"},{"fresh",true},{"job",{{"state","idle"}}},{"capabilities",{{"load",true},{"unload",true}}},{"heads",Json::array({{{"id","h2"},{"loaded",{{"state","empty"}}}}})},{"sources",Json::array({source})},{"procedures",Json::array({plan})}};
   if(std::string(owner)=="standalone"){
+   auto external=source;external["kind"]="external";
+   auto editing=data;editing["sources"][0]=external;
+   auto inserted=editing;inserted["heads"][0]["loaded"]["sensor_present"]=true;inserted["revision"]="sensor-revision";
+   assert(filament_source_edit_context_matches(inserted,editing,external));
+   for(const auto*key:{"session","identity_revision","command_generation","job"}){
+    auto drift=inserted;drift[key]="changed";
+    assert(!filament_source_edit_context_matches(drift,editing,external));
+   }
+   auto changed_profile=inserted;changed_profile["sources"][0]["identity"]["material"]="ABS";
+   assert(!filament_source_edit_context_matches(changed_profile,editing,external));
+   auto duplicate=inserted;duplicate["sources"].push_back(external);
+   assert(!filament_source_edit_context_matches(duplicate,editing,external));
+   FilamentProcedureReview early;assert(early.open(data,"h2","load"));
+   auto early_data=data;early_data["heads"][0]["loaded"]["sensor_present"]=true;
+   assert(early.ready(early_data));
+   early_data["revision"]="sensor-revision";early_data["procedures"][0]["revision"]="sensor-revision";
+   assert(early.refresh(early_data)&&early.ready(early_data));
+   early_data["heads"][0]["loaded"]["state"]="loaded";
+   assert(!early.ready(early_data));
+   auto temperatures=data;temperatures["heads"][0]["actual"]=75;temperatures["heads"][0]["target"]=250;
+   temperatures["heads"].push_back({{"id","h0"},{"actual",200},{"target",220}});
+   assert(filament_temperature_detail(temperatures,"h2")["value"]=="75 / 250 °C");
+   assert(filament_temperature_detail(temperatures,"h2")["note"]=="The nozzle is hot.");
+   temperatures["heads"][0]["actual"]=25;
+   assert(!filament_temperature_detail(temperatures,"h2").contains("note"));
+   assert(filament_temperature_detail(temperatures,"h3").empty());
    FilamentProcedureReview refresh;RecordingBackend sink;assert(refresh.open(data,"h2","load"));
    auto newer=data;newer["revision"]="new";newer["procedures"][0]["revision"]="new";
    newer["procedures"][0]["token"]=std::string(64,'b');newer["procedures"][0]["description"]="Heat to 230 C";

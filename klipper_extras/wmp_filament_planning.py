@@ -102,6 +102,7 @@ class FilamentPlanning:
         gcode = self.material.printer.lookup_object("gcode")
         run = gcode.run_script_from_command
         reactor = self.material.printer.get_reactor()
+        heat_target = context.get("heat_target") if phase_name == "preparing" else None
         prefix = "" if phase_name == "preparing" else "return_"
         def phase(text, step=phase_name):
             self.material.filament_operation.update(message=text, phase=step)
@@ -128,6 +129,11 @@ class FilamentPlanning:
             if "restore_offset" in context:
                 homed["restore_offset"] = context["restore_offset"]
             context = homed
+        if heat_target is not None:
+            # Heat the physical nozzle while docking/mounting and travelling.
+            # Extrusion still waits for temperature after reaching the purge point.
+            heater = "extruder" if head == 0 else "extruder%d" % head
+            run("SET_HEATER_TEMPERATURE HEATER=%s TARGET=%.3f" % (heater, heat_target))
         current = context["attachment"]["head"]
         # Filament service uses the dock/purge XY path at the existing bed height.
         # Never home, lift, or synthesize a Z reference, including mid-print.
@@ -280,7 +286,7 @@ class FilamentPlanning:
         if service:
             plan["description"] = (
                 ("Home X/Y, then mount" if context["needs_home"] else "Mount")
-                + " Head %d, park at the purge position and heat to %d C. " % (head + 1, target)
+                + " Head %d while heating to %d C, then park at the purge position. " % (head + 1, target)
                 + ("Insert filament when prompted; feed %g mm, purge %g mm, then wipe the nozzle." % (plan["feed_mm"], plan["purge_mm"]) if action == "load"
                    else "Shape the filament tip and withdraw it."))
         if transition_note:

@@ -188,11 +188,10 @@ public:
   if(progress_view.is_object()){
    const auto op=data.value(tool_recovery()?"toolhead_operation":"filament_operation",Json::object());
    progress_view["instruction"]=op.value("cancel_requested",false)?text:op.value("instruction",std::string());
-   if(op.value("phase","")=="heating")for(const auto&head:data.value("heads",Json::array()))if(head.value("id","")==review_.physical_head())
-    {
-     progress_view["value"]=std::to_string(head.value("actual",0))+" / "+std::to_string(head.value("target",0))+" °C";
-     if(head.value("actual",0)>=50)progress_view["note"]="The nozzle is hot.";
-    }
+   if(!tool_recovery()||op.value("phase","")=="heating"){
+    const auto detail=filament_temperature_detail(data,review_.physical_head());
+    for(auto it=detail.begin();it!=detail.end();++it)progress_view[it.key()]=it.value();
+   }
    if(!progress_.attached())progress_.attach(body_,0,description_y_,stock_function<int(*)(void*)>(lv_obj_get_content_width)(body_),stock_function<int(*)(void*)>(lv_obj_get_content_height)(body_)-description_y_);
    if(progress_.attached()){progress_.show(true);progress_.update(progress_view);stock_function<void(*)(void*,unsigned)>(lv_obj_add_flag)(description_,1);}
   }else progress_.show(false);
