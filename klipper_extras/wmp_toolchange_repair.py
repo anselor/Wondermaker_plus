@@ -144,7 +144,7 @@ class ToolchangeRepair:
         sd, handle, start, end, session = boundary
         now = self.material.printer.get_reactor().monotonic()
         gcode = self.material.printer.lookup_object("gcode")
-        if (self.material.printer.is_shutdown() or getattr(gcode, "quick_stop_flag", False)
+        if (self.material.printer.is_shutdown() or getattr(self.material.printer, "quick_stop_flag", False)
                 or self.material._print_cancel_active() or session != self.material.session_id
                 or sd.current_file is not handle or handle.closed
                 or self.material.printer.lookup_object("print_stats").get_status(now).get("state") != "printing"

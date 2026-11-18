@@ -35,8 +35,8 @@ class ConfigurationSave:
                         and self.material.printer.lookup_object("AFC", None) is None):
                     if self.material.printer.is_shutdown():
                         raise gcmd.error("Configuration save stopped: printer is shutdown")
-                    if getattr(gcode, "quick_stop_flag", False):
-                        raise gcmd.error("Configuration save stopped: gcode.quick_stop_flag is set")
+                    if getattr(self.material.printer, "quick_stop_flag", False):
+                        raise gcmd.error("Configuration save stopped: printer.quick_stop_flag is set")
                     # An explicit no-restart command expresses whole-set save
                     # intent. It is not a restart. START_PRINT uses the scoped
                     # mesh command below instead of this general writer.

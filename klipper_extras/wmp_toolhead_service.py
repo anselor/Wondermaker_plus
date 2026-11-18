@@ -356,7 +356,7 @@ class ToolheadService:
             return self.material.printer.lookup_object(name).get_status(reactor.monotonic())
         def guard():
             self.material._check_command_generation(gcmd)
-            if self.material.printer.is_shutdown() or getattr(gcode, "quick_stop_flag", False):
+            if self.material.printer.is_shutdown() or getattr(self.material.printer, "quick_stop_flag", False):
                 raise gcmd.error("Pickup cleanup stopped: printer shutdown or stop requested")
             if not gcode.get_mutex().test():
                 raise gcmd.error("Pickup cleanup requires command ownership")
@@ -424,7 +424,7 @@ class ToolheadService:
         gcode = self.material.printer.lookup_object("gcode")
         def guard():
             self.material._check_command_generation(gcmd)
-            if self.material.printer.is_shutdown() or getattr(gcode, "quick_stop_flag", False):
+            if self.material.printer.is_shutdown() or getattr(self.material.printer, "quick_stop_flag", False):
                 raise gcmd.error("Dock support verification stopped; inspect the current printer state")
             saved = self.material.printer.lookup_object("save_variables").get_status(reactor.monotonic())["variables"]
             if saved.get("fail_flag", 0) != 0:
@@ -498,7 +498,7 @@ class ToolheadService:
         gcode = self.material.printer.lookup_object("gcode")
         def guard():
             self.material._check_command_generation(gcmd)
-            if self.material.printer.is_shutdown() or getattr(gcode, "quick_stop_flag", False):
+            if self.material.printer.is_shutdown() or getattr(self.material.printer, "quick_stop_flag", False):
                 raise gcmd.error("Pickup verification stopped; inspect the current printer state")
             saved = self.material.printer.lookup_object("save_variables").get_status(reactor.monotonic())["variables"]
             if saved.get("fail_flag", 0) != 0:
@@ -602,7 +602,7 @@ class ToolheadService:
         gcode = self.material.printer.lookup_object("gcode")
         def guard(finish_coupling=False):
             self.material._check_command_generation(gcmd, finish_coupling=finish_coupling)
-            if self.material.printer.is_shutdown() or getattr(gcode, "quick_stop_flag", False):
+            if self.material.printer.is_shutdown() or getattr(self.material.printer, "quick_stop_flag", False):
                 raise gcmd.error("Coupling stopped; inspect the printer before recovery")
             now = self.material.printer.get_reactor().monotonic()
             saved = self.material.printer.lookup_object("save_variables").get_status(now).get("variables", {})

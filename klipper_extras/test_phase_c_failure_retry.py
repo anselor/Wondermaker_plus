@@ -38,7 +38,7 @@ def test_console_retry_retires_history_but_nested_error_aborts_tail(guarded_lega
     assert material._command_generation == generation
 
 
-@pytest.mark.parametrize('condition', ['running', 'contradictory', 'shutdown'])
+@pytest.mark.parametrize('condition', ['running', 'contradictory', 'shutdown', 'quick_stop'])
 def test_fresh_retry_still_checks_current_conditions(guarded_legacy_dispatch, condition):
     fixture, dispatcher, events, waiting, vendor = guarded_legacy_dispatch
     material, objects, *unused = fixture
@@ -47,6 +47,7 @@ def test_fresh_retry_still_checks_current_conditions(guarded_legacy_dispatch, co
     objects['virtual_sdcard'].is_cmd_from_sd = lambda: False
     if condition == 'running': material.toolhead_operation = {'state': 'running'}
     elif condition == 'contradictory': material._material_status()._attachment = lambda now: {'state': 'unknown'}
+    elif condition == 'quick_stop': material.printer.quick_stop_flag = True
     else: material.printer.is_shutdown = lambda: True
     with pytest.raises(ValueError): material._begin_explicit_physical_action('console motion')
     assert variables['fail_flag'] == -3 and not events

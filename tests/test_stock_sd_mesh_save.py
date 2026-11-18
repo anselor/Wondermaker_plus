@@ -44,7 +44,6 @@ def test_retained_stock_sd_startup_mesh_save(guarded_config, blocker):
     printer.invoke_shutdown = shutdown
     printer.lookup_objects = lambda: list(v.objects.items())
     gcode = gc.GCodeDispatch(printer)
-    gcode.quick_stop_flag = False
     gcode.request_restart = lambda kind: v.restarts.append(kind)
     v.objects['gcode'] = gcode
     # Unknown hardware/temperature/service leaf commands deliberately do nothing.

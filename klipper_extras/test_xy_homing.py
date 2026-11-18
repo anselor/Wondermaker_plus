@@ -71,6 +71,14 @@ def test_disagreeing_contacts_are_not_accepted(rig):
     assert rig.limits[1]==(1.,-1.)
 
 
+def test_vendor_quick_stop_between_coarse_y_and_x_prevents_further_motion(rig):
+    def native(cmd):
+        rig.calls.append(('home',next(iter(cmd))))
+        rig.helper.printer.quick_stop_flag=True
+    rig.objects['homing'].cmd_G28=native
+    with pytest.raises(ValueError,match='interrupted'):execute(rig)
+    assert [c for c in rig.calls if c[0]=='home']==[('home','Y')]
+    assert not any(c[0] in ('move','tap') for c in rig.calls)
 def test_cancel_between_coarse_y_and_x_prevents_further_motion(rig):
     def native(cmd):
         rig.calls.append(('home',next(iter(cmd))))

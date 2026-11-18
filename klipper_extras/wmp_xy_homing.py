@@ -34,7 +34,7 @@ class XYHoming:
         generation = getattr(material, '_command_generation', None)
 
         def guard():
-            if (printer.is_shutdown() or getattr(self.gcode, 'quick_stop_flag', False)
+            if (printer.is_shutdown() or getattr(printer, 'quick_stop_flag', False)
                     or getattr(material, '_command_generation', None) != generation):
                 raise gcmd.error('XY homing interrupted')
 

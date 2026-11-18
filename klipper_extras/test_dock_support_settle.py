@@ -51,7 +51,7 @@ def test_retired_observation_never_unlocks_or_publishes_failure(pickup,change):
         pause(when);sensor['filament_detected']=True
         if change=='generation':obj._command_generation+=1
         elif change=='session':obj.session_id='new-session'
-        else:obj.printer.lookup_object('gcode').quick_stop_flag=True
+        else:obj.printer.quick_stop_flag=True
     reactor.pause=retired
     with pytest.raises(ValueError):execute_unlock_tail(obj,cmd)
     assert saved=={'fail_flag':0} and clock['now']==.05

@@ -386,6 +386,16 @@ def test_historical_recovery_record_is_not_an_identification_activity_lock(files
     assert operation._migration_admission(material, material.session_id)
 
 
+def test_vendor_quick_stop_refuses_migration_admission(files):
+    operation, _, _, _, printer = harness(files)
+    material = printer.objects['wm_material']
+    assert operation._migration_admission(material, material.session_id)
+    # The vendor STOP request sets the flag on the printer (webhooks.py), never on gcode.
+    printer.quick_stop_flag = True
+    assert not operation._migration_admission(material, material.session_id)
+    assert operation.migration_refusal == 'printer.quick_stop_flag is set'
+
+
 @pytest.mark.parametrize('state', ['editing', 'missing'])
 def test_probe_editor_ownership_refuses_identification_without_poisoning_editor(files, state):
     operation, cmd, commands, _, printer = harness(files)
@@ -439,7 +449,7 @@ def test_mid_identification_context_change_prevents_next_pickup_and_publication(
         elif change == 'owner': printer.objects['AFC'] = object()
         elif change == 'editor': operation.calibration.probe_editor.busy = lambda: True
         elif change == 'cancel': material._print_cancel_active = lambda: True
-        elif change == 'quick_stop': operation.gcode.quick_stop_flag = True
+        elif change == 'quick_stop': printer.quick_stop_flag = True
     operation.gcode.run_script_from_command = changed
     with pytest.raises(ValueError):
         operation.run(cmd)
@@ -459,7 +469,7 @@ def test_mid_identification_context_change_prevents_next_pickup_and_publication(
 
 def test_quick_stop_refuses_identification_before_motion(files):
     operation, cmd, commands, _, printer = harness(files)
-    operation.gcode.quick_stop_flag = True
+    printer.quick_stop_flag = True
     before = snapshot(files)
     with pytest.raises(ValueError, match='Resolve the active printer operation'):
         operation.run(cmd)

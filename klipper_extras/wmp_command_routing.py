@@ -39,7 +39,7 @@ class CommandRouting:
             saved.setdefault("fail_flag", 0)
             return
         gcode = self.material.printer.lookup_object("gcode")
-        if self.material.printer.is_shutdown() or getattr(gcode, "quick_stop_flag", False):
+        if self.material.printer.is_shutdown() or getattr(self.material.printer, "quick_stop_flag", False):
             raise ValueError("Cannot retry while printer is shutdown or stopped")
         if (self.material._print_cancel_active() or self.material._recovery_attempt_active()
                 or any(self._material_operation_active(name)

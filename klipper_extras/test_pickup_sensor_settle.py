@@ -89,6 +89,18 @@ def test_cancel_during_observation_does_not_publish_old_attempt_fault(pickup):
     assert saved['fail_flag'] == 0 and obj._command_generation == 4
 
 
+def test_vendor_quick_stop_during_observation_stops_verification(pickup):
+    obj, cmd, clock, sensor, saved, reactor = pickup
+    original = reactor.pause
+    def pause(when):
+        original(when)
+        obj.printer.quick_stop_flag = True
+    reactor.pause = pause
+    with pytest.raises(ValueError, match='Pickup verification stopped'):
+        obj.cmd_CHECK_PICKUP_RELEASE(cmd)
+    assert saved['fail_flag'] == 0
+
+
 def test_existing_fault_is_not_cleared_or_replaced(pickup):
     obj, cmd, clock, sensor, saved, reactor = pickup
     saved['fail_flag'] = -3

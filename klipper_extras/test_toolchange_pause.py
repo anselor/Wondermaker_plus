@@ -131,11 +131,18 @@ def test_repeated_retry_failure_keeps_job_paused(job):
         assert job.sd.current_file and not job.sd.current_file.closed
     assert not any(event[0] == 'extrusion' for event in job.events)
 
-@pytest.mark.parametrize('change', ['startup', 'homing', 'shutdown', 'untyped'])
+@pytest.mark.parametrize('change', ['startup', 'homing', 'shutdown', 'quick_stop', 'untyped'])
 def test_unsupported_failure_keeps_existing_error_path(job, change):
     if change == 'startup': job.states['gcode_macro START_PRINT']['print_body_ready'] = False
     if change == 'homing': job.states['toolhead']['homed_axes'] = 'xy'
     if change == 'shutdown': job.printer.is_shutdown = lambda: True
+    if change == 'quick_stop':
+        # A vendor STOP (webhooks.py) arrives while the tool change is failing.
+        def stopped(cmd):
+            job.printer.quick_stop_flag = True
+            job.material.cmd_TOOLCHANGE_FAULT(cmd)
+        job.gcode.register_command('_WMP_TOOLCHANGE_FAULT', None)
+        job.gcode.register_command('_WMP_TOOLCHANGE_FAULT', stopped)
     if change == 'untyped':
         job.gcode.register_command('T3', None)
         def ordinary(cmd): raise cmd.error('Tool change failed: same text is not classification')

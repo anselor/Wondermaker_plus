@@ -706,7 +706,7 @@ class IdentificationCommands:
         try:
             now = self.printer.get_reactor().monotonic()
             if self.printer.is_shutdown(): return refuse('printer is shut down')
-            if getattr(self.gcode, 'quick_stop_flag', False): return refuse('gcode.quick_stop_flag is set')
+            if getattr(self.printer, 'quick_stop_flag', False): return refuse('printer.quick_stop_flag is set')
             if self.printer.lookup_object('wm_material', None) is not material: return refuse('wm_material owner object changed')
             if material.session_id != session: return refuse('material session changed')
             if self.calibration.active: return refuse('calibration.active=True')

@@ -314,7 +314,7 @@ def test_restarting_config_save_refuses_before_any_file_write(guarded_config, ho
     elif hold == 'recovery': v.material._recovery_attempt = NS(busy=True, record={'state':'running'})
     elif hold == 'calibration': v.state['wmp_recovery'] = {'calibration_active':True}
     elif hold == 'unknown': del v.state['pause_resume']
-    else: v.gcode.quick_stop_flag = True
+    else: v.material.printer.quick_stop_flag = True
     before = {p.name:p.read_bytes() for p in v.path.parent.iterdir()}
     pending = copy.deepcopy(v.config.status_save_pending)
     with pytest.raises(ValueError): v.handlers['SAVE_CONFIG'](NS(error=ValueError))
@@ -425,7 +425,7 @@ def test_explicit_no_restart_save_is_whole_set_intent(guarded_config, activity):
 def test_config_writers_preserve_shutdown_stop_before_writes(guarded_config, command, stop):
     v = guarded_config
     if stop == 'shutdown': v.material.printer.is_shutdown = lambda: True
-    else: v.gcode.quick_stop_flag = True
+    else: v.material.printer.quick_stop_flag = True
     before = {p.name: p.read_bytes() for p in v.path.parent.iterdir()}
     with pytest.raises(ValueError, match='Configuration save stopped'):
         v.handlers[command](NS(error=ValueError))

@@ -41,7 +41,7 @@ def pickup(actuator_machine):
     p['gcode_move'] = {'position': NS(x=pos[0], y=pos[1], z=pos[2])}
     p['gcode_macro _LOCK_CHECK'] = {'retry': 0}
     events = []
-    options = dict(dock_after_lock=True, detached=True, cancel_at='', fail_at='', wrong_pose=False,
+    options = dict(dock_after_lock=True, detached=True, cancel_at='', stop_at='', fail_at='', wrong_pose=False,
                    incoming_offset=[0., 0., 0., 0.])
     vendor_path = Path(__file__).resolve().parents[1] / 'analysis/fw_1.1.13_payload/root/home/t13dp/klipper/klippy/extras/gcode_move.py'
     tree = ast.parse(vendor_path.read_text())
@@ -65,6 +65,7 @@ def pickup(actuator_machine):
         args = dict(w.split('=', 1) for w in words[1:] if '=' in w)
         events.append(command.strip())
         if options['cancel_at'] == name and calls.count('home') >= 2: material._command_generation += 1
+        if options['stop_at'] == name and calls.count('home') >= 2: material.printer.quick_stop_flag = True
         if options['fail_at'] == command: raise ValueError('injected movement failure')
         if name in templates:
             if name == '_LOCK_TOOL_FINISH':
@@ -142,17 +143,18 @@ def test_cleanup_unlock_failure_does_not_retreat(pickup):
     assert 'G0 Y310 F9600' not in events
 
 
-@pytest.mark.parametrize('defect', ['attached_after_retreat', 'retreat_error', 'cancel'])
+@pytest.mark.parametrize('defect', ['attached_after_retreat', 'retreat_error', 'cancel', 'quick_stop'])
 def test_failed_cleanup_never_continues_outer_pickup_tail(pickup, defect):
     material, saved, states, calls, faults, events, options, execute = pickup
     saved['current_extruder'] = 2  # Must not claim empty unless proved.
     if defect == 'attached_after_retreat': options['detached'] = False
     elif defect == 'retreat_error': options['fail_at'] = 'G0 Y310 F9600'
+    elif defect == 'quick_stop': options['stop_at'] = 'G90'
     else: options['cancel_at'] = 'G90'
     with pytest.raises(ValueError): execute('_LOCK_TOOL T=2')
     assert saved['current_extruder'] == 2
     assert not any('_CHECK_T_SEQUENCE' in e for e in events)
-    if defect == 'cancel':
+    if defect in ('cancel', 'quick_stop'):
         assert calls.count('home') == 2
         assert 'G0 Y310 F9600' not in events  # No move after ownership changed.
         assert saved['fail_flag'] == 0  # Do not publish fault into the new owner.

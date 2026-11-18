@@ -147,7 +147,7 @@ def test_standalone_coupling_refuses_before_motion(actuator_machine,reason,retry
     original = command.get_int
     command.get_int = lambda name, default=None, **kw: retry if name == 'RETRY' else original(name, default, **kw)
     if reason=='fault': saved['fail_flag']=-3
-    if reason=='quick_stop': objects['gcode'].quick_stop_flag=True
+    if reason=='quick_stop': material.printer.quick_stop_flag=True
     if reason=='owner': objects['openace']=object()
     if reason=='generation': material._command_generation=1
     with pytest.raises(ValueError): material.cmd_COUPLING_STROKE(command)
