@@ -8,6 +8,15 @@ pytest_plugins = ['test_wm_material']
 STOP = {'phase': 'homed', 'label': 'after homing', 'state': 'homed; probe head attached and locked'}
 
 
+def test_tool_selection_stop_text_preserves_already_mounted_probe_head():
+    from wmp_stop_points import StopPoints
+    label, state = StopPoints.STOP_POINTS['before_initial_tool']
+    assert label == 'before print tool selection'
+    assert state == 'homed; probing head remains attached'
+    assert StopPoints.STOP_POINTS['initial_tool_ready'] == (
+        'after print tool selection', 'print head selected and attached')
+
+
 def _restore(material):
     material._restore_print_cancel()
     return material._print_cancel
@@ -347,11 +356,11 @@ def test_open_region_wait_raises_within_one_iteration(wait_env):
     _open(env)
     env.on_pause = lambda count: env.objects['gcode'].run_script('CANCEL_PRINT')
     command = WaitCommand(SENSOR='extruder3', MAXIMUM=102.5)
-    with pytest.raises(ValueError, match='^Print cancellation requested; stopped while heating extruder3$'):
+    with pytest.raises(ValueError, match='^Print cancellation requested; stopped while heating Head 4$'):
         env.handlers['TEMPERATURE_WAIT'](command)
     assert len(env.pauses) == 1
     assert env.material._print_cancel['stop_point']['phase'] == 'heating_extruder3'
-    assert env.material._print_cancel['stop_point']['label'] == 'heating extruder3'
+    assert env.material._print_cancel['stop_point']['label'] == 'heating Head 4'
     assert env.material._print_cancel['version'] == 3
     assert env.material.stop_waits_open() is False
     assert env.cleanup == []
@@ -361,7 +370,7 @@ def test_open_region_wait_raises_on_entry_when_request_pending(wait_env):
     env = wait_env
     _open(env)
     env.objects['gcode'].run_script('CANCEL_PRINT')
-    with pytest.raises(ValueError, match='stopped while heating extruder3'):
+    with pytest.raises(ValueError, match='stopped while heating Head 4'):
         env.handlers['TEMPERATURE_WAIT'](WaitCommand(SENSOR='extruder3', MAXIMUM=102.5))
     assert env.pauses == []
 
@@ -385,15 +394,16 @@ def test_wait_wrapper_installs_once(wait_env):
     assert env.host._wait_for_temperature is heat
 
 
-@pytest.mark.parametrize('name,phase', [('heater_bed', 'heating_heater_bed'), ('extruder', 'heating_extruder'),
-                                        ('extruder1', 'heating_extruder1')])
-def test_wait_for_temperature_wrapper_raises_for_heater(wait_env, name, phase):
+@pytest.mark.parametrize('name,phase,label', [('heater_bed', 'heating_heater_bed', 'bed'),
+    ('extruder', 'heating_extruder', 'Head 1'), ('extruder1', 'heating_extruder1', 'Head 2'),
+    ('heater_generic chamber', 'heating_heater_generic_chamber', 'chamber')])
+def test_wait_for_temperature_wrapper_raises_for_heater(wait_env, name, phase, label):
     from types import SimpleNamespace as NS
     env = wait_env
     heater = NS(name=name, check_busy=lambda eventtime: True)
     _open(env)
     env.on_pause = lambda count: env.objects['gcode'].run_script('CANCEL_PRINT')
-    with pytest.raises(ValueError, match='^Print cancellation requested; stopped while heating ' + name + '$'):
+    with pytest.raises(ValueError, match='^Print cancellation requested; stopped while heating ' + label + '$'):
         env.host._wait_for_temperature(heater)
     assert len(env.pauses) == 1
     assert env.material._print_cancel['stop_point']['phase'] == phase
@@ -406,7 +416,7 @@ def test_wait_for_temperature_prefers_get_name(wait_env):
     heater = NS(name='wrong', get_name=lambda: 'extruder2', check_busy=lambda eventtime: True)
     _open(env)
     env.objects['gcode'].run_script('CANCEL_PRINT')
-    with pytest.raises(ValueError, match='while heating extruder2$'):
+    with pytest.raises(ValueError, match='while heating Head 3$'):
         env.host._wait_for_temperature(heater)
     assert env.material._print_cancel['stop_point']['phase'] == 'heating_extruder2'
 

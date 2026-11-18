@@ -18,8 +18,8 @@ class StopPoints:
         "homed": ("after homing", "homed; probe head attached and locked"),
         "before_mesh": ("before bed mesh", "homed; probe head attached; bed mesh not yet measured"),
         "mesh_saved": ("after bed mesh", "homed; bed mesh saved; probe head attached"),
-        "before_initial_tool": ("before first tool pickup", "homed; no tool picked up"),
-        "initial_tool_ready": ("after first tool pickup", "first tool picked up and ready"),
+        "before_initial_tool": ("before print tool selection", "homed; probing head remains attached"),
+        "initial_tool_ready": ("after print tool selection", "print head selected and attached"),
         "purged": ("after purge", "first tool picked up; purge finished"),
     }
     STOP_ERROR_PREFIX = "Print cancellation requested; stopped "
@@ -93,12 +93,15 @@ class StopPoints:
         """Close the wait region, record the stop and return the error to raise."""
         self._stop_waits = None
         phase = ("heating_" + re.sub(r"[^a-z0-9_]", "_", name.lower()))[:48]
+        head = re.fullmatch(r"extruder([0-3]?)", name)
+        label = ("Head %d" % (int(head[1] or 0) + 1) if head else
+                 {"heater_bed": "bed", "heater_generic chamber": "chamber"}.get(name, name))
         try:
-            self.material._record_stop_point(phase, ("heating " + name)[:160],
+            self.material._record_stop_point(phase, ("heating " + label)[:160],
                                              (name + " wait interrupted; cleanup turns heaters off")[:160])
         except Exception:
             logging.exception("Unable to record stop point %s", phase)
-        return error("Print cancellation requested; stopped while heating " + name)
+        return error("Print cancellation requested; stopped while heating " + label)
 
     def _install_stop_note_error(self):
         """Record a stop-point unwind as a cancelled print, not a failed one.
