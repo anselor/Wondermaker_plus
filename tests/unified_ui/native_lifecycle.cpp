@@ -121,8 +121,9 @@ struct RuntimeReceiptTest {
  static void close_maintenance_notice(Runtime&r){r.maintenance_notice_.close();}
  static int requested(const Runtime&r){return r.requested_.load();}
  static std::string finish_preview(Runtime&r){r.preview_worker_.reset();std::lock_guard<std::mutex>lock(r.mutex_);return r.metadata_path_;}
+ static void details_demand(Runtime&r,bool needed){r.filament_details_needed_.store(needed);}
  static bool nozzle_active(const Runtime&r){return r.nozzle_editor_.active();}
- static void usb_status(Runtime&r,const Json&data){r.normalized_=data;r.at_=r.ui_.now_ms();r.usb_worker_->observe(data);}
+ static void usb_status(Runtime&r,const Json&data){r.normalized_=data;++r.status_publication_;r.at_=r.ui_.now_ms();r.usb_worker_->observe(data);}
  static Json usb_result(Runtime&r){return r.usb_worker_->result(r.usb_origin_);}
  static void usb_tick(Runtime&r){r.update_usb_preview();}
  static Json ace_source(Runtime&r){return r.stock_filament_.ace_controls().selected_source();}
@@ -131,7 +132,7 @@ struct RuntimeReceiptTest {
  }
  static bool identity_active(const Runtime&r){return r.stock_identity_.active();}
  static void saved_load(Runtime&r,const Json&origin,const Json&current){
-  auto data=current;r.normalized_=data;r.at_=r.ui_.now_ms();r.standalone_.observe(data);
+  auto data=current;r.normalized_=data;++r.status_publication_;r.at_=r.ui_.now_ms();r.standalone_.observe(data);
   r.ace_mode_active_=true;r.stock_ace_edit_=true;r.stock_edit_receipt_="saved-edit";
   r.stock_edit_operation_={{"id","saved-edit"},{"state","complete"},{"owner",origin["owner"]},{"session",origin["session"]},
    {"action","save_identity"},{"arguments",{{"draft",origin["sources"][0]}}},{"load_after_save",true},
@@ -164,7 +165,7 @@ struct RuntimeReceiptTest {
   r.filament_settings_.deliver(wire);
   // The RPC may fail, or succeed without matching subsequent readback.
   for(int i=0;i<4;++i)r.filament_settings_.observe(data);
-  r.normalized_=data;r.at_=r.ui_.now_ms();
+  r.normalized_=data;++r.status_publication_;r.at_=r.ui_.now_ms();
  }
 
  static void update_identity(Runtime&r){r.update_stock_edit();}
@@ -176,10 +177,10 @@ struct RuntimeReceiptTest {
  static void picker(Runtime&r,void*modal){assert(r.stock_picker_.bind(modal));}
  static void attach(Runtime&r,const StockFilamentWidgets&w,void*p,void*a,void*t){r.stock_filament_.attach(w,p,a,t);}
 
- static void adoption_status(Runtime&r,const Json&normalized,const Json&raw,std::int64_t at){r.normalized_=normalized;r.normalized_["preview_generation"]=r.preview_generation_;r.raw_=raw;r.at_=at;}
+ static void adoption_status(Runtime&r,const Json&normalized,const Json&raw,std::int64_t at){r.normalized_=normalized;++r.status_publication_;r.normalized_["preview_generation"]=r.preview_generation_;r.raw_=raw;r.at_=at;}
  static Receipt adopt(Runtime&r,const Json&candidate,const Json&context){return r.submit_adoption(candidate,context);}
 
- static void tool_context(Runtime&r,Json data,std::int64_t at){r.tool_mode_active_=true;r.tool_head_=2;r.standalone_.observe(data);r.normalized_=data;r.at_=at;}
+ static void tool_context(Runtime&r,Json data,std::int64_t at){r.tool_mode_active_=true;r.tool_head_=2;r.standalone_.observe(data);r.normalized_=data;++r.status_publication_;r.at_=at;}
  static bool temperature(Runtime&r,const Json&context,int value){return r.apply_tool_temperature(context,2,value);}
  static void tool_action(Runtime&r,const std::string&action){r.tool_action(action);}
  static void slot_load(Runtime&r,const std::string&id){r.tool_mode_active_=false;r.ace_mode_active_=true;r.stock_filament_.ace_controls().action("load-source:"+id);}
@@ -207,7 +208,7 @@ struct RuntimeReceiptTest {
  }
  static void pending(Runtime&r,bool tool,const std::string&id){if(tool)r.tool_receipt_=id;else r.stock_edit_receipt_=id;}
  static bool pending(const Runtime&r,bool tool){return !(tool?r.tool_receipt_:r.stock_edit_receipt_).empty();}
- static void observe(Runtime&r,const std::string&id){r.normalized_["receipts"]={{id,{{"state","complete"},{"message","Confirmed"}}}};}
+ static void observe(Runtime&r,const std::string&id){++r.status_publication_;r.normalized_["receipts"]={{id,{{"state","complete"},{"message","Confirmed"}}}};}
 };
 void*test_stock_colour_picker(void*parent,int selected){assert(selected>=-1&&selected<16);return fake::make(parent);}
 void*test_resolve(std::uintptr_t a){
@@ -250,9 +251,10 @@ struct Port : wmp_openace::NativeUi {
 };
 struct Http : wmp_openace::HttpPort {
  Json ace;std::vector<std::string>queries;bool ace_present=true;std::function<void(const std::string&)>on_get;
- Json extra_status=Json::object();std::function<void()>on_post;
+ Json extra_status=Json::object(),filament_details=Json::object();std::function<void()>on_post;
  std::string get(const std::string&path)override {
   queries.push_back(path);if(on_get)on_get(path);
+  if(path=="/printer/wmp/filament/details")return Json{{"result",filament_details}}.dump();
   if(path.compare(0,23,"/server/files/metadata?")==0)return Json{{"result",{{"filename","folder/part.gcode"},{"filament_type",Json::array({"PLA","PETG"})},{"preset_colours",Json::array({"#123456","#aabbcc"})},{"size",1000},{"modified",1}}}}.dump();
   if(path=="/printer/objects/list")return Json{{"result",{{"objects",ace_present?Json::array({"print_stats","extruder","openace"}):Json::array({"print_stats","extruder"})}}}}.dump();
   auto response=Json{{"result",{{"status",{{"webhooks",{{"state","ready"}}},{"openace",ace},{"print_stats",{{"state","standby"},{"filename",""}}},{"extruder",{{"temperature",28.0},{"target",0.0}}}}}}}};response["result"]["status"].update(extra_status);return response.dump();
@@ -777,6 +779,11 @@ int main(int argc,char**argv){
   assert(confirm.show(parent,"Verify selected filament.","PRINT"));tap("PRINT");assert(accepted==1&&dismissed==1&&!confirm.active());
   fake::del(parent);
  }
+ {auto*parent=fake::make(fake::screen);auto*child=fake::make(parent);
+  assert(stock_object_visible(child));fake::flag(parent,1);assert(!stock_object_visible(child));fake::unflag(parent,1);
+  auto*inactive=fake::make(nullptr);auto*hidden_page=fake::make(inactive);assert(!stock_object_visible(hidden_page));
+  fake::del(parent);assert(!stock_object_visible(child));fake::del(inactive);
+ }
  // The Home mini owns one navigation target confined to the original button.
  auto main=fake::make(fake::screen);auto mini_button=fake::make(main);auto stock_icon=fake::make(mini_button);mini_button->w=126;mini_button->h=57;
  HomeMini mini;int home_opens=0;mini.open_filaments=[&](){++home_opens;};auto home_data=data;home_data["fresh"]=true;home_data["owner"]="openace";home_data["candidates"]=Json::array({{{"id","new"}}});
@@ -804,6 +811,24 @@ int main(int argc,char**argv){
   assert(!view["recovery_restore_error"].get<std::string>().empty());
   assert(!view.value("managed_operation_hold",true));
   StubBackend sink;App ui(sink);ui.update(view);assert(ui.data().value("fresh",false));ui.render();
+ }
+ // Filament details are fetched only on foreground demand, and never merged
+ // across a changed backend context. Older helpers retain their normal path.
+ {
+  Http wire;wire.ace_present=false;Port clock;wmp_openace::UiChannel channel;
+  wire.extra_status["wm_material"]={{"session_id","detail-session"},{"command_generation",0},{"filament_details_protocol",1},{"filament_sequence_protocol",1},{"filament_procedures",Json::array()}};
+  wire.filament_details=wire.extra_status["wm_material"];
+  wire.filament_details["filament_details_ready"]=true;
+  wire.filament_details["filament_procedures"]=Json::array({{{"head","h0"},{"action","load"},{"source","external:h0"},{"token",std::string(64,'a')}}});
+  auto count=[&]{return std::count(wire.queries.begin(),wire.queries.end(),"/printer/wmp/filament/details");};
+  Runtime r(wire,clock,channel);assert(r.initialize());r.worker_step(clock.now);
+  assert(count()==0&&RuntimeReceiptTest::status(r)["procedures"].empty());
+  RuntimeReceiptTest::details_demand(r,true);clock.now+=700;r.worker_step(clock.now);
+  assert(count()==1&&RuntimeReceiptTest::status(r)["procedures"].size()==1);
+  RuntimeReceiptTest::details_demand(r,false);clock.now+=700;r.worker_step(clock.now);
+  assert(count()==1&&RuntimeReceiptTest::status(r)["procedures"].empty());
+  RuntimeReceiptTest::details_demand(r,true);wire.filament_details["session_id"]="another-session";
+  clock.now+=700;r.worker_step(clock.now);assert(!RuntimeReceiptTest::status(r).value("fresh",false));
  }
  // Unknown metadata must not reveal legacy stock colors. Presence transitions
  // repaint even when configured source metadata is unchanged, in head order.
@@ -839,6 +864,24 @@ int main(int argc,char**argv){
  home_data["fresh"]=true;mini.update(home_data,manual,legacy_icon);
 
  fake::del(manual);mini.clear();
+
+ // The overlay suppresses covered native animation widgets, owns no original
+ // objects, and restores their visibility even when one is deleted first.
+ {
+  auto*host=fake::make(fake::screen);auto*button=fake::make(host);button->w=126;button->h=57;
+  auto*original=fake::make(button);auto*already_hidden=fake::make(button);already_hidden->flags|=1;
+  HomeMini overlay;overlay.update(home_data,host,original);
+  assert((original->flags&1)&&(already_hidden->flags&1));
+  auto*owned=button->children.back();auto allocations=fake::nodes.size();
+  for(int i=0;i<100;++i)overlay.update(home_data,host,original,false);
+  assert(fake::nodes.size()==allocations&&button->children.back()==owned);
+  fake::unflag(original,1);overlay.update(home_data,host,original,false);assert(original->flags&1);
+  fake::del(already_hidden);overlay.clear();
+  assert(original->live&&!(original->flags&1)&&original->callbacks.empty());
+  overlay.update(home_data,host,original);assert(original->flags&1);
+  fake::del(button->children.back());assert(!(original->flags&1)&&original->callbacks.empty());
+  overlay.update(home_data,host,original);fake::del(host);overlay.clear();
+ }
  // Runtime production navigation must retain the stock page hierarchy.
  Port port;Http http;std::ifstream raw_input(argv[2]);raw_input>>http.ace;
  // Reset refusal queues only presentation, retains its modal during sync, and

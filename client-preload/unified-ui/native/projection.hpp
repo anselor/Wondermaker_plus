@@ -157,7 +157,12 @@ inline Json project(const Json&status,const Json&ace,bool present,const std::str
  {"heads",Json::array()},{"sources",Json::array()},{"units",Json::array()},{"routes",Json::array()},{"candidates",Json::array()},{"capabilities",Json::object()},{"job",{{"state","unknown"}}}};
  // Moonraker can return recent object snapshots after Klipper shuts down.
  // A successful query alone cannot make those snapshots actionable.
- const auto screen_helper=status.value("wm_material",Json::object());
+ // Keep the one backend observation shared while deriving display fields.
+ // Json::value() returns by value, so using it for the parent copied all
+ // procedure plans once for each projected field and each physical head.
+ const Json missing=Json::object();
+ const auto&screen_helper=status.contains("wm_material")?status.at("wm_material"):missing;
+ const auto&recovery_status=status.contains("wmp_recovery")?status.at("wmp_recovery"):missing;
  const auto heater_settings=screen_helper.value("heater_settings",status.value("configfile",Json::object()).value("settings",Json::object()));
  const auto printer_state=status.value("webhooks",Json::object()).value("state","unknown");
  out["printer_state"]=printer_state;out["fresh"]=printer_state=="ready";
@@ -175,7 +180,7 @@ inline Json project(const Json&status,const Json&ace,bool present,const std::str
  }
  out["job"]={{"state",state},{"id",stats.value("filename","")},{"name",stats.value("filename","")},{"allowed_actions",Json::array()}};
  if(present){
-  auto helper=status.value("wm_material",Json::object());
+  const auto&helper=screen_helper;
   out["openace_print_start_protocol"]=helper.value("openace_print_start_protocol",0);
   out["print_helper_session"]=helper.value("session_id","");
   out["print_submission"]=helper.value("print_submission",Json::object());
@@ -197,13 +202,13 @@ inline Json project(const Json&status,const Json&ace,bool present,const std::str
     loaded={{"state","loaded"},{"source",source},{"identity",identity(actual["identity"])}};
    }
   }
-  if(!present){auto wm=status.value("wm_material",Json::object());auto checks=wm.value("filament_loaded",wm.value("filament_presence",Json::object()));if(checks.contains(head)&&checks[head].value("evidence","")=="sensor"&&checks[head].value("session","")==out.value("session",""))loaded=checks[head];}
+  if(!present){const auto&wm=screen_helper;auto checks=wm.value("filament_loaded",wm.value("filament_presence",Json::object()));if(checks.contains(head)&&checks[head].value("evidence","")=="sensor"&&checks[head].value("session","")==out.value("session",""))loaded=checks[head];}
   if(present){
-   const auto sensed=status.value("wm_material",Json::object()).value("filament_presence",Json::object()).value(head,Json::object());
+   const auto sensed=screen_helper.value("filament_presence",Json::object()).value(head,Json::object());
    if(sensed.value("state","")=="empty")loaded={{"state","empty"},{"evidence","sensor"}};
 
   }
-  auto attachment=status.value("wm_material",Json::object()).value("attachment",Json::object());
+  auto attachment=screen_helper.value("attachment",Json::object());
   bool active=status.value("toolhead",Json::object()).value("extruder","")==heater;
   active=active&&attachment.value("state","")=="attached"&&attachment.value("head","")==head;
   std::string mounting=(attachment.value("state","")=="attached"&&attachment.value("head","")==head)?"Mounted":attachment.value("state","")=="empty"?"No head mounted":attachment.value("state","")=="attached"&&attachment.value("head","")!=head?"Not mounted":"Attachment unknown";
@@ -215,13 +220,13 @@ inline Json project(const Json&status,const Json&ace,bool present,const std::str
    if(d>0&&d<=2){diameter=std::to_string(d);while(!diameter.empty()&&diameter.back()=='0')diameter.pop_back();if(diameter.back()=='.')diameter.pop_back();diameter+=" mm";}
   }
   out["heads"].back()["nozzle"]={{"diameter",diameter},{"material","Unknown"}};
-  const auto saved_nozzles=status.value("wm_material",Json::object()).value("nozzles",Json::object());
+  const auto saved_nozzles=screen_helper.value("nozzles",Json::object());
   if(!present&&saved_nozzles.contains(head)){
    const auto saved=saved_nozzles.at(head);char mm[24];std::snprintf(mm,sizeof(mm),"%.1f mm",saved.value("diameter",0.0));
    out["heads"].back()["nozzle"]={{"diameter",mm},{"material",saved.value("material","Unknown")},{"saved_diameter",saved.value("diameter",0.0)},{"active_diameter",saved.value("active_diameter",0.0)},{"restart_required",saved.value("restart_required",false)},{"apply_pending",saved.value("apply_pending",false)}};
   }
   auto configured=identities.contains(head)&&identities[head].is_object()?identity(identities[head].value("values",Json::object())):identity(Json());
-  if(!present){auto settings=status.value("wm_material",Json::object()).value("identities",Json::object());if(settings.contains(head))configured=settings[head];}
+  if(!present){auto settings=screen_helper.value("identities",Json::object());if(settings.contains(head))configured=settings[head];}
   out["sources"].push_back({{"id","external:"+head},{"name","Head "+std::to_string(i+1)},{"kind","external"},{"head",head},{"available",true},{"identity",configured}});
  }
  for(auto it=units.begin();it!=units.end();++it){const auto uid=it.key();std::string name=uid;bool connected=false;
@@ -243,8 +248,8 @@ inline Json project(const Json&status,const Json&ace,bool present,const std::str
  if(!present){
   tool_routes=Json::object();
   for(const auto&h:out["heads"]){auto head=h.at("id").get<std::string>();
-   out["routes"].push_back({{"id","head:"+head},{"kind","physical"},{"source","external:"+head},{"head",head},{"label",h.at("name").get<std::string>()+" · External"},{"eligible",status.value("wm_material",Json::object()).contains("filament_loaded")&&h.value("loaded",Json::object()).value("state","")=="loaded"},{"reason",h.value("loaded",Json::object()).value("state","")=="loaded"?"":"Load filament before selecting this head."},{"sliced_rows",Json::array()}});
-   const auto helper=status.value("wm_material",Json::object());
+   out["routes"].push_back({{"id","head:"+head},{"kind","physical"},{"source","external:"+head},{"head",head},{"label",h.at("name").get<std::string>()+" · External"},{"eligible",screen_helper.contains("filament_loaded")&&h.value("loaded",Json::object()).value("state","")=="loaded"},{"reason",h.value("loaded",Json::object()).value("state","")=="loaded"?"":"Load filament before selecting this head."},{"sliced_rows",Json::array()}});
+   const auto&helper=screen_helper;
    if(helper.value("print_material_confirmation_protocol",0)==1){
     auto loaded=h.value("loaded",Json::object());const bool sensor=loaded.value("sensor_present",loaded.value("evidence","")=="sensor"&&loaded.value("state","")=="loaded");
     out["routes"].back()["eligible"]=sensor;out["routes"].back()["material_confirmation_required"]=loaded.value("state","")!="loaded";
@@ -279,13 +284,15 @@ inline Json project(const Json&status,const Json&ace,bool present,const std::str
   out["candidates"].push_back({{"id",c.value("expect_context","")},{"name",name},{"device_label",device},{"logical_name",name},{"context",c.value("expect_context","")}});
  }
  if(!present){
-  auto helper=status.value("wm_material",Json::object());
+  const auto&helper=screen_helper;
   for(const auto*key:{"print_sequence_protocol","print_request_sequence","print_material_confirmation_protocol","material_request_sequence_protocol","filament_request_sequence","toolhead_request_sequence"})out[key]=helper.value(key,0LL);
   out["print_start_protocol"]=helper.value("print_start_protocol",0);out["print_submission"]=helper.value("print_submission",Json::object());
   out["physical_mapping"]=Json::array();auto saved=status.value("save_variables",Json::object()).value("variables",Json::object());for(int i=0;i<4;++i)out["physical_mapping"].push_back(saved.value("box_modify_t"+std::to_string(i),Json()));
   if(helper.contains("physical_mapping"))out["physical_mapping"]=helper["physical_mapping"];
-  out["identity_revision"]=status.value("wm_material",Json::object()).value("identity_revision","");
+  out["identity_revision"]=screen_helper.value("identity_revision","");
   out["filament_recipe_write_protocol"]=helper.value("filament_recipe_write_protocol",Json());
+  out["filament_details_protocol"]=helper.value("filament_details_protocol",0);
+  out["filament_details_ready"]=helper.value("filament_details_ready",false);
   out["filament_recipe_write"]=helper.value("filament_recipe_write",Json::object());
   out["paused_filament"]=helper.value("paused_filament",Json::object());
   out["resume_progress"]=helper.value("resume_progress",Json::object());
@@ -298,9 +305,9 @@ inline Json project(const Json&status,const Json&ace,bool present,const std::str
    if(config.contains(heater)){const auto&c=config[heater];if(c.contains("min_temp")&&c["min_temp"].is_number()&&c.contains("max_temp")&&c["max_temp"].is_number()&&c["max_temp"].get<double>()>c["min_temp"].get<double>())out["heater_limits"][head]={{"min",c["min_temp"]},{"max",c["max_temp"]}};}
   }
  out["heater_manual_ready"]=!present||(ace.contains("operation")&&ace["operation"].is_null()&&(state=="idle"||state=="complete"));
- out["capabilities"]={{"confirm_filament",!present&&status.value("wm_material",Json::object()).value("filament_check_protocol",0)==1},{"step",!present&&status.contains("gcode_macro WMP_EXTRUDER_STEP")},{"temperature",!out.value("heater_limits",Json::object()).empty()},{"save_identity",present||status.value("wm_material",Json::object()).value("identity_writable",false)},{"save_unit",present},{"adopt",present}};
+ out["capabilities"]={{"confirm_filament",!present&&screen_helper.value("filament_check_protocol",0)==1},{"step",!present&&status.contains("gcode_macro WMP_EXTRUDER_STEP")},{"temperature",!out.value("heater_limits",Json::object()).empty()},{"save_identity",present||screen_helper.value("identity_writable",false)},{"save_unit",present},{"adopt",present}};
  out["revision"]=revision(Json{{"owner",out["owner"]},{"session",out["session"]},{"command_generation",out["command_generation"]},{"ace_config_revision",out.value("ace_config_revision",Json())},{"print_helper_session",out.value("print_helper_session",Json())},{"identities",identities},{"units",units},{"routes",routes},{"sources",settings},{"heater_limits",out.value("heater_limits",Json::object())},{"identity_revision",out.value("identity_revision","")},{"route_choices",out["routes"]},{"physical_mapping",out.value("physical_mapping",Json::array())},{"paused_filament",out.value("paused_filament",Json::object())}});
- {auto helper=status.value("wm_material",Json::object());bool supported=helper.value(present?"openace_unload_protocol":"filament_sequence_protocol",0)==1;
+ {const auto&helper=screen_helper;bool supported=helper.value(present?"openace_unload_protocol":"filament_sequence_protocol",0)==1;
   out["capabilities"]["load"]=present?helper.value("openace_load_protocol",0)==1:supported;out["capabilities"]["unload"]=supported;
   out["filament_operation"]=helper.value("filament_operation",Json::object());out["procedures"]=Json::array();
   out["procedure_errors"]=helper.value("filament_procedure_errors",Json::object());
@@ -314,11 +321,11 @@ inline Json project(const Json&status,const Json&ace,bool present,const std::str
    out["procedures"].push_back(plan);
   }
  }
- out["identification"]=status.value("wmp_recovery",Json::object()).value("identification",Json::object());
+ out["identification"]=recovery_status.value("identification",Json::object());
  // Maintenance/restart must not discard unresolved cancellation or recovery
  // merely because print_stats already reports idle/cancelled.
  {
-  const auto helper=status.value("wm_material",Json::object());
+  const auto&helper=screen_helper;
   out["recovery_restore_error"]=present?helper.value("recovery_restore_error",""):operation_display_text(helper,"recovery_restore_error","");
   bool held=present&&!out["recovery_restore_error"].get<std::string>().empty();
   for(const auto*key:{"print_cancel","recovery_attempt"}){
@@ -336,37 +343,37 @@ inline Json project(const Json&status,const Json&ace,bool present,const std::str
   }
   out["managed_operation_hold"]=held;
  }
- const auto attempt_protocol=status.value("wmp_recovery",Json::object()).value("calibration_attempt_protocol",Json());
+ const auto attempt_protocol=recovery_status.value("calibration_attempt_protocol",Json());
  out["calibration_attempt_protocol"]=attempt_protocol.is_number_integer()&&attempt_protocol==1?1:0;
- const auto ticket_protocol=status.value("wmp_recovery",Json::object()).value("calibration_ticket_protocol",Json());
- const auto next_ticket=status.value("wmp_recovery",Json::object()).value("calibration_next_ticket",Json());
+ const auto ticket_protocol=recovery_status.value("calibration_ticket_protocol",Json());
+ const auto next_ticket=recovery_status.value("calibration_next_ticket",Json());
  out["calibration_ticket_protocol"]=ticket_protocol.is_number_integer()&&ticket_protocol==1?1:0;
  out["calibration_next_ticket"]=next_ticket.is_string()?next_ticket:Json("");
- out["calibration_attempt"]=calibration_attempt_result(status.value("wmp_recovery",Json::object()).value("calibration_attempt",Json()));
- out["calibration_save_result"]=calibration_save_result(status.value("wmp_recovery",Json::object()).value("calibration_save_result",Json()));
- out["calibration_checkpoint"]=status.value("wmp_recovery",Json::object()).value("calibration_checkpoint","");
- out["calibration_session"]=status.value("wmp_recovery",Json::object()).value("calibration_session","");
- out["calibration_failed"]=present?status.value("wmp_recovery",Json::object()).value("calibration_failed",""):operation_display_text(status.value("wmp_recovery",Json::object()),"calibration_failed","");
- out["calibration_active"]=status.value("wmp_recovery",Json::object()).value("calibration_active",false);
- out["probe_editor"]=probe_editor_status(status.value("wmp_recovery",Json::object()).value("probe_editor",Json()),out["calibration_session"].get<std::string>(),!present);
- out["attachment"]=status.value("wm_material",Json::object()).value("attachment",Json::object());
- out["toolhead_operation"]=status.value("wm_material",Json::object()).value("toolhead_operation",Json::object());
- out["toolchange_pause"]=status.value("wm_material",Json::object()).value("toolchange_pause",Json::object());
- out["capabilities"]["toolhead_action"]=!present&&status.value("wm_material",Json::object()).value("toolhead_action_protocol",0)==1;
+ out["calibration_attempt"]=calibration_attempt_result(recovery_status.value("calibration_attempt",Json()));
+ out["calibration_save_result"]=calibration_save_result(recovery_status.value("calibration_save_result",Json()));
+ out["calibration_checkpoint"]=recovery_status.value("calibration_checkpoint","");
+ out["calibration_session"]=recovery_status.value("calibration_session","");
+ out["calibration_failed"]=present?recovery_status.value("calibration_failed",""):operation_display_text(recovery_status,"calibration_failed","");
+ out["calibration_active"]=recovery_status.value("calibration_active",false);
+ out["probe_editor"]=probe_editor_status(recovery_status.value("probe_editor",Json()),out["calibration_session"].get<std::string>(),!present);
+ out["attachment"]=screen_helper.value("attachment",Json::object());
+ out["toolhead_operation"]=screen_helper.value("toolhead_operation",Json::object());
+ out["toolchange_pause"]=screen_helper.value("toolchange_pause",Json::object());
+ out["capabilities"]["toolhead_action"]=!present&&screen_helper.value("toolhead_action_protocol",0)==1;
  out["capabilities"]["profile_import"]=false; // Deferred from this release.
- out["profile_import"]=status.value("wm_material",Json::object()).value("profile_import",Json::object());
- out["capabilities"]["save_nozzle"]=!present&&status.value("wm_material",Json::object()).value("nozzle_settings_protocol",0)==1;
- out["nozzle_settings"]=status.value("wm_material",Json::object()).value("nozzles",Json::object());
- out["filament_recovery_protocol"]=status.value("wm_material",Json::object()).value("filament_recovery_protocol",0);
- out["toolhead_recovery_protocol"]=status.value("wm_material",Json::object()).value("toolhead_recovery_protocol",0);
- out["filament_cancel_protocol"]=status.value("wm_material",Json::object()).value("filament_cancel_protocol",0);
- out["nozzle_revision"]=status.value("wm_material",Json::object()).value("nozzle_revision","");
- out["nozzle_save"]=status.value("wm_material",Json::object()).value("nozzle_save",Json::object());
+ out["profile_import"]=screen_helper.value("profile_import",Json::object());
+ out["capabilities"]["save_nozzle"]=!present&&screen_helper.value("nozzle_settings_protocol",0)==1;
+ out["nozzle_settings"]=screen_helper.value("nozzles",Json::object());
+ out["filament_recovery_protocol"]=screen_helper.value("filament_recovery_protocol",0);
+ out["toolhead_recovery_protocol"]=screen_helper.value("toolhead_recovery_protocol",0);
+ out["filament_cancel_protocol"]=screen_helper.value("filament_cancel_protocol",0);
+ out["nozzle_revision"]=screen_helper.value("nozzle_revision","");
+ out["nozzle_save"]=screen_helper.value("nozzle_save",Json::object());
  out["filament_catalogue"]=Json::array(); // Preserve stored catalogues, hide import UI for now.
  // Built-in choices plus existing identities, without requiring profile imports.
  out["brands"]=filament_brands(out["sources"]);
  out["materials"]=Json::array({"PLA","PLA Silk","ABS","PETG","PLA Matte","PLA Metal","ABS Matte","PETG Matte","PVA","TPE","Marble","HIPS","TPU","PET","Wood","ASA","PA","PC","PCTG","PA6","PA12","PP"});
- for(const auto&name:status.value("wm_material",Json::object()).value("filament_materials",Json::array()))
+ for(const auto&name:screen_helper.value("filament_materials",Json::array()))
   if(name.is_string()&&std::find(out["materials"].begin(),out["materials"].end(),name)==out["materials"].end())out["materials"].push_back(name);
  if(!present){
   // Labels are not command evidence. Keep receipt identity/state untouched and

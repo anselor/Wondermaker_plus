@@ -31,6 +31,7 @@ public:
  }
  const std::string&open_failure()const{return open_failure_;}
  bool active()const{return stock_object_valid(root_);}
+ bool visible()const{return stock_object_visible(root_);}
  bool has_result()const{return submitted_&&result_.is_object();}
  bool has_tool_result()const{return has_result()&&tool_recovery();}
  void close(){progress_.close();rendered_=false;steps_.clear();source_buttons_.clear();card_=body_=title_=rule_=nullptr;compact_=false;auto*p=root_;root_=description_=begin_=close_=nullptr;if(stock_object_valid(p))stock_function<void(*)(void*)>(lv_obj_del)(p);}

@@ -5,11 +5,11 @@ import os
 
 try:
     from . import wmp_orca_profiles, wmp_saved_variables
-    from .wmp_observation import _status_observation
+    from .wmp_observation import _status_observation, copy_status
     from .wmp_filament_types import MATERIALS, SLOTS, material_name, material_temp, parse_slot_materials
 except ImportError:
     import wmp_orca_profiles, wmp_saved_variables
-    from wmp_observation import _status_observation
+    from wmp_observation import _status_observation, copy_status
     from wmp_filament_types import MATERIALS, SLOTS, material_name, material_temp, parse_slot_materials
 
 class MaterialStatus:
@@ -55,17 +55,22 @@ class MaterialStatus:
             self._mtime, self._slots = None, {}
 
 
-    def get_status(self, eventtime):
+    def get_status(self, eventtime, detailed=False):
         self.material._drain_async_completions(eventtime)
         previous = getattr(self.material, '_status_observation_cache', None)
         self.material._status_observation_cache = {}
         try:
-            return self._status_snapshot(eventtime)
+            return self._status_snapshot(eventtime, detailed=True) if detailed else self._status_snapshot(eventtime)
         finally:
             self.material._status_observation_cache = previous
 
 
-    def _status_snapshot(self, eventtime):
+    def handle_details(self, request):
+        # Display review only. Commands still build and validate their own plan.
+        request.send(self.get_status(self.material.printer.get_reactor().monotonic(), detailed=True))
+
+
+    def _status_snapshot(self, eventtime, detailed=False):
         if eventtime is None:
             eventtime = self.material.printer.get_reactor().monotonic()
         self._refresh()
@@ -137,20 +142,24 @@ class MaterialStatus:
         status["resume_progress"] = dict(getattr(self.material, "_resume_progress", {}))
         status["filament_position"] = self.material._filament_position_status(eventtime)
         status["filament_recipe_write_protocol"] = 1
-        status["filament_recipe_write"] = self.material._recipe_write_status(eventtime)
-        status.update(self.material._nozzle_status(eventtime))
+        status["filament_details_protocol"] = 1
+        status["filament_details_ready"] = detailed
+        status["filament_recipe_write"] = self.material._recipe_write_status(eventtime) if detailed else {}
+        status.update(self.material._nozzle_status(eventtime, detailed=detailed))
         status.update(self.material._screen_configuration_status(eventtime))
-        try:
-            cached_catalogue = getattr(self.material, '_status_catalogue_snapshot', None)
-            if cached_catalogue is None:
-                cached_catalogue = wmp_orca_profiles.read_catalogue(getattr(self.material, "catalogue_path", os.path.join(os.path.dirname(self.material.profile_path), "wmp_filament_catalogue.json")))
-                self.material._status_catalogue_snapshot = copy.deepcopy(cached_catalogue)
-            catalogue, revision = copy.deepcopy(cached_catalogue)
-            status["filament_catalogue"] = list(catalogue.values())
-            status["catalogue_revision"] = revision
-        except (ValueError, OSError) as error:
-            status["filament_catalogue"] = []
-            status["catalogue_error"] = str(error)
+        status["filament_catalogue"] = []
+        if detailed:
+            try:
+                cached_catalogue = getattr(self.material, '_status_catalogue_snapshot', None)
+                if cached_catalogue is None:
+                    cached_catalogue = wmp_orca_profiles.read_catalogue(getattr(self.material, "catalogue_path", os.path.join(os.path.dirname(self.material.profile_path), "wmp_filament_catalogue.json")))
+                    self.material._status_catalogue_snapshot = copy.deepcopy(cached_catalogue)
+                catalogue, revision = copy_status(cached_catalogue)
+                status["filament_catalogue"] = list(catalogue.values())
+                status["catalogue_revision"] = revision
+            except (ValueError, OSError) as error:
+                status["filament_catalogue"] = []
+                status["catalogue_error"] = str(error)
         for slot in range(SLOTS):
             idx = self._slots.get(slot, -1)
             status["index%d" % slot] = idx
@@ -164,19 +173,70 @@ class MaterialStatus:
         except (ValueError, OSError) as error:
             status.update(identities={}, identity_revision="", identity_writable=False,
                           identity_error=str(error))
-        status["filament_procedures"] = []
-        status["filament_procedure_errors"] = {}
+        plans, errors = self._procedure_status(status, eventtime) if detailed else ([], {})
+        status["filament_procedures"] = plans
+        status["filament_procedure_errors"] = errors
+        return status
+
+
+    def _procedure_status_key(self, status, now):
+        """Only stopped standalone service has a compact, stable plan context.
+
+        Moving/paused/integrated procedures retain their existing live path.
+        This key is display-only: explicit Begin always builds its own plan.
+        """
+        m = self.material
+        if (getattr(m, '_status_observation_cache', None) is None
+                or any(m.printer.lookup_object(owner, None) is not None for owner in ('openace', 'AFC'))
+                or m.printer.lookup_object('wmp_recovery', None) is None
+                or status.get('identity_writable') is not True
+                or any(getattr(m, name, {}).get('state') in ('pending', 'running', 'unknown')
+                       for name in ('filament_operation', 'toolhead_operation'))
+                or not m._idle_for_filament_settings(now)):
+            return None
+        try:
+            th = m.printer.lookup_object('toolhead').get_status(now)
+            saved = m.printer.lookup_object('save_variables').get_status(now)['variables']
+            settings = m.printer.lookup_object('configfile').get_status(now)['settings']
+            history = m._hotend_material_history()
+            keys = ('probe_tool', 'current_extruder', 'fail_flag', 'is_nozzle_setting')
+            keys += tuple('t%d_%s' % (i, kind) for i in range(SLOTS) for kind in ('position', 'offset'))
+            return {'session': status['session_id'], 'generation': status['command_generation'],
+                    'attachment': status['attachment'], 'loaded': status['filament_loaded'],
+                    'identities': status['identities'], 'revision': status['identity_revision'],
+                    'history': history, 'history_error': getattr(m, '_hotend_history_error', ''),
+                    'geometry': {key: saved.get(key) for key in keys},
+                    'travel': {key: th.get(key) for key in ('homed_axes', 'axis_minimum', 'axis_maximum', 'extruder')},
+                    'max_temp': [settings.get('extruder' + (str(i) if i else ''), {}).get('max_temp') for i in range(SLOTS)],
+                    'feed': getattr(m, 'load_feed_mm', 55.),
+                    'purge': getattr(m, 'load_purge_mm', 50.),
+                    'cross_purge': getattr(m, 'cross_material_purge_mm', getattr(m, 'load_purge_mm', 50.)),
+                    'macros': [m.printer.lookup_object(name, None) is not None for name in
+                               ('gcode_macro WIPE_NOZZLE', 'gcode_macro _TIP_SHAPE_MOVES')]}
+        except (AttributeError, KeyError, TypeError, ValueError, OSError):
+            return None
+
+    def _procedure_status(self, status, eventtime):
+        key = self._procedure_status_key(status, eventtime)
+        cached = getattr(self, '_procedure_status_cache', None)
+        if key is not None and cached is not None and key == cached[0]:
+            return copy_status(cached[1])
+        self._procedure_status_cache = None
+        plans, errors = [], {}
         ace_status_cache = {}
         for head in range(SLOTS):
-            for action in ("load", "unload"):
+            for action in ('load', 'unload'):
                 try:
-                    if action == "load" and self.material.printer.lookup_object("openace", None) is not None:
-                        status["filament_procedures"].extend(self.material._openace_load_plans(head, eventtime, ace_status_cache))
+                    if action == 'load' and self.material.printer.lookup_object('openace', None) is not None:
+                        plans.extend(self.material._openace_load_plans(head, eventtime, ace_status_cache))
                     else:
-                        status["filament_procedures"].append(self.material._filament_plan(head, action, eventtime, ace_status_cache))
+                        plans.append(self.material._filament_plan(head, action, eventtime, ace_status_cache))
                 except (ValueError, OSError, KeyError, AttributeError, TypeError) as error:
-                    status["filament_procedure_errors"]["h%d:%s" % (head, action)] = str(error)
-        return status
+                    errors['h%d:%s' % (head, action)] = str(error)
+        result = (plans, errors)
+        if key is not None:
+            self._procedure_status_cache = (copy.deepcopy(key), copy.deepcopy(result))
+        return result
 
 
     @_status_observation

@@ -178,6 +178,20 @@ int main(int argc, char **argv) {
     unlink(device);
     assert(touch_corner(device) == -1); // A missing device is never created.
     assert(access(device, F_OK) == -1);
+    // A shared observation replaces both periodic requests, but never expires
+    // the saved preference or invents a door edge after a telemetry gap.
+    wmp_case_light_observe_status(-1, -1, -1);
+    assert(!atomic_load(&shared_status_active)); // Legacy fallback remains usable.
+    wmp_case_light_observe_status(1, 1, 1000);
+    assert(atomic_load(&shared_status_active) && atomic_load(&cached_preference) == 1);
+    assert(shared_door_state(999) == -1 && shared_door_state(1000) == 1);
+    assert(shared_door_state(3000) == 1 && shared_door_state(3001) == -1);
+    wmp_case_light_observe_status(7, 4, 2000);
+    assert(atomic_load(&cached_preference) == 1 && shared_door_state(2000) == -1);
+    wmp_case_light_observe_status(0, 0, 3000);
+    assert(!atomic_load(&cached_preference) && shared_door_state(3000) == 0);
+    wmp_case_light_observe_status(-1, -1, -1);
+    assert(atomic_load(&shared_status_active) && shared_door_state(4000) == -1);
     door_wake_enabled = 0; door_wake_poll(); // Disabled: no request, no touch.
     return 0;
 }

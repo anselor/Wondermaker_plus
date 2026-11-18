@@ -105,6 +105,9 @@ inline std::string filament_recipe_service_reason(const Json&data,const std::str
  if(active==head)return "Wait for the filament operation on Head "+std::to_string(active[1]-'0'+1)+" to finish before changing its recipe.";
  return {};
 }
+inline bool filament_details_ready(const Json&data){
+ return data.value("filament_details_protocol",0)!=1||data.value("filament_details_ready",false);
+}
 // Backend proves this physical head is unused by the current stream. This is
 // additive permission, never an inference from displayed logical mappings.
 inline bool filament_recipe_write_allowed(const Json&data,const std::string&head){

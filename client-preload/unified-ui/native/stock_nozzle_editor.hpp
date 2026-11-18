@@ -14,6 +14,7 @@ class StockNozzleEditor {
 public:
  std::function<Receipt(const Json&)> submit;
  bool active()const{return stock_object_valid(root_);}
+ bool visible()const{return stock_object_visible(root_);}
  void close(){auto*p=root_;root_=nullptr;if(stock_object_valid(p))stock_function<void(*)(void*)>(lv_obj_del)(p);reset();}
  void update(const Json&data){
   data_=data;if(!active())return;
@@ -65,7 +66,7 @@ private:
  bool viewable()const{return data_.value("fresh",false)&&data_.value("owner","")=="standalone"&&data_.value("capabilities",Json::object()).value("save_nozzle",false);}
  bool identification_pending()const{const auto state=data_.value("identification",Json::object()).value("state","");return state=="pending"||state=="running";}
  bool printing()const{const auto state=data_.value("job",Json::object()).value("state","");return state=="printing"||state=="paused";}
- bool available()const{return viewable()&&!identification_pending();}
+ bool available()const{return viewable()&&filament_details_ready(data_)&&!identification_pending();}
  Json draft()const{unsigned m=stock_function<unsigned(*)(void*)>(lv_dropdown_get_selected)(material_),d=stock_function<unsigned(*)(void*)>(lv_dropdown_get_selected)(diameter_);if(m<1||m>2||d<1||d>4)return Json();return {{"head",head_},{"material",m==1?"Hardened steel":"Stainless steel"},{"diameter",double(d)/5.0},{"expected",revision_}};}
  std::string application_notice()const{
   if(printing())return "Finish or cancel the print before changing nozzle settings.";

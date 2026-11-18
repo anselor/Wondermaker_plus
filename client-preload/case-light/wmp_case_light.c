@@ -25,6 +25,7 @@
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/time.h>
+#include <time.h>
 #include <unistd.h>
 
 #define FNV_INIT UINT64_C(0xcbf29ce484222325)
@@ -77,6 +78,29 @@ static int (*original_low)(void), (*original_high)(void), (*original_get)(void);
 static void (*original_brightness)(unsigned int);
 static unsigned char *screen_led_on;
 static atomic_int cached_preference = -1;
+/* The unified UI owns one periodic status request. Legacy screens retain the
+ * polling fallback until the first shared observation is explicitly published. */
+static atomic_int shared_status_active;
+static atomic_int shared_doors = -1;
+static atomic_llong shared_status_at = -1;
+
+void wmp_case_light_observe_status(int preference, int doors, long long at_ms)
+{
+    if (at_ms < 0 && !atomic_load(&shared_status_active)) return;
+    if (at_ms >= 0 && (preference == 0 || preference == 1))
+        atomic_store(&cached_preference, preference);
+    atomic_store(&shared_doors, doors >= 0 && doors <= 3 ? doors : -1);
+    atomic_store(&shared_status_at, at_ms);
+    atomic_store(&shared_status_active, 1);
+}
+
+static int shared_door_state(long long now_ms)
+{
+    long long at = atomic_load(&shared_status_at);
+    return at >= 0 && now_ms >= at && now_ms - at <= 2000
+        ? atomic_load(&shared_doors) : -1;
+}
+
 static int refresh_preference(void);
 static void (*run_gcode)(void *);
 static void (*string_construct)(void *), (*string_destroy)(void *);
@@ -218,8 +242,15 @@ static void door_wake_poll(void)
     static int last = -1;
     char response[2048];
     if (!door_wake_enabled) return;
-    int doors = moonraker_request(DOOR_QUERY, sizeof DOOR_QUERY - 1, response, sizeof response)
-        ? -1 : parse_doors(response);
+    int doors;
+    if (atomic_load(&shared_status_active)) {
+        struct timespec now;
+        doors = clock_gettime(CLOCK_MONOTONIC, &now) ? -1
+            : shared_door_state((long long)now.tv_sec * 1000 + now.tv_nsec / 1000000);
+    } else {
+        doors = moonraker_request(DOOR_QUERY, sizeof DOOR_QUERY - 1, response, sizeof response)
+            ? -1 : parse_doors(response);
+    }
     if (!door_opened(doors, &last) || !backlight_off(BACKLIGHT_VALUE)) return;
     logmsg(touch_corner(TOUCH_DEVICE) ? "door opened: screen wake touch failed"
                                       : "door opened: screen wake touch sent");
@@ -254,7 +285,7 @@ static void *gpio_permissions(void *unused)
      */
     for (;;) {
         grant_gpio("/sys/class/gpio/gpio76/value", gpio_owner);
-        refresh_preference();
+        if (!atomic_load(&shared_status_active)) refresh_preference();
         door_wake_poll();
         usleep(500000);
     }

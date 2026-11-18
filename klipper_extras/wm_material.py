@@ -192,6 +192,8 @@ class WMMaterial:
         self.printer.lookup_object("webhooks").register_endpoint(
             "wmp/filament/cancel", self._handle_filament_cancel)
         self.printer.lookup_object("webhooks").register_endpoint(
+            "wmp/filament/details", self._material_status().handle_details)
+        self.printer.lookup_object("webhooks").register_endpoint(
             "wmp/print/cancel_review", self._handle_print_cancel_review)
         self.printer.lookup_object("webhooks").register_endpoint(
             "wmp/print/cancel", self._handle_print_cancel)

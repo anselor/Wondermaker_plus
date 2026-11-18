@@ -858,7 +858,8 @@ def test_status_publishes_supported_material_catalogue(material):
     assert status['filament_materials'] == [name for name, temperature in MATERIALS]
     assert status['filament_materials'][18:] == ['PCTG', 'PA6', 'PA12', 'PP']
     assert status['filament_procedures'] == []
-    assert len(status['filament_procedure_errors']) == 8
+    assert status['filament_procedure_errors'] == {}
+    assert len(material.get_status(1., detailed=True)['filament_procedure_errors']) == 8
 
 
 def openace_start_fixture(print_material):
@@ -10393,3 +10394,15 @@ def test_service_shared_pickup_failure_cannot_proceed_to_heating(service_materia
     with pytest.raises(ValueError, match='current fail_flag=%d' % fault):
         material._prepare_service(2, context)
     assert calls[-1] == '_LOCK_TOOL T=2 SERVICE=1'
+
+
+def test_lane_projection_reuses_rows_until_presence_or_profile_changes(filament_check):
+    material, sensor, _ = filament_check
+    rows = material._lane_data(1.)
+    assert material._lane_data(2.) is rows
+    material.cmd_SET_FILAMENT(profile_command(material, PROFILE=json.dumps({'brand':'Updated','material':'PETG','color':'#ab1234'}).encode().hex()))
+    updated = material._lane_data(3.)
+    assert updated is not rows and updated['wmplus_tool_2']['brand'] == 'Updated'
+    sensor.detected = False
+    empty = material._lane_data(4.)
+    assert empty is not updated and empty['wmplus_tool_2']['loaded'] is False

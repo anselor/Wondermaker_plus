@@ -7,7 +7,8 @@ namespace wmp_ui { namespace native {
 class HomeMini {
 public:
  std::function<void()> open_filaments;
- void update(const Json&data,void*main,void*first_stock_icon){
+ ~HomeMini(){clear();}
+ void update(const Json&data,void*main,void*first_stock_icon,bool data_changed=true){
   if(!valid(main)||!valid(first_stock_icon)||!descendant(first_stock_icon,main)||!shown(main)){clear();return;}
   auto display=call<void*(*)()>(lv_disp_get_default)();auto screen=display?call<void*(*)(void*)>(lv_disp_get_scr_act)(display):nullptr;
   if(!screen||!descendant(main,screen)){clear();return;}
@@ -15,6 +16,10 @@ public:
   if(!parent||parent==main){clear();return;}
   Area bounds{},content{};call<void(*)(void*,Area*)>(lv_obj_get_coords)(parent,&bounds);call<void(*)(void*,Area*)>(lv_obj_get_content_coords)(parent,&content);
   int width=bounds.x2-bounds.x1+1,height=bounds.y2-bounds.y1+1;if(width<80||height<35||width>300||height>150){clear();return;}
+  if(root_&&valid(root_)&&parent==parent_){
+   hide_originals(parent);
+   if(!data_changed&&width==width_&&height==height_)return;
+  }
   bool stale=!data.value("fresh",false)||data.value("owner","")=="unknown";
   auto units=data.value("units",Json::array()),sources=data.value("sources",Json::array());
   bool ace=data.value("owner","")=="openace";bool alert=ace&&!data.value("candidates",Json::array()).empty();
@@ -30,6 +35,7 @@ public:
    call<void*(*)(void*,void(*)(void*),int,void*)>(lv_obj_add_event_cb)(root_,&deleted,33,this);
    call<void(*)(void*,unsigned)>(lv_obj_add_flag)(root_,2);
    call<void*(*)(void*,void(*)(void*),int,void*)>(lv_obj_add_event_cb)(root_,&pressed,7,this);
+   hide_originals(parent);
   }else{
    // Decorative children cannot receive input. Keep their parent touch target
    // alive across freshness, presence and colour updates.
@@ -38,7 +44,7 @@ public:
    call<void(*)(void*,int,int)>(lv_obj_set_pos)(root_,bounds.x1-content.x1,bounds.y1-content.y1);
    call<void(*)(void*,int,int)>(lv_obj_set_size)(root_,width,height);
   }
-  signature_=signature.dump();
+  signature_=signature.dump();width_=width;height_=height;
   if(stale){label(root_,"status","Status\nunavailable",3,5,width-6,height-10);return;}
   if(ace&&!units.empty()){
    // Up to eight registered ACEs fit as two rows; remaining units have a count.
@@ -73,8 +79,38 @@ public:
   }
   if(alert){auto badge=box(root_,"alert",width-17,0,17,19,0xffed7900);label(badge,"alert-text","!",0,0,17,19);}
  }
- void clear(){if(root_&&valid(root_))call<void(*)(void*)>(lv_obj_del)(root_);root_=nullptr;parent_=nullptr;signature_.clear();decorations_.clear();}
+ void clear(){restore_originals();if(root_&&valid(root_))call<void(*)(void*)>(lv_obj_del)(root_);root_=nullptr;parent_=nullptr;signature_.clear();decorations_.clear();width_=height_=0;}
 private:
+ struct Original {void*object;bool hidden;};std::vector<Original>originals_;void*originals_parent_=nullptr;int width_=0,height_=0;
+ // Covered stock feeder icons can be animated. Keep them hidden, rather than
+ // merely painting over them, so their animation cannot keep dirtying our UI.
+ void hide_originals(void*parent){
+  if(originals_parent_!=parent){restore_originals();originals_parent_=parent;}
+  const auto count=call<unsigned(*)(void*)>(lv_obj_get_child_cnt)(parent);
+  for(unsigned i=0;i<count&&i<32;++i){
+   auto*child=call<void*(*)(void*,int)>(lv_obj_get_child)(parent,int(i));
+   if(child==root_||!valid(child))continue;
+   const auto found=std::find_if(originals_.begin(),originals_.end(),[child](const Original&o){return o.object==child;});
+   const bool hidden=call<bool(*)(void*,unsigned)>(lv_obj_has_flag)(child,1);
+   if(found==originals_.end()){
+    if(!call<void*(*)(void*,void(*)(void*),int,void*)>(lv_obj_add_event_cb)(child,&original_deleted,33,this))continue;
+    originals_.push_back({child,hidden});
+   }
+   if(!hidden)call<void(*)(void*,unsigned)>(lv_obj_add_flag)(child,1);
+  }
+ }
+ void restore_originals(){
+  auto saved=std::move(originals_);auto*parent=originals_parent_;originals_parent_=nullptr;
+  for(const auto&o:saved)if(valid(o.object)&&call<void*(*)(void*)>(lv_obj_get_parent)(o.object)==parent&&
+      call<bool(*)(void*,void(*)(void*))>(lv_obj_remove_event_cb)(o.object,&original_deleted)){
+   if(call<bool(*)(void*,unsigned)>(lv_obj_has_flag)(o.object,1)!=o.hidden)
+    call<void(*)(void*,unsigned)>(o.hidden?lv_obj_add_flag:lv_obj_clear_flag)(o.object,1);
+  }
+ }
+ static void original_deleted(void*event)noexcept{auto*self=static_cast<HomeMini*>(call<void*(*)(void*)>(lv_event_get_user_data)(event));if(!self)return;
+  auto*object=call<void*(*)(void*)>(lv_event_get_target)(event);
+  self->originals_.erase(std::remove_if(self->originals_.begin(),self->originals_.end(),[object](const Original&o){return o.object==object;}),self->originals_.end());
+ }
  struct Area{short x1,y1,x2,y2;};void*root_=nullptr,*parent_=nullptr;std::string signature_;std::map<std::string,void*>decorations_;
  template<class F>static F call(std::uintptr_t p){return LvglSurface::call<F>(p);}
  static bool valid(void*p){return p&&call<bool(*)(void*)>(lv_obj_is_valid)(p);}
@@ -100,7 +136,7 @@ private:
   call<void(*)(void*,int,int)>(lv_obj_set_pos)(p,x,y);call<void(*)(void*,int,int)>(lv_obj_set_size)(p,w,h);
   color(p,lv_obj_set_style_text_color,0xffffffff);style(p,lv_obj_set_style_text_align,1);call<void(*)(void*,const char*)>(lv_label_set_text)(p,text.c_str());
  }
- static void deleted(void*event)noexcept {auto*self=static_cast<HomeMini*>(call<void*(*)(void*)>(lv_event_get_user_data)(event));if(self){self->root_=nullptr;self->parent_=nullptr;self->decorations_.clear();}}
+ static void deleted(void*event)noexcept {auto*self=static_cast<HomeMini*>(call<void*(*)(void*)>(lv_event_get_user_data)(event));if(self){self->restore_originals();self->root_=nullptr;self->parent_=nullptr;self->decorations_.clear();self->signature_.clear();}}
  static void pressed(void*event)noexcept {try{
   auto*self=static_cast<HomeMini*>(call<void*(*)(void*)>(lv_event_get_user_data)(event));
   if(!self||!valid(self->root_)||!shown(self->root_)||call<void*(*)(void*)>(lv_event_get_target)(event)!=self->root_)return;

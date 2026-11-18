@@ -90,6 +90,7 @@ public:
   label("loaded-state",provenance,20,height-128,164,22);
   button("load","Load",12,height-94,180,38);button("unload","Unload",12,height-94,180,38);
   visible("load",is_empty&&!ace_managed);visible("unload",is_loaded);
+  for(const auto&id:{"load","unload"})enabled(id,data.value("fresh",false)&&filament_details_ready(data));
   const std::string actual=selected.is_object()&&selected.contains("actual")?std::to_string(int(selected["actual"].get<double>())):"?";
   label("actual","Nozzle temperature",208,height-178,middle,22);
   button("target",actual+" / "+std::to_string(selected.is_object()?selected.value("target",0):0)+" C",208,height-154,middle-44,40);

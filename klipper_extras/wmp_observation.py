@@ -3,6 +3,27 @@
 import copy
 from functools import wraps
 
+_ATOMIC = frozenset((str, int, float, bool, type(None)))
+
+
+def copy_status(value):
+    """Copy JSON-shaped status trees without deepcopy's object reconstruction.
+
+    These observations contain acyclic records, lists and scalar values. Keep
+    tuple metadata intact and defer unfamiliar objects to their copy protocol.
+    Command-side snapshots continue to use deepcopy where aliasing can matter.
+    """
+    kind = type(value)
+    if kind in _ATOMIC:
+        return value
+    if kind is dict:
+        return {key: copy_status(item) for key, item in value.items()}
+    if kind is list:
+        return [copy_status(item) for item in value]
+    if kind is tuple:
+        return tuple(copy_status(item) for item in value)
+    return copy.deepcopy(value)
+
 
 def _status_observation(method):
     """Reuse an observation only within one synchronous status publication.
@@ -24,6 +45,6 @@ def _status_observation(method):
             cache[key] = method(self, *args, **kwargs)
         # Callers may enrich returned records or build an edited profile draft.
         # Neither must mutate the shared observation within this publication.
-        return copy.deepcopy(cache[key])
+        return copy_status(cache[key])
     return observe
 

@@ -6,8 +6,10 @@ import json
 import math
 
 try:
+    from .wmp_observation import _status_observation
     from .wmp_filament_types import MATERIALS, GENERIC_NOZZLE_RANGES, material_family, cross_family_purge, transition_temperature
 except ImportError:
+    from wmp_observation import _status_observation
     from wmp_filament_types import MATERIALS, GENERIC_NOZZLE_RANGES, material_family, cross_family_purge, transition_temperature
 
 def service_progress_steps(head, context, phase_name="preparing"):
@@ -41,6 +43,7 @@ class FilamentPlanning:
             return {"ready": False, "reason": "Printer position is unavailable. Wait for fresh printer status."}
 
 
+    @_status_observation
     def _service_context(self, head, now, allow_homing=False, allow_history=False, offset_heads=()):
         """Capture calibrated travel and whether stock homing is required."""
         if self.material._identification_pending(now):

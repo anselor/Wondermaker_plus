@@ -1,10 +1,53 @@
+#include "native/gui_status_snapshot.hpp"
+#include "native/case_light_status.hpp"
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "native/projection.hpp"
 #include "screens.hpp"
 #include <cassert>
 #include <fstream>
 using namespace wmp_ui;
+static int light_calls, light_preference, light_doors;static long long light_at;
+static void light_observation(int preference,int doors,long long at){++light_calls;light_preference=preference;light_doors=doors;light_at=at;}
 int main(int argc,char**argv){
+ {
+  wmp_ui::native::GuiStatusSnapshot cache;
+  Json source={{"fresh",true},{"printer_state","ready"},{"payload",Json::array({1,2,3})}};
+  const auto&view=cache.observe(source,100,100,1);assert(cache.changed()&&view["fresh"]==true);
+  const auto*payload=&view.at("payload").at(0);
+  const auto&same=cache.observe(source,100,200,1);assert(!cache.changed()&&same["status_age_ms"]==100);
+  assert(&same.at("payload").at(0)==payload); // No payload allocation on GUI-only ticks.
+  cache.observe(source,100,2100,1);assert(!cache.changed());
+  assert(cache.observe(source,100,2101,1)["fresh"]==false&&cache.changed());
+  cache.observe(source,100,2200,1);assert(!cache.changed());
+  assert(cache.observe(source,100,4101,1)["display_fresh"]==false&&cache.changed());
+  assert(cache.observe(source,5000,5000,2)["fresh"]==true&&cache.changed());
+  source["payload"][0]=4;assert(cache.observe(source,5000,5001,3)["payload"][0]==4&&cache.changed());
+  assert(cache.observe(source,5000,4999,3)["fresh"]==false&&cache.changed());
+  source["fresh"]=false;assert(cache.observe(source,5000,5002,4)["fresh"]==false&&cache.changed());
+  assert(source.count("status_age_ms")==0); // Shared input remains immutable.
+ }
+
+ {
+  using namespace wmp_ui::native;
+  assert(!publish_case_light_status(Json::object(),1,light_observation)&&light_calls==0);
+  Json state={{"wmp_case_light",{{"policy_version",2},{"enabled",true}}},
+    {"gcode_button Door_button1",{{"state","PRESSED"}}},
+    {"gcode_button Door_button2",{{"state","RELEASED"}}}};
+  assert(publish_case_light_status(state,42,light_observation));
+  assert(light_calls==1&&light_preference==1&&light_doors==2&&light_at==42);
+  state["wmp_case_light"]["enabled"]=false;
+  state["gcode_button Door_button1"]["state"]="RELEASED";
+  assert(publish_case_light_status(state,43,light_observation)&&light_preference==0&&light_doors==3);
+  state["wmp_case_light"]["enabled"]=1;
+  state.erase("gcode_button Door_button1");state.erase("gcode_button Door_button2");
+  assert(publish_case_light_status(state,44,light_observation)&&light_preference==-1&&light_doors==-1);
+  state["wmp_case_light"]["policy_version"]=1;
+  assert(!publish_case_light_status(state,45,light_observation));
+  invalidate_case_light_status(light_observation);assert(light_at==-1&&light_preference==-1&&light_doors==-1);
+  state["wmp_case_light"]["policy_version"]=2;state["webhooks"]={{"state","shutdown"}};
+  assert(!publish_case_light_status(state,46,light_observation)&&light_at==-1);
+ }
+
  {Json raw_status={{"wm_material",{{"toolchange_pause",{{"manual_toolhead_available",true},{"manual_toolhead_reason",""}}}}}};
   const auto data=native::project(raw_status,Json::object(),false,"test");assert(data.at("toolchange_pause").at("manual_toolhead_available")==true);}
 

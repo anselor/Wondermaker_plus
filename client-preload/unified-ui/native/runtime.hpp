@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
+#include "case_light_status.hpp"
+#include "gui_status_snapshot.hpp"
 #include "stock_api.hpp"
 #include "../typed_management.hpp"
 #include "home_mini.hpp"
@@ -288,8 +290,9 @@ public:
   }
   return wrapped;
  }
- void update_stock_calibration(){
-  auto data=stock_snapshot();{std::lock_guard<std::mutex>lock(mutex_);data["maintenance_save_requested"]=calibration_save_sent_;}
+ void update_stock_calibration(){update_stock_calibration(stock_snapshot());}
+ void update_stock_calibration(const Json&snapshot){
+  auto data=snapshot;{std::lock_guard<std::mutex>lock(mutex_);data["maintenance_save_requested"]=calibration_save_sent_;}
   calibration_status_.update(data);
  }
  void leave_stock_calibration(){
@@ -305,12 +308,13 @@ public:
   }
   calibration_status_.created(nullptr);if(stock_)stock_("auto_check_prepare_page");
  }
- std::string stock_maintenance_reason(){
+ std::string stock_maintenance_reason(){return stock_maintenance_reason(stock_snapshot());}
+ std::string stock_maintenance_reason(const Json&data){
   if(stock_calibration_reserved())return "Waiting for the calibration worker to finish.";
 
   // An open editor, review, file copy or terminal result is UI state, not a
   // machine reservation. Hold only actual queued/unresolved physical requests.
-  const auto data=stock_snapshot();const auto owner=data.value("owner","");
+  const auto owner=data.value("owner","");
   auto pending=[&](const Json&r){const auto state=r.value("state","");return r.value("delivery_pending",false)||state=="pending"||state=="running"||state=="printing"||state=="paused"||(owner!="standalone"&&(state=="unknown"||state=="stopped"));};
   if(cancel_worker_&&pending(cancel_worker_->result()))return "Waiting for print cancellation: state="+rejection_value(cancel_worker_->result().value("state",""))+".";
   if(recovery_worker_&&pending(recovery_worker_->result()))return "Waiting for recovery: state="+rejection_value(recovery_worker_->result().value("state",""))+".";
@@ -339,10 +343,12 @@ public:
   report_rejection("maintenance",reason);
   std::lock_guard<std::mutex>lock(mutex_);if(maintenance_refusal_.empty())maintenance_refusal_=std::move(reason);
  }
- void update_identification(){
-  const auto data=stock_snapshot();identification_flow_.observe(data);
-  const bool restart=stock_maintenance_allowed()&&identification_flow_.can_restart(data);
-  identification_panel_.update(data,identification_flow_.message(data),restart||identification_flow_.can_start(data,stock_maintenance_allowed()),restart,!identification_flow_.blocks_navigation(data));
+ void update_identification(){update_identification(stock_snapshot());}
+ void update_identification(const Json&data){
+  identification_flow_.observe(data);
+  const bool allowed=stock_maintenance_reason(data).empty();
+  const bool restart=allowed&&identification_flow_.can_restart(data);
+  identification_panel_.update(data,identification_flow_.message(data),restart||identification_flow_.can_start(data,allowed),restart,!identification_flow_.blocks_navigation(data));
  }
  bool identification_blocks_navigation(){const auto data=stock_snapshot();identification_flow_.observe(data);return identification_flow_.blocks_navigation(data);}
  void stock_identification_created(void*page,bool setup=false){if(setup)onboarding_=true;identification_panel_.created(page,setup);update_identification();}
@@ -488,10 +494,11 @@ public:
   }
   return probe_editor_worker_&&(action=="STOP"?probe_editor_worker_->stop():probe_editor_worker_->act(action,step));
  }
- Json probe_editor_delivery(){
+ Json probe_editor_delivery(){return probe_editor_delivery(stock_snapshot());}
+ Json probe_editor_delivery(const Json&data){
   auto view=probe_editor_worker_?probe_editor_worker_->result():Json{{"invalidated",true},{"message","Probe editor transport unavailable."}};
   if(view.contains("actions")&&view["actions"].value("START",false)){
-   const auto reason=stock_maintenance_reason();view["actions"]["START"]=reason.empty();
+   const auto reason=stock_maintenance_reason(data);view["actions"]["START"]=reason.empty();
    if(!reason.empty())view["message"]=reason;
   }
   return view;
@@ -667,6 +674,9 @@ public:
    std::string query="/printer/objects/query?webhooks&print_stats&toolhead=extruder";
    for(const auto&key:{"extruder","extruder1","extruder2","extruder3"})if(std::find(objects.begin(),objects.end(),key)!=objects.end())query+="&"+std::string(key);
    if(std::find(objects.begin(),objects.end(),"wm_material")!=objects.end())query+="&wm_material";
+   if(std::find(objects.begin(),objects.end(),"wmp_case_light")!=objects.end())query+="&wmp_case_light=enabled,policy_version";
+   for(const auto*door:{"gcode_button Door_button1","gcode_button Door_button2"})
+    if(std::find(objects.begin(),objects.end(),door)!=objects.end())query+="&gcode_button%20"+std::string(door+13)+"=state";
    if(!present){
     if(std::find(objects.begin(),objects.end(),"virtual_sdcard")!=objects.end())query+="&virtual_sdcard=is_active";
     if(std::find(objects.begin(),objects.end(),"pause_resume")!=objects.end())query+="&pause_resume=is_paused";
@@ -679,6 +689,14 @@ public:
    const auto query_ms=received_at-query_at;if(query_ms>diagnostics.status_query_max_ms.load())diagnostics.status_query_max_ms.store(query_ms);
    poll_stage=3;if(!wmp_openace::ScreenModel::acceptable_payload(body))throw std::runtime_error("Status exceeds bounded reply limit");
    auto status=Json::parse(body).at("result").at("status");Json ace=Json::object();
+   if(filament_details_needed_.load()&&status.value("wm_material",Json::object()).value("filament_details_protocol",0)==1){
+    const auto details_body=http_.get("/printer/wmp/filament/details");
+    if(!wmp_openace::ScreenModel::acceptable_payload(details_body))throw std::runtime_error("Filament details exceed bounded reply limit");
+    auto details=Json::parse(details_body).at("result");const auto&base=status.at("wm_material");
+    if(!details.is_object()||!details.value("filament_details_ready",false)||details.value("session_id","")!=base.value("session_id","")||details.value("command_generation",-1LL)!=base.value("command_generation",-2LL))throw std::runtime_error("Filament detail context changed");
+    status["wm_material"]=std::move(details);
+   }
+   publish_case_light_status(status,received_at,case_light_status_sink());
    if(present){if(!status.contains("openace")||!status["openace"].is_object())throw std::runtime_error("openACE unavailable");ace=status["openace"];}
    const auto helper=status.value("wm_material",Json::object());
    const auto session=helper.value("session_id",Json()).dump()+"/"+ace.value("session_id",Json()).dump();
@@ -724,7 +742,7 @@ public:
    // still expires normally; a slow POST must not hide a newly received status.
    {std::lock_guard<std::mutex>lock(mutex_);
     const auto gap=received_at-at_;if(at_>=0&&gap>diagnostics.status_gap_max_ms.load())diagnostics.status_gap_max_ms.store(gap);
-    normalized_=std::move(normalized);raw_=std::move(ace);at_=received_at;
+    normalized_=std::move(normalized);raw_=std::move(ace);at_=received_at;++status_publication_;
    }
    diagnostics.status_received_at.store(received_at);
    poll_stage=5;worker_.deliver(received_at);
@@ -742,6 +760,7 @@ public:
    }
 
   }catch(...){
+   invalidate_case_light_status(case_light_status_sink());
    // Preserve the same fail-closed path for every exception. Record only a
    // fixed transport category, never exception text from backend responses.
    int failure_kind=int(wmp_openace::HttpFailureKind::Other);bool rediscover=true;
@@ -767,11 +786,12 @@ public:
    if(recovery_worker_)recovery_worker_->observe(Json::object(),false);
    if(resolution_worker_)resolution_worker_->observe(Json::object(),false);
    if(retirement_worker_)retirement_worker_->observe(Json::object(),false);
-   std::lock_guard<std::mutex>lock(mutex_);normalized_["fresh"]=false;
+   std::lock_guard<std::mutex>lock(mutex_);if(!normalized_.is_object()||normalized_.value("fresh",false)){normalized_["fresh"]=false;++status_publication_;}
   }
  }
  void gui_step()noexcept {
   try {
+   filament_details_needed_.store(stock_filament_.visible()||filament_procedure_.visible()||nozzle_editor_.visible());
    std::string maintenance_reason;
    {std::lock_guard<std::mutex>lock(mutex_);maintenance_reason.swap(maintenance_refusal_);}
    if(!maintenance_reason.empty()){
@@ -903,10 +923,11 @@ public:
     finish_native_discard(retirement);
    }
    {std::string message;{std::lock_guard<std::mutex>lock(mutex_);message.swap(off_message_);}if(!message.empty())stock_filament_.message(message);}
+   const auto&gui_data=gui_snapshot();
    auto snapshot=channel_.latest();int req=requested_.exchange(-1);
    const std::string service_action=req>=30&&req<=33?"nozzle":req>=20&&req<=27?(req<24?"load":"unload"):"";
    if(service_action=="nozzle"){
-    nozzle_editor_.update(stock_snapshot());
+    nozzle_editor_.update(gui_data);
     auto*screen=stock_function<void*(*)(void*)>(lv_disp_get_scr_act)(stock_function<void*(*)()>(lv_disp_get_default)());
     nozzle_editor_.show(screen,unsigned(req-30));
     return;
@@ -915,13 +936,14 @@ public:
    // The shared backend publishes its latest receipt. Consume both UI owners'
    // terminal results even while their views are hidden, before another action
    // can replace that receipt.
-   update_tool_view();update_stock_edit();
-   diagnostics_.update(stock_snapshot());
-   update_stock_calibration();
-   probe_editor_panel_.update(probe_editor_delivery());
+   diagnostics_.update(gui_data);
+   probe_editor_panel_.update(probe_editor_delivery(gui_data));
    if(probe_editor_worker_&&probe_editor_panel_.visible())probe_editor_worker_->auto_review();
-   update_identification();
-   const auto calibration_data=stock_snapshot();calibration_flow_.observe(calibration_data);
+   if(gui_status_.changed()||req>=0||calibration_flow_.blocked()){
+   update_tool_view(gui_data);update_stock_edit(gui_data);
+   update_stock_calibration(gui_data);
+   update_identification(gui_data);
+   const auto&calibration_data=gui_data;calibration_flow_.observe(calibration_data);
    if(calibration_flow_.needs_checkpoint(calibration_data)){
     calibration_flow_.sent(calibration_data);
     try{if(!calibration_sender_||!calibration_sender_(calibration_flow_.command()))calibration_flow_.send_failed();}
@@ -933,9 +955,10 @@ public:
     if(calibration_destination!="guide_calibrating_page")begin_onboarding();
     else if(stock_)stock_(calibration_destination.c_str());
    }
-   resume_progress_.update(stock_snapshot());
-   print_preparation_.update(stock_snapshot());
-   pause_prompt_.update(stock_snapshot(),req<0&&!active()&&!onboarding_&&tool_receipt_.empty()&&stock_edit_receipt_.empty()&&!stock_identity_.active());
+   resume_progress_.update(gui_data);
+   print_preparation_.update(gui_data);
+   pause_prompt_.update(gui_data,req<0&&!active()&&!onboarding_&&tool_receipt_.empty()&&stock_edit_receipt_.empty()&&!stock_identity_.active());
+   }
    if(req>=0){usb_preview_.close();stock_preview_.close();if(native_preview_session_)pending_preview_.clear();}
    update_usb_preview();update_stock_preview();
    bool status_fresh=false,standalone_fresh=false,ace_fresh=false,standalone_known=false;
@@ -964,14 +987,14 @@ public:
     if(!stock_)return;
     tool_head_=unsigned(req-1);ace_mode_active_=false;tool_mode_active_=true;
     legacy_.management().deactivate();legacy_.material().deactivate();close();
-    stock_filament_.tool_mode(true,tool_head_);stock_filament_.tool_data(stock_snapshot(),tool_step_,tool_targets_[tool_head_]);
+    stock_filament_.tool_mode(true,tool_head_);stock_filament_.tool_data(gui_data,tool_step_,tool_targets_[tool_head_]);
     stock_("filament_page");stock_filament_.tick(true,true);
     if(!service_action.empty())tool_action(service_action);
     return;
    }
    if(req>=9&&req<=12){
     if(!standalone_fresh&&!ace_fresh)return;
-    bool head_exists=false;for(const auto&head:stock_snapshot().value("heads",Json::array()))
+    bool head_exists=false;for(const auto&head:gui_data.value("heads",Json::array()))
      if(head.value("id","")=="h"+std::to_string(req-9))head_exists=true;
     if(!head_exists){stock_filament_.message("This head is no longer configured.");return;}
     if(!stock_)return;
@@ -1001,7 +1024,7 @@ public:
    if(tool_mode_active_||ace_mode_active_)stock_filament_.tick(status_fresh,true);
    else stock_filament_.tick(standalone_fresh,standalone_fresh);
    if(req==0){close();return;}
-   update_home();
+   update_home(gui_data,gui_status_.changed());
    // Stock constructors/content adapters own all WM+ navigation. Retain the
    // installed recovery integration, but never create the prototype shell.
    if(snapshot)legacy_.tick(*snapshot);
@@ -1042,7 +1065,8 @@ private:
  StockNotice maintenance_notice_;std::string maintenance_refusal_,factory_command_reason_;
  StockNotice factory_reset_notice_;std::atomic<bool>factory_reset_refused_{false},factory_command_refused_{false};
  std::atomic<int>requested_{-1};std::function<void(const char*)>stock_;
- std::mutex mutex_;Json normalized_,raw_,objects_=Json::array();std::string discovery_session_;bool discovery_bound_=false;std::int64_t discovery_at_=-1,at_=-1,last_poll_=-1000;
+ GuiStatusSnapshot gui_status_; // GUI-only; backend publication remains under mutex_.
+ std::mutex mutex_;Json normalized_,raw_,objects_=Json::array();std::atomic<bool>filament_details_needed_{false};std::uint64_t status_publication_=0;std::string discovery_session_;bool discovery_bound_=false;std::int64_t discovery_at_=-1,at_=-1,last_poll_=-1000;
  // Selection generation is protected by mutex_; metadata generation belongs to the worker.
  std::string off_message_;
  std::unique_ptr<BoundedWorker> command_worker_,preview_worker_,off_worker_;
@@ -1069,6 +1093,9 @@ private:
  Json inspected_metadata_; // Preview-worker-only cache; reread only after a file stat change.
  std::uint64_t preview_generation_=0,metadata_generation_=0;
  std::string selected_file_,pending_preview_,metadata_path_,metadata_error_;Json metadata_,selected_options_,pending_options_;std::int64_t metadata_at_=-10000;ThumbnailCache thumbnails_;Json thumbnail_;
+ const Json&gui_snapshot(){
+  std::lock_guard<std::mutex>lock(mutex_);return gui_status_.observe(normalized_,at_,ui_.now_ms(),status_publication_);
+ }
  Json stock_snapshot(){
   std::lock_guard<std::mutex>lock(mutex_);auto data=normalized_;
   if(!data.is_object())return Json::object();
@@ -1357,8 +1384,9 @@ private:
   auto receipt=standalone_.submit({command,data.value("revision",""),data.value("owner",""),args});
   tool_receipt_=receipt.id;tool_busy_action_=action;tool_busy_head_="h"+std::to_string(tool_head_);stock_filament_.message(receipt.message);
  }
- void update_tool_view(){
-  auto data=stock_snapshot();reconcile_operation(data,channel_.latest(),stock_filament_.ace_controls().adoption_operation());stock_filament_.ace_controls().observe_adoption(data);const bool interrupted=StockFilamentProcedure::interrupted(data)||StockFilamentProcedure::interrupted(data,true);data["tool_ui_busy"]={{"pending",!tool_receipt_.empty()||(data.value("owner","")!="standalone"&&interrupted)},{"action",tool_busy_action_},{"head",tool_busy_head_},{"interrupted",interrupted}};
+ void update_tool_view(){update_tool_view(stock_snapshot());}
+ void update_tool_view(const Json&snapshot){
+  auto data=snapshot;reconcile_operation(data,channel_.latest(),stock_filament_.ace_controls().adoption_operation());stock_filament_.ace_controls().observe_adoption(data);const bool interrupted=StockFilamentProcedure::interrupted(data)||StockFilamentProcedure::interrupted(data,true);data["tool_ui_busy"]={{"pending",!tool_receipt_.empty()||(data.value("owner","")!="standalone"&&interrupted)},{"action",tool_busy_action_},{"head",tool_busy_head_},{"interrupted",interrupted}};
   filament_procedure_.update(data);nozzle_editor_.update(data);stock_filament_.interaction_blocked(filament_procedure_.active()||nozzle_editor_.active());
   stock_filament_.tool_data(data,tool_step_,tool_targets_[tool_head_]);
   if(tool_receipt_.empty()||!data.value("fresh",false))return;
@@ -1367,8 +1395,12 @@ private:
   if(tool_busy_action_=="load"||tool_busy_action_=="unload"||((tool_busy_action_=="take"||tool_busy_action_=="dock")&&filament_procedure_.has_tool_result()))filament_procedure_.result(result);
   auto state=result.value("state","");if(state=="complete"||state=="refused"||state=="failed"||(state=="unknown"&&(data.value("owner","")=="standalone"||(tool_busy_action_!="load"&&tool_busy_action_!="unload"&&tool_busy_action_!="take"&&tool_busy_action_!="dock"))))tool_receipt_.clear();
  }
- void update_stock_edit(){
-  auto data=stock_snapshot();if(!data.value("fresh",false))return;
+ void update_stock_edit(){update_stock_edit(stock_snapshot());}
+ void update_stock_edit(const Json&snapshot){
+  if(!snapshot.value("fresh",false))return;
+  Json reconciled;
+  if(stock_ace_edit_){reconciled=snapshot;reconcile_operation(reconciled,channel_.latest(),stock_edit_operation_);}
+  const auto&data=stock_ace_edit_?reconciled:snapshot;
   // A settings receipt belongs to one backend session. After a restart or
   // ownership change it cannot authorize readback or a deferred Load, and must
   // not keep unrelated maintenance blocked forever. Preserve the unknown
@@ -1386,7 +1418,6 @@ private:
    stock_filament_.ace_controls().identity_pending(false);
    stock_filament_.ace_controls().discard_drafts();stock_filament_.message(message);
   }
-  if(stock_ace_edit_)reconcile_operation(data,channel_.latest(),stock_edit_operation_);
   if(data.value("owner","")=="standalone"){
    std::array<std::string,4> materials;
    std::array<std::string,4> brands;std::vector<std::string>brand_catalogue=data.value("brands",Json::array()).get<std::vector<std::string>>();
@@ -1469,12 +1500,12 @@ private:
   if(!tool_mode_active_)stock_filament_.message(r.value("message","Waiting for filament settings confirmation."));
   if(state=="complete"||state=="refused"||state=="failed"||state=="unknown")stock_edit_receipt_.clear();
  }
- void update_home(){
+ void update_home(const Json&data,bool data_changed){
 #if defined(__aarch64__)
-  if(!surface_.verified()){mini_.clear();return;}
-  Json data;std::int64_t at;{std::lock_guard<std::mutex>lock(mutex_);data=normalized_;at=at_;}
-  if(!data.is_object()){mini_.clear();return;}data["fresh"]=data.value("fresh",false)&&at>=0&&ui_.now_ms()>=at&&ui_.now_ms()-at<=2000;
-  mini_.update(data,*reinterpret_cast<void*volatile*>(0x386cec0),*reinterpret_cast<void*volatile*>(0x386cfa8));
+  if(!surface_.verified()||!data.is_object()){mini_.clear();return;}
+  mini_.update(data,*reinterpret_cast<void*volatile*>(0x386cec0),*reinterpret_cast<void*volatile*>(0x386cfa8),data_changed);
+#else
+  (void)data;(void)data_changed;
 #endif
  }
  void close(){surface_.close();pending_preview_.clear();}

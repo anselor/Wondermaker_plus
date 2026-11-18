@@ -103,14 +103,14 @@ class MaterialSettings:
                 "physical_mapping": mapping}
 
 
-    def _nozzle_status(self, now):
+    def _nozzle_status(self, now, detailed=True):
         result = {"nozzle_settings_protocol": 0, "nozzles": {},
                   "nozzle_save": dict(getattr(self, "nozzle_save", {}))}
         store = getattr(self.material, "_nozzles", None)
         if store is None:
             return result
         try:
-            heads, revision = store.read()
+            heads, revision = store.read_status()
             settings = wmp_nozzle_runtime.active_settings(self.material.printer,
                 self.material.printer.lookup_object("configfile").get_status(now)["settings"])
             for head, values in heads.items():
@@ -119,9 +119,9 @@ class MaterialSettings:
                 if type(active) not in (int, float) or not math.isfinite(active):
                     raise ValueError("Active nozzle diameter is unavailable")
                 values["active_diameter"] = active
-                values["live_update_supported"] = self._nozzle_runtime.supported(heater)
                 values["apply_pending"] = heater in self._nozzle_runtime.pending
                 values["apply_error"] = self._nozzle_runtime.errors.get(heater, "")
+                values["live_update_supported"] = self._nozzle_runtime.status_supported(heater, fresh=detailed)
                 values["restart_required"] = not values["live_update_supported"] and abs(active - values["diameter"]) > 0.000001
             result.update(nozzle_settings_protocol=1, nozzles=heads, nozzle_revision=revision)
         except (OSError, ValueError, KeyError, AttributeError, TypeError) as error:
@@ -187,7 +187,8 @@ class MaterialSettings:
         # revision. Supported saves publish the new snapshot after commit.
         snapshot = getattr(self, '_status_profiles_snapshot', None)
         if getattr(self.material, '_status_observation_cache', None) is not None and snapshot is not None:
-            return copy.deepcopy(snapshot)
+            # The observation decorator makes the caller's isolated copy.
+            return snapshot
         try:
             result = self._read_profiles()
         except Exception:

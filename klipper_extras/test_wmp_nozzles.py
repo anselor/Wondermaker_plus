@@ -206,3 +206,64 @@ def test_cached_nozzles_do_not_hide_invalid_or_missing_configuration(store):
     os.unlink(store.ini_path)
     with pytest.raises(ValueError, match="regular file"):
         store.read()
+
+
+def test_status_reads_unchanged_files_once_and_isolates_output(store, monkeypatch):
+    reads = []
+    original = nozzle._read
+    monkeypatch.setattr(nozzle, '_read', lambda path: (reads.append(path), original(path))[1])
+    expected = store.read_status()
+    for _ in range(10):
+        actual = store.read_status()
+        assert actual == expected
+        actual[0]['h0']['diameter'] = .8
+    assert len(reads) == 2
+    store.read()  # Commands still read both complete files.
+    assert len(reads) == 4
+
+
+@pytest.mark.parametrize('replace', [False, True])
+def test_status_detects_same_size_preserved_mtime_edit(store, replace):
+    from pathlib import Path
+    before = store.read_status()
+    path = Path(store.config_path)
+    info = path.stat()
+    text = path.read_text().replace('0.400000', '0.600000')
+    if replace:
+        staged = path.with_suffix('.new')
+        staged.write_text(text)
+        os.utime(staged, ns=(info.st_atime_ns, info.st_mtime_ns))
+        os.replace(staged, path)
+    else:
+        path.write_text(text)
+        os.utime(path, ns=(info.st_atime_ns, info.st_mtime_ns))
+    after = store.read_status()
+    assert after[0]['h0']['diameter'] == .6 and after[1] != before[1]
+
+
+def test_status_rejects_file_removed_or_replaced_by_symlink(store):
+    from pathlib import Path
+    store.read_status()
+    path = Path(store.ini_path)
+    text = path.read_text()
+    path.unlink()
+    with pytest.raises(OSError): store.read_status()
+    target = path.with_suffix('.other')
+    target.write_text(text)
+    path.symlink_to(target)
+    with pytest.raises(ValueError, match='regular'): store.read_status()
+
+
+def test_status_does_not_cache_a_read_spanning_an_external_edit(store, monkeypatch):
+    from pathlib import Path
+    original = store.read
+    def changing():
+        result = original()
+        path = Path(store.ini_path)
+        path.write_text(path.read_text().replace('type0=0', 'type0=1'))
+        return result
+    monkeypatch.setattr(store, 'read', changing)
+    assert store.read_status()[0]['h0']['material'] == 'Hardened steel'
+    assert store._status_files is None
+    monkeypatch.setattr(store, 'read', original)
+    assert store.read_status()[0]['h0']['material'] == 'Stainless steel'

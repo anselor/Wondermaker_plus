@@ -58,14 +58,18 @@ class MaterialOwners:
             return {}
         profiles, revision = self.material._profiles()
         presence = self.material._loaded_filament_status(now)
+        installed = tuple(self.material.printer.lookup_object("extruder" + (str(i) if i else ""), None) is not None for i in range(4))
+        key = (revision, installed, tuple(presence["h%d" % i]["state"] == "loaded" for i in range(4)))
+        cached = getattr(self, '_lane_cache', None)
+        if cached is not None and cached[0] == key:
+            return cached[1]
         rows = {}
         for tool in range(4):
             # Inventory lanes describe physical heads, independent of job routing.
             head = tool
             if type(head) is not int or not 0 <= head < 4:
                 continue
-            heater = "extruder" if head == 0 else "extruder%d" % head
-            if self.material.printer.lookup_object(heater, None) is None:
+            if not installed[head]:
                 continue
             loaded = presence["h%d" % head]["state"] == "loaded"
             # Orca treats a nonempty material as presence, ignoring `loaded`.
@@ -83,6 +87,9 @@ class MaterialOwners:
                 "nozzle_temp_min": identity.get("nozzle_temp_min", 0),
                 "nozzle_temp_max": identity.get("nozzle_temp_max", 0),
             }
+        # Internal immutable publication: the publisher and command adapter
+        # only read these rows. Sensor/profile changes produce a new snapshot.
+        self._lane_cache = (key, rows)
         return rows
 
 

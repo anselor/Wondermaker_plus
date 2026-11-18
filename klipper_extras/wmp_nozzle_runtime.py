@@ -38,6 +38,17 @@ class NozzleRuntime:
     def __init__(self, printer, saved):
         self.printer, self.saved = printer, saved
         self.pending, self.errors, self.timer = {}, {}, None
+        self._status_supported = {}
+
+    def status_supported(self, name, fresh=False):
+        # A supported host implementation stays supported for this Klipper
+        # session. Do not repeat its geometry checks on every idle status poll.
+        # Do not cache refusals: startup objects may not be fully initialized.
+        if not fresh and self._status_supported.get(name):
+            return True
+        supported = self.supported(name)
+        self._status_supported[name] = supported
+        return supported
 
     def supported(self, name):
         extruder = self.printer.lookup_object(name, None)

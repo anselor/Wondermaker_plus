@@ -2,6 +2,8 @@
 #include "native/loopback_http.hpp"
 #include <cassert>
 int main(int argc,char**argv){
+ assert(wmp_openace::UnifiedLoopbackHttp::allowed_query("/printer/wmp/filament/details"));
+ for(const auto*path:{"/printer/wmp/filament/details?head=h0","/printer/wmp/filament/details/extra"})assert(!wmp_openace::UnifiedLoopbackHttp::allowed_query(path));
  assert(argc==2);wmp_openace::UnifiedLoopbackHttp http(std::stoi(argv[1]));
  // Scheduling delay above the former one-second deadline is still a valid reply.
  assert(wmp_openace::json::parse(http.get("/printer/objects/query?webhooks"))["result"]=="ok");

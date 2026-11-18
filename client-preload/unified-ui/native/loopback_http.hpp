@@ -67,10 +67,10 @@ static bool allowed_query(const std::string&path){
   const std::string metadata="/server/files/metadata?filename=";
   if(path.compare(0,metadata.size(),metadata)==0){auto tail=path.substr(metadata.size());if(tail.empty()||tail.size()>3072)return false;for(unsigned char c:tail)if(!((c>='a'&&c<='z')||(c>='A'&&c<='Z')||(c>='0'&&c<='9')||c=='%'||c=='-'||c=='_'||c=='.'||c=='~'))return false;return true;}
 
-  if(path==ScreenWorker::query()||path==ScreenWorker::management_query()||path=="/printer/objects/list"||path=="/server/files/roots")return true;
+  if(path==ScreenWorker::query()||path==ScreenWorker::management_query()||path=="/printer/objects/list"||path=="/server/files/roots"||path=="/printer/wmp/filament/details")return true;
   const std::string prefix="/printer/objects/query?";
   if(path.compare(0,prefix.size(),prefix)!=0)return false;
-  const std::set<std::string>allowed={"webhooks","wmp_recovery","save_variables=variables","wm_material","print_stats","virtual_sdcard=is_active","pause_resume=is_paused","configfile=settings","toolhead=extruder","extruder","extruder1","extruder2","extruder3","gcode_macro%20WMP_EXTRUDER_STEP","openace=session_id,management,heads,units,default_tool_map,inventory,loaded,devices,blocked_tools,operation,config_revision,job,material_change_prompt,manual_flow,unit_discovery,unit_settings"};
+  const std::set<std::string>allowed={"webhooks","wmp_case_light=enabled,policy_version","gcode_button%20Door_button1=state","gcode_button%20Door_button2=state","wmp_recovery","save_variables=variables","wm_material","print_stats","virtual_sdcard=is_active","pause_resume=is_paused","configfile=settings","toolhead=extruder","extruder","extruder1","extruder2","extruder3","gcode_macro%20WMP_EXTRUDER_STEP","openace=session_id,management,heads,units,default_tool_map,inventory,loaded,devices,blocked_tools,operation,config_revision,job,material_change_prompt,manual_flow,unit_discovery,unit_settings"};
   std::set<std::string>seen;std::size_t at=prefix.size();
   while(at<path.size()){auto end=path.find('&',at);auto key=path.substr(at,end==std::string::npos?end:end-at);if(!allowed.count(key)||!seen.insert(key).second)return false;if(end==std::string::npos)return true;at=end+1;}
   return false;

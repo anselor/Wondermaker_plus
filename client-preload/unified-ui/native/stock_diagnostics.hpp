@@ -62,7 +62,13 @@ public:
    if(width>=640&&width<page_width&&stock_function<int(*)(void*)>(lv_obj_get_height)(p)>=300){if(content)return;content=p;}}
   if(content)attach(content);
  }
- void update(const Json&data){data_=data;if(!visible()){close();return;}if(!stock_object_valid(text_))return;
+ void update(const Json&data){
+  // The About page needs this compact summary, not copies of every procedure,
+  // mapping and receipt on every refresh while the page is hidden.
+  data_=Json::object();
+  for(const auto*key:{"fresh","owner","status_age_ms","capabilities","print_start_protocol","openace_print_start_protocol"})
+   if(data.contains(key))data_[key]=data.at(key);
+  if(!visible()){close();return;}if(!stock_object_valid(text_))return;
   const auto value=describe(data_);if(value!=rendered_){rendered_=value;caption(text_,value);}}
  void close(){auto*p=panel_;panel_=text_=close_=nullptr;rendered_.clear();if(stock_object_valid(p))stock_function<void(*)(void*)>(lv_obj_del)(p);}
  bool open(){

@@ -154,6 +154,36 @@ class NozzleSettings:
         self.config_path = str(config_path)
         self.ini_path = str(ini_path)
         self._parsed = None
+        self._status_files = None
+
+    def _file_versions(self):
+        versions = []
+        for path in (self.config_path, self.ini_path):
+            info = os.lstat(path)
+            if not stat.S_ISREG(info.st_mode):
+                raise ValueError("Nozzle configuration must be a regular file")
+            versions.append((info.st_dev, info.st_ino, info.st_size,
+                             info.st_mtime_ns, info.st_ctime_ns))
+        return tuple(versions)
+
+    def read_status(self):
+        """Reuse display data until either file changes; commands read afresh.
+
+        ctime catches in-place rewrites that preserve length and mtime; inode
+        catches atomic replacement. Never cache a read spanning a file change.
+        """
+        try:
+            versions = self._file_versions()
+            if self._parsed is not None and versions == self._status_files:
+                return {h: dict(v) for h, v in self._parsed[2].items()}, self._parsed[3]
+            self._status_files = None
+            result = self.read()
+            if self._file_versions() == versions:
+                self._status_files = versions
+            return result
+        except (OSError, ValueError):
+            self._status_files = None
+            raise
 
     def read(self):
         config, ini = _read(self.config_path), _read(self.ini_path)

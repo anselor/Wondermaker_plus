@@ -111,3 +111,25 @@ def test_consumed_geometry_in_place_change_during_home_cannot_rewrite_snapshot(s
         obj._prepare_service(2, context)
     assert context['offsets'][2] == [0, 0, 0]
     assert scripts == ['G28 X Y\nM400']
+
+
+def test_service_context_is_shared_only_inside_one_status_publication(service_material, monkeypatch):
+    obj, objects, state = service_material
+    original = objects['save_variables'].get_status
+    reads = []
+    def read(now):
+        reads.append(now)
+        return original(now)
+    monkeypatch.setattr(objects['save_variables'], 'get_status', read)
+    obj._status_observation_cache = {}
+    try:
+        first = obj._service_context(2, 1)
+        first['offsets'][2][0] = 99
+        second = obj._service_context(2, 1)
+        assert second['offsets'][2][0] != 99
+        assert len(reads) == 1
+    finally:
+        obj._status_observation_cache = None
+    state['save_variables']['variables']['t2_offset'][0] = 0.123
+    assert obj._service_context(2, 1)['offsets'][2][0] == 0.123
+    assert len(reads) == 2  # Command admission never reuses a display observation.
