@@ -1,6 +1,6 @@
 # Safe-cancel qualification — 2026-11-18
 
-Status: stationary qualification passed; mechanical qualification pending.
+Status: stationary and bounded cold-motion checks passed. Full heated startup and cancellation mid-coupling are not qualified.
 
 Candidate: `qualification/safe-cancel-r4`, based on local R4 `6e5510e`.
 The original feature branch `feature/safe-cancel-split` (`21b21d1`) is unchanged.
@@ -50,18 +50,50 @@ instead of Klipper object names.
   actual touchscreen result was subsequently inspected on the printer.
 - Source-bound screen package verified after updating the backend label record.
 
+## Cold mechanical checks
+
+The operator explicitly approved the full home and mechanical tests. Full
+`G28` completed in 57.339 seconds, with XYZ homed, a valid physical Z reference,
+and Head 4 confirmed mounted. All heaters remained off.
+
+The existing cold tool-change fixture then mounted Head 3 successfully but
+received a `PAUSE` before its intended cancellation window. `fail_flag` stayed
+zero and the attachment sensors confirmed Head 3. The source of that pause was
+not established; it must not be reported as a mounting failure or a fully
+successful uninterrupted fixture run. The job was cancelled, rather than
+resumed. Paused cancellation completed in 6.022 seconds, cleared pause, left
+Head 3 attached, and lowered Z from 160.1675 to the 300 mm bottom coordinate.
+
+A second cold run, with Head 3 already attached, requested cancellation after
+mount confirmation but before the final XY motion drain. It completed in
+10.745 seconds, including draining queued motion and lowering Z from 150.1675
+to 300 mm. Later tool-change markers and the file tail did not run. Every
+cleanup stage completed, all heater targets were zero, `filament_used` was
+zero, pause was clear, and `fail_flag` remained zero. No sensor or head-check
+settings were bypassed. Only a dwell was shortened and an observation marker
+added to the reused fixture; its physical moves were unchanged.
+
+The cold fixture's temporary `save_position=1` macro flag was restored to zero.
+Temporary fixture copies were removed; the original uploaded files were not
+changed. Z UART PC1, 64 microsteps, the saved probe offset, extruder calibration,
+and acceleration were verified unchanged after testing.
+
 ## Limits and remaining work
 
-A fresh full home and the existing cold tool-change/cancel file have not run on
-this candidate. Automatic approval review blocked the full `G28` because of the
-earlier Z incident; explicit operator permission was requested. No rejected
-motion command was executed. Z's corrected UART is PC1, and the earlier
-measured five-millimetre movement passed.
+No cancellation was injected mid-lock/unlock. Existing R4 command-generation
+checks can reject continuation during a coupling stroke; they do not guarantee
+completion of the entire mechanical sequence after a cancel request. The
+35 actuator checks pass, including tests that deliberately prevent the
+post-homing stroke or confirmation adjustment after invalidation. AST comparison
+confirmed that `_check_command_generation`, `cmd_COUPLING_STROKE`, and
+`_recovery_actuator_stroke` are unchanged from R4. Review that existing behavior
+before claiming a general finish-the-current-coupling guarantee.
 
-Do not interpret these results as qualification of cancel inside homing,
-probing, docking, mounting, or purge motion. This feature deliberately waits
-for the current atomic sequence to finish before stopping at a boundary.
-Real heated startup and the complete startup-to-purge path remain unverified.
+Do not interpret these results as qualification of cancellation inside
+homing, probing, docking, mounting, or purge motion. The live boundary tests
+and host macro tests establish the startup stop points; real heated startup
+and the complete startup-to-purge path remain unverified. The unexplained pause
+in the first cold fixture also remains an observation requiring follow-up.
 
 Temporary qualification G-code files and the macro/include were removed.
 Raw evidence and screenshots are retained off-printer in the qualification
