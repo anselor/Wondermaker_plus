@@ -391,7 +391,7 @@ class ToolheadService:
             # dock is ambiguous and must NOT be used as a pre-retreat veto.
             self.material._recovery_actuator_stroke(False, guard)
             stage = "retreat"
-            for command in ("G90", "G0 Y310 F9600", "G0 Y270 F12000", "M400"):
+            for command in ("G90", "G0 Y310 F9600", "G0 Y270 F18000", "M400"):
                 guard()
                 gcode.run_script_from_command(command)
             guard()

@@ -197,7 +197,7 @@ def test_return_after_wipe_uses_original_logical_position_and_new_tool_state(out
     finish = names.index('_WMP_TOOL_RETURN_FINISH')
     moves = [v for n,v in m.events[finish:] if n == 'MOVE']
     assert moves[1]['gcode_position'] == pytest.approx(dict(x=100, y=150, z=14))
-    assert moves[1]['speed'] == 12000 and moves[1]['speed_factor'] == 1
+    assert moves[1]['speed'] == 30000 and moves[1]['speed_factor'] == 1
     assert not m.p['gcode_macro _WMP_TOOL_RETURN_BEGIN']['pending']
 
 
@@ -356,7 +356,8 @@ def test_standalone_wipe_restores_acceleration_and_override(axes, job):
     moves = [v for n, v in m.events if n == 'MOVE']
     assert len(moves) == 10
     assert all(v['max_accel'] == 3000. and v['speed_factor'] == 1 for v in moves)
-    assert all(v['speed'] == 12000 for v in moves)
+    assert all(v['speed'] == 30000 for v in moves[:2])
+    assert all(v['speed'] == 12000 for v in moves[2:])  # Brush contact unchanged.
     assert m.p['toolhead']['max_accel'] == 500.
     assert m.p['gcode_move']['speed_factor'] == .4
     assert m.p['gcode_move']['speed'] == 3600.

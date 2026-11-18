@@ -105,7 +105,7 @@ def test_supported_failed_pickup_unlocks_then_retreats_and_retires_outer_tail(pi
     assert calls.count('post') == 1  # Never another lock stroke.
     assert saved['current_extruder'] == 99 and saved['fail_flag'] == -2
     assert events.count('G0 Y310 F9600') == 1
-    assert events.count('G0 Y270 F12000') == 1
+    assert events.count('G0 Y270 F18000') == 1
     assert not any('_CHECK_T_SEQUENCE' in e or 'WIPE' in e or e.startswith('G28') for e in events)
 
 

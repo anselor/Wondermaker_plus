@@ -1125,7 +1125,7 @@ def test_direct_tool_fault_guard_preserves_other_owner_entry(macro, owner):
 def test_pickup_sensor_wait_is_after_retreat_and_preserves_other_owner_route():
     source = (ROOT / 'config/live/change_macros.cfg').read_text()
     lock = source.split('[gcode_macro _LOCK_TOOL]', 1)[1].split('[gcode_macro ', 1)[0]
-    assert lock.index('G0 Y310 F9600') < lock.rindex('G0 Y270 F12000') < lock.rindex('M400') < lock.index('_CHECK_T_SEQUENCE')
+    assert lock.index('G0 Y310 F9600') < lock.rindex('G0 Y270 F18000') < lock.rindex('M400') < lock.index('_CHECK_T_SEQUENCE')
     check = templates(ROOT / 'config/live')['_CHECK_T_SEQUENCE']
     printer = {'save_variables': {'variables': {'fail_flag': 0, 'is_nozzle_setting': 0}},
                'wm_material': {'session_id': 'session', 'command_generation': 4},
@@ -1336,6 +1336,12 @@ def test_shared_dock_mount_service_preserves_bed_height(entry, service):
     assert not any(line.strip().startswith(('G0 Z', 'G1 Z', 'G28 Z')) for line in script.splitlines())
     if entry == '_LOCK_TOOL':
         assert script.index('G0 Y310 F9600') < script.index('_CHECK_T_SEQUENCE T=2')
+        assert 'G0 X170 Y310 F18000' in script
+        assert 'G0 Y335.4 F9600' in script  # Controlled dock entry retained.
+        assert 'G0 Y270 F18000' in script
+    else:
+        assert 'G0 X170 Y270 F18000' in script and 'G0 Y310 F18000' in script
+        assert 'G0 Y320 F8000' in script and 'G0 Y335 F1000' in script
 
 
 @pytest.mark.parametrize('owner', ['standalone', 'openace', 'AFC'])
@@ -1365,3 +1371,20 @@ def test_y_homing_routes_through_fixed_corner_helper(params,expected):
     commands=[line.strip() for line in rendered.splitlines() if line.strip() and not line.lstrip().startswith('#')]
     assert commands.count('_WMP_HOME_XY')==expected
     assert 'G28 Y' not in commands and 'G28  Y' not in commands
+
+
+@pytest.mark.parametrize('state', ['printing', 'paused', 'standby'])
+@pytest.mark.parametrize('raise_z', [0, 1])
+def test_homing_center_travel_preserves_cleaning_and_z_sequence(state, raise_z):
+    script = templates(ROOT / 'config/live')['Z_HOMING'].render(
+        printer={'print_stats': {'state': state},
+                 'save_variables': {'variables': {'probe_tool': 2}}}, z_raise=raise_z)
+    commands = [line.strip() for line in script.splitlines() if line.strip()]
+    center = 'G1 X150 Y135 F18000'
+    assert commands.index('_CHANGE_TOOL T=2') < commands.index(center)
+    assert ('WIPE_NOZZLE' in commands) is (state in ('printing', 'paused'))
+    if 'WIPE_NOZZLE' in commands:
+        assert commands.index('WIPE_NOZZLE') < commands.index(center)
+    assert commands.index(center) < commands.index('_LEVELING_TRIGGER_S') < commands.index('M400') < commands.index('G28 Z')
+    assert ('G1 Z7 F9600' in commands) is bool(raise_z)
+    assert commands.index('G28 Z') < commands.index('STEPPER_DIAG_DISABLE CHIP="stepper_z"')

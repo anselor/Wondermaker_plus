@@ -233,6 +233,22 @@ def plan(root, directory):
             output.set(section, option, value)
             ownership.setdefault(section, {})[option] = option_hash(value)
 
+    # Upgrade the former WM+ print-return default. Leave operator-selected
+    # rates alone; this override is receipted and reversible like bed_drop.
+    section, option = 'gcode_macro _WMP_TOOL_RETURN_BEGIN', 'variable_return_speed'
+    source = output if output.has_option(section, option) else base
+    if source.has_option(section, option):
+        try:
+            old_default = float(source.get(section, option)) == 200.0
+        except ValueError:
+            old_default = False
+        if old_default:
+            if not output.has_section(section):
+                output.add_section(section)
+            value = expected.get(section, option)
+            output.set(section, option, value)
+            ownership.setdefault(section, {})[option] = option_hash(value)
+
     import io
     stream = io.StringIO()
     output.write(stream)

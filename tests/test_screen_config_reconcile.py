@@ -1095,3 +1095,15 @@ def test_install_and_upgrade_preserve_all_extruder_rotation_distances(printer):
                 for section in values} == values
         managed = (printer / reconcile.FILENAME).read_text()
         assert 'rotation_distance' not in managed
+
+
+@pytest.mark.parametrize('rate,expected', [('200.0',500.),('300.0',300.),('350.0',350.),('500.0',500.)])
+def test_print_return_upgrade_migrates_old_default_only(printer, rate, expected):
+    with (printer / 'custom.cfg').open('a') as stream:
+        stream.write('\n[gcode_macro _WMP_TOOL_RETURN_BEGIN]\nvariable_return_speed: ' + rate + '\n')
+    original = (printer / 'custom.cfg').read_bytes()
+    for _ in range(2):
+        apply_plan(printer, reconcile.plan(ROOT, printer))
+        current = vendor_parser(printer)
+        assert current.getfloat('gcode_macro _WMP_TOOL_RETURN_BEGIN', 'variable_return_speed') == expected
+        assert (printer / 'custom.cfg').read_bytes() == original
