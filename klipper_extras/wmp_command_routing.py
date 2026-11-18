@@ -304,7 +304,7 @@ class CommandRouting:
                     and getattr(cancellation, "_coupling_finish_generation", None) == generation
                     and getattr(self, "_command_generation", 0) == generation + 1
                     and not self.material.printer.is_shutdown()
-                    and not getattr(self.material.printer.lookup_object("gcode"), "quick_stop_flag", False)
+                    and not getattr(self.material.printer, "quick_stop_flag", False)
                     and self.material.stop_requested() is not None):
                 # Same job, exact ordinary Stop fence: retire the macro tail as
                 # cancellation, not a print fault. Other invalidations stay errors.

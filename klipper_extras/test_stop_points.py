@@ -1011,7 +1011,7 @@ def test_cancel_generation_unwind_is_only_cancelled_for_its_bound_job(legacy_can
     if change == 'session': material.session_id = 'new-session'
     if change == 'handle': objects['virtual_sdcard'].current_file = io.StringIO('other')
     if change == 'openace': objects[change] = object()
-    if change == 'quick_stop': objects['gcode'].quick_stop_flag = True
+    if change == 'quick_stop': material.printer.quick_stop_flag = True
     if change == 'shutdown': material.printer.is_shutdown = lambda: True
     with pytest.raises(Exception) as failure:
         material._check_command_generation(command)

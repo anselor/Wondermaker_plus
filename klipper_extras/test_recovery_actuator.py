@@ -279,7 +279,7 @@ def test_admitted_coupling_finishes_on_normal_stop_only(actuator_machine, lock, 
         material._command_generation += 1
         cancellation._print_cancel = {'state': 'pending', 'phase': 'stopping'}
         if extra_fault == 'owner': objects['openace'] = object()
-        if extra_fault == 'quick_stop': objects['gcode'].quick_stop_flag = True
+        if extra_fault == 'quick_stop': material.printer.quick_stop_flag = True
         if extra_fault == 'shutdown': material.printer.is_shutdown = lambda: True
         if extra_fault == 'generation': material._command_generation += 1
     objects['homing'].manual_home = cancel
