@@ -216,7 +216,7 @@
   "tools/components/moonraker.py": "13b8b566fcbcb7f84abbe625c4aa161ffb0d3479ee5b309416fcd260d398ba0d",
   "tools/components/preload.py": "7475f31075f8691d3a9e1310de70332f9ed2c56f2d9432955023f3626a814757",
   "tools/components/shaper.py": "9051a546fac62d3c9789ef3b4b6d609aafa3fdacea8efe88aa0ac1029b3abf95",
-  "tools/components/touchscreen.py": "df201cbff18a4e9acdc2c079f2f0329d2ea93405d2737d01f2b3e9242b1e5094",
+  "tools/components/touchscreen.py": "05b2c0ef2ae02651a1a4d3890fbf1fbd2a9f3ca51afc0e73c5077d85cfb4464f",
   "tools/deploy.py": "ed7b67b497867ee90abb34c59bbcf240ea41c61fda2826df88460ce54c31ea9d",
   "tools/factory_defaults.py": "a5f4acb75a403723d62302a3992f090284b0ecb3cfb13bd3bc61a42de16f66b7",
   "tools/install_journal.py": "dd2644aeeee4b01ea8b64c76b5c81c2f6dbc75f11ae088c0da04eb301d4af529",

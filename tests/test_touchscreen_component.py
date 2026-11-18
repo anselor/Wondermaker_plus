@@ -15,7 +15,7 @@ def test_inline_transaction_modules_load_without_repository_imports():
         "sys.modules['touchscreen_runtime'].execute = lambda *args: {'arguments': args}\nresult = sys.modules['touchscreen_runtime'].execute(")
     result=subprocess.run([sys.executable,'-I','-'],input=script,text=True,capture_output=True)
     assert result.returncode==0,result.stderr
-    assert json.loads(result.stdout)['arguments']==['restore',None,'/opt/wondermaker_plus-transactions/test.json']
+    assert touchscreen.transaction_result(result.stdout)['arguments']==['restore',None,'/opt/wondermaker_plus-transactions/test.json']
 
 
 def test_install_returns_receipt_and_rollback_uses_same_journal(monkeypatch):
@@ -27,7 +27,7 @@ def test_install_returns_receipt_and_rollback_uses_same_journal(monkeypatch):
     monkeypatch.setattr(touchscreen,'transaction_code',code)
     def remote(ctx,code,**kwargs):
         assert kwargs=={'sudo':True,'quiet':True}
-        return json.dumps({'state':'applied' if code=='install' else 'restored','journal':calls[-1][2]})
+        return touchscreen.RESULT_MARKER+json.dumps({'state':'applied' if code=='install' else 'restored','journal':calls[-1][2]})
     monkeypatch.setattr(preflight,'remote',remote)
     ctx=SimpleNamespace(ssh=lambda:None,DeployError=deploy.DeployError)
     receipt=touchscreen.install(ctx)
@@ -60,7 +60,7 @@ def test_lost_process_recovers_touchscreen_from_prepared_installer_receipt(tmp_p
         saved=Journal(journal.path).load('printer','user')
         assert saved.recovery_receipts()==[('touchscreen',{'kind':'touchscreen-transaction','journal':path})]
         if action=='install':raise SystemExit('installer process lost')
-        return json.dumps({'state':'restored','journal':path})
+        return touchscreen.RESULT_MARKER+json.dumps({'state':'restored','journal':path})
     monkeypatch.setattr(preflight,'remote',remote)
     with pytest.raises(SystemExit):touchscreen.install(ctx)
     deploy.recover_installation(ctx,journal.path)
@@ -78,3 +78,19 @@ def test_touchscreen_checkpoint_failure_prevents_remote_activation(tmp_path,monk
     monkeypatch.setattr(journal,'save',fail)
     monkeypatch.setattr(preflight,'remote',lambda *a,**kw:pytest.fail('activated without recovery checkpoint'))
     with pytest.raises(OSError,match='checkpoint unavailable'):touchscreen.install(ctx)
+
+
+def test_transaction_notes_on_stdout_do_not_break_result_parsing(capsys):
+    script=touchscreen.transaction_code('install','/tmp/stage','/opt/wondermaker_plus-transactions/test.json')
+    script=script.replace("result = sys.modules['touchscreen_runtime'].execute(",
+        "sys.modules['touchscreen_runtime'].execute = lambda *args: (print('Preserving the configured timelapse camera.'), {'state':'applied','journal':args[2]})[1]\nresult = sys.modules['touchscreen_runtime'].execute(")
+    output=subprocess.run([sys.executable,'-I','-'],input=script,text=True,capture_output=True)
+    assert output.returncode==0,output.stderr
+    result=touchscreen.transaction_result(output.stdout)
+    assert result=={'state':'applied','journal':'/opt/wondermaker_plus-transactions/test.json'}
+    assert 'Preserving the configured timelapse camera.' in capsys.readouterr().out
+
+
+def test_transaction_output_without_result_is_rejected():
+    with pytest.raises(ValueError,match='no result'):
+        touchscreen.transaction_result('Preserving the configured timelapse camera.\n')

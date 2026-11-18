@@ -123,6 +123,22 @@ def preflight(ctx):
     checks.touchscreen(ctx)
 
 
+RESULT_MARKER = 'WMP-TOUCHSCREEN-RESULT '
+
+
+def transaction_result(output):
+    """Return the marked JSON result; echo any notes the transaction printed."""
+    result = None
+    for line in output.splitlines():
+        if line.startswith(RESULT_MARKER):
+            result = json.loads(line[len(RESULT_MARKER):])
+        elif line.strip():
+            print(line)
+    if not isinstance(result, dict):
+        raise ValueError('Touchscreen transaction returned no result')
+    return result
+
+
 def transaction_code(action, source, journal):
     modules = {name: (Path(ROOT)/'tools'/(name+'.py')).read_text(encoding='utf-8')
                for name in ('touchscreen_settings', 'touchscreen_transaction', 'touchscreen_runtime')}
@@ -132,8 +148,8 @@ for name, source in %r.items():
     sys.modules[name] = module
     exec(compile(source, name+'.py', 'exec'), module.__dict__)
 result = sys.modules['touchscreen_runtime'].execute(%r, %r, %r)
-print(json.dumps(result))
-""" % (modules, action, source, journal)
+print(%r + json.dumps(result))
+""" % (modules, action, source, journal, RESULT_MARKER)
 
 
 def install(ctx):
@@ -146,7 +162,7 @@ def install(ctx):
     if installer is not None:
         installer.prepare_component(NAME, receipt)
     try:
-        result = json.loads(checks.remote(ctx, transaction_code('install', stage, journal), sudo=True, quiet=True))
+        result = transaction_result(checks.remote(ctx, transaction_code('install', stage, journal), sudo=True, quiet=True))
     except Exception as error:
         raise ctx.DeployError('Touchscreen installation failed or its outcome is unknown; inspect retained journal '+journal+': '+str(error)) from error
     if result.get('state') != 'applied' or result.get('journal') != journal:
@@ -158,7 +174,7 @@ def rollback(ctx, receipt):
     import preflight as checks
     if receipt.get('kind') != 'touchscreen-transaction':
         raise ctx.DeployError('Invalid touchscreen rollback receipt')
-    result = json.loads(checks.remote(ctx, transaction_code('restore', None, receipt['journal']), sudo=True, quiet=True))
+    result = transaction_result(checks.remote(ctx, transaction_code('restore', None, receipt['journal']), sudo=True, quiet=True))
     if result.get('state') != 'restored' or result.get('journal') != receipt['journal']:
         raise ctx.DeployError('Touchscreen restoration unconfirmed; inspect '+receipt['journal'])
 

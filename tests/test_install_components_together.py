@@ -104,7 +104,7 @@ def test_later_component_failure_restores_or_preserves_conflict(tmp_path,monkeyp
                 journals[journal]=local
             else:
                 tx.restore()
-            return json.dumps({'state':tx.receipt['state'],'journal':journal})
+            return touchscreen.RESULT_MARKER+json.dumps({'state':tx.receipt['state'],'journal':journal})
         if 'import moonraker_directory_service as lifecycle' in code:
             # Keep the actual component payload, filesystem transactions and
             # child interpreter. Only remote paths and service I/O are modeled.
