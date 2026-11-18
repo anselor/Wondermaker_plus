@@ -42,7 +42,7 @@
     "klipper_extras/wmp_nozzle_runtime.py": "5c97461815e9083deb0eb6618e600b30e57be229ff9f346aa282cda61b6ba0ea",
     "klipper_extras/wmp_saved_variables.py": "2ce0dbf53a87fc60823d0d88e09b2464ca0c423d7c9cb7184a300fad8d07dda9",
     "klipper_extras/wmp_recovery_retirement.py": "1bcb45f9bfd29b1025d437d4385c758801cddb852ed556770b9f9bd2eebe105d",
-    "klipper_extras/wmp_recovery_file_envelope.py": "de53bc952764424b8d83bfb5df2bce8ad6cd60599bf33c4afb0ab45ef2af1685",
+    "klipper_extras/wmp_recovery_file_envelope.py": "9d4168ff97077cf6b32a544de6ad49329606cadd599cae89131a1031409ddad3",
     "klipper_extras/wmp_plr_records.py": "3a49755bf122b72f65aa755d39dba473823c78f85425f46776881c518c9fd6fb",
     "klipper_extras/wmp_filament_types.py": "1ab34609c37d7c159fa8b0eb993a12ffb978b43893b2597b4fabd28e6e172263",
     "klipper_extras/wmp_filament_profiles.py": "17f52d0b881a7ac1d6256564e48087435ccbea242dd5ea52c3bd64a23313a196",

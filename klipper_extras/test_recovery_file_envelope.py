@@ -73,7 +73,8 @@ def test_checkpoint_and_whole_job_binding(change):
     with pytest.raises(ValueError):analysis.analyze(io.BytesIO(STAMP),execution,context,[[0.,0.],[0.,0.]],0.,PROOF)
 
 
-def test_contract_matches_delivered_macro_sources_and_rejects_changes():
+@pytest.mark.parametrize('changed', ['START_PRINT', '_WMP_XY_TRAVEL'])
+def test_contract_matches_delivered_macro_sources_and_rejects_changes(changed):
     parser=configparser.RawConfigParser(strict=False)
     for name in ('offset_calibrate.cfg','macros.cfg','change_macros.cfg','fz-wipe-nozzle.cfg'):
         parser.read(ROOT/'config/live'/name,encoding='utf-8')
@@ -81,8 +82,8 @@ def test_contract_matches_delivered_macro_sources_and_rejects_changes():
     proof=analysis.effect_contract(settings,dict(analysis.TRANSFORMS))
     assert proof['version']==1
     modified=copy.deepcopy(settings)
-    modified['gcode_macro start_print']['gcode']+='\nG1 Z200 E5'
-    with pytest.raises(ValueError,match='START_PRINT'):analysis.effect_contract(modified,analysis.TRANSFORMS)
+    modified['gcode_macro '+changed.lower()]['gcode']+='\nG1 Z200 E5'
+    with pytest.raises(ValueError,match=changed):analysis.effect_contract(modified,analysis.TRANSFORMS)
     transforms=dict(analysis.TRANSFORMS,bed_mesh='f'*64)
     with pytest.raises(ValueError,match='transform'):analysis.effect_contract(settings,transforms)
 

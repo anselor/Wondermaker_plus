@@ -1252,7 +1252,7 @@ def test_pickup_observation_precedes_approach_without_changing_other_owners(owne
     if owner == 'standalone':
         index = commands.index(observation)
         assert commands[index - 1] == 'M400'
-        assert index < next(i for i, line in enumerate(commands) if line.startswith('G0 X'))
+        assert index < next(i for i, line in enumerate(commands) if line.startswith(('G0 X', '_WMP_XY_TRAVEL X=')))
     else:
         assert observation not in commands
     assert commands[-1] == '_CHECK_T_SEQUENCE T=2'

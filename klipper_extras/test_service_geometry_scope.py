@@ -13,7 +13,7 @@ def test_same_attached_head_does_not_require_any_dock(service_material):
     objects['gcode'] = SimpleNamespace(run_script_from_command=scripts.append)
     obj._prepare_service(2, obj._service_context(2, 1))
     assert not any('Y310' in script or 'LOCK' in script for script in scripts)
-    assert any('G1 X-13' in script for script in scripts)
+    assert any('_WMP_XY_TRAVEL X=-13 HOT=1' in script for script in scripts)
 
 
 @pytest.mark.parametrize('attached,required', [('', {2}), ('h1', {1, 2})])

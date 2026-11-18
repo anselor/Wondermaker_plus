@@ -48,15 +48,20 @@ def test_recovery_entries_share_verified_native_installation():
     rows = {row['name']: row for row in profile['functions']}
     entries = re.search(r'navigation_hooks\[\]=\{(.*?)\};', bootstrap, re.S).group(1)
     replacements = re.search(r'const std::uintptr_t replacements\[\]=\{(.*?)\};', bootstrap, re.S).group(1)
-    addresses = re.findall(r'\{(0x[0-9a-f]+),nullptr', entries)
+    addresses = re.findall(r'\{([^,{}]+),nullptr', entries)
+    addresses = [rows['filament_pause']['address'] if address == 'wmp_ui::native::filament_pause' else address for address in addresses]
     handlers = re.findall(r'&([a-z_]+)\)', replacements)
     assert len(addresses) == len(handlers)
     bindings = dict(zip(addresses, handlers))
     for name, address in [('resume_prepare', '0x51a7b4'), ('runout_purge', '0x5328b4'), ('resume_check', '0x61b2c4'), ('draw_pop', '0x5352e0'), ('popup_build', '0x532da8'), ('popup_event', '0x5303e4')]:
         assert rows[name]['address'] == address
         assert bindings[address] == 'unified_' + name
-    # Initial fault detection and PAUSE remain untouched.
-    assert '0x61ab5c' not in bindings
+    # Backend-owned runout suppresses the duplicate factory pause; other
+    # callers still use the original factory trampoline.
+    assert bindings[rows['filament_pause']['address']] == 'unified_filament_pause'
+    callback = bootstrap.split('extern "C" void unified_filament_pause()', 1)[1].split('extern "C"', 1)[0]
+    assert 'backend_runout_owned())return' in callback
+    assert 'original_filament_pause.load())original()' in callback
     compat = (ROOT / 'client-preload/openace-compat/wmp_openace_compat.c').read_text()
     init = compat.split('static void initialize(void)\n{', 1)[1]
     assert re.match(r'\s*#ifdef WMP_UNIFIED_FILAMENT.*?return;\s*#endif', init, re.S)

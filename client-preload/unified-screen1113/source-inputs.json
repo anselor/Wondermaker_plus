@@ -201,7 +201,7 @@
   "klipper_extras/wmp_probe_editor.py": "98c86fa853919d8611d3cb99259d52d3d7c6e1f01c8b2e9d6857255f15a27c75",
   "klipper_extras/wmp_probe_state.py": "ba1741d15953a0f17b9d8605a0af83fb1f9bd561f9be98f6ef1a756d784750a9",
   "klipper_extras/wmp_recovery.py": "a32a8aeff570b0ab9e7ab47ef16a31810a1dd78c5a6f8de61eb11a2bc39586ad",
-  "klipper_extras/wmp_recovery_file_envelope.py": "de53bc952764424b8d83bfb5df2bce8ad6cd60599bf33c4afb0ab45ef2af1685",
+  "klipper_extras/wmp_recovery_file_envelope.py": "9d4168ff97077cf6b32a544de6ad49329606cadd599cae89131a1031409ddad3",
   "klipper_extras/wmp_recovery_retirement.py": "1bcb45f9bfd29b1025d437d4385c758801cddb852ed556770b9f9bd2eebe105d",
   "klipper_extras/wmp_saved_variables.py": "2ce0dbf53a87fc60823d0d88e09b2464ca0c423d7c9cb7184a300fad8d07dda9",
   "klipper_extras/wmp_stop_points.py": "a24d80e32fd1e8ce8d530d6bd2db897f02eb38986c8ac2b012ed8438fc33e399",
