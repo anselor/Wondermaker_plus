@@ -287,13 +287,28 @@ class CommandRouting:
         self._check_command_generation(gcmd)
 
 
-    def _check_command_generation(self, gcmd, allow_cancel_hold=False):
+    def _check_command_generation(self, gcmd, allow_cancel_hold=False, finish_coupling=False):
         # Prefix to the same run_script RPC as the command. Vendor dispatch
         # aborts the remaining script on command error, while holding its mutex.
         generation = gcmd.get_int("GENERATION", minval=0, maxval=9223372036854775807)
+        cancellation = self.material._cancellation()
+        active = self.material._print_cancel_active()
+        finishing = (finish_coupling and active
+            and getattr(cancellation, "_coupling_finish_generation", None) == generation
+            and getattr(self, "_command_generation", 0) == generation + 1
+            and getattr(cancellation, "_print_cancel", {}).get("phase") == "stopping")
         if (gcmd.get("SESSION") != self.material.session_id
-                or generation != getattr(self, "_command_generation", 0)
-                or (not allow_cancel_hold and self.material._print_cancel_active())):
+                or (generation != getattr(self, "_command_generation", 0) and not finishing)
+                or (not allow_cancel_hold and active and not finishing)):
+            if (gcmd.get("SESSION") == self.material.session_id and active
+                    and getattr(cancellation, "_coupling_finish_generation", None) == generation
+                    and getattr(self, "_command_generation", 0) == generation + 1
+                    and not self.material.printer.is_shutdown()
+                    and not getattr(self.material.printer.lookup_object("gcode"), "quick_stop_flag", False)
+                    and self.material.stop_requested() is not None):
+                # Same job, exact ordinary Stop fence: retire the macro tail as
+                # cancellation, not a print fault. Other invalidations stay errors.
+                raise gcmd.error("Print cancellation requested; stopped at command boundary")
             raise gcmd.error("Command invalidated by cancellation or restart; review again")
         if (self.material.printer.lookup_object("openace", None) is not None
                 or self.material.printer.lookup_object("AFC", None) is not None):

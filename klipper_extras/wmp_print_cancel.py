@@ -412,6 +412,8 @@ class PrintCancellation:
             used = set()
         # Retire admitted callbacks/review tokens even if the intent write fails.
         # Clearing the cancellation hold must never revive pre-cancel work.
+        # Only an already-admitted coupling stroke may finish across this fence.
+        self._coupling_finish_generation = getattr(self.material, "_command_generation", 0)
         self.material._command_generation = getattr(self.material, "_command_generation", 0) + 1
         used.add(request_id)
         self._print_cancel_requests = used

@@ -425,3 +425,41 @@ def test_progress_panel_real_font_fit(native_lifecycle_binary):
         if process.poll() is None:
             process.kill()
             process.wait()
+
+
+def test_runout_fallback_prologue_preserves_factory_execution(tmp_path):
+    """Execute relocated ARM instructions, including their PC-relative ADRP."""
+    unicorn = pytest.importorskip('unicorn')
+    from unicorn import arm64_const as reg
+    client = ROOT/'analysis/fw_1.1.13_payload/root/home/t13dp/TM_T1/bin/client'
+    if not client.exists():
+        pytest.skip('exact stock client required')
+    binary = client.read_bytes()
+    prologue = binary[0x61ab5c-0x400000:0x61ab6c-0x400000]
+    # A changed prologue must be reviewed before reusing this relocation.
+    assert prologue.hex() == 'fd7ba5a9fd030091f30b00f9400107f0'
+    source = tmp_path/'trampoline.cpp'
+    source.write_text('''#include "native/stock_runout_gate.hpp"
+#include <cstdio>
+int main(){unsigned char source[16]={0},out[44];
+ wmp_ui::native::stock_runout_trampoline(out,source);
+ std::fwrite(out,1,sizeof(out),stdout);}
+''')
+    compile_cpp(source, tmp_path/'trampoline')
+    relocated = bytearray(subprocess.check_output([str(tmp_path/'trampoline')]))
+    relocated[:12] = prologue[:12]
+    def execute(address, code):
+        cpu = unicorn.Uc(unicorn.UC_ARCH_ARM64, unicorn.UC_MODE_ARM)
+        for base in (0x610000, 0x2000000, 0x3000000):
+            cpu.mem_map(base, 0x10000)
+        cpu.mem_write(address, bytes(code))
+        cpu.reg_write(reg.UC_ARM64_REG_SP, 0x300f000)
+        cpu.reg_write(reg.UC_ARM64_REG_X19, 0x12345678)
+        cpu.reg_write(reg.UC_ARM64_REG_X29, 0x76543210)
+        cpu.reg_write(reg.UC_ARM64_REG_X30, 0xabcdef00)
+        cpu.emu_start(address, 0x61ab6c, count=16)
+        return ([cpu.reg_read(r) for r in (reg.UC_ARM64_REG_X0,
+                 reg.UC_ARM64_REG_SP, reg.UC_ARM64_REG_X19,
+                 reg.UC_ARM64_REG_X29, reg.UC_ARM64_REG_X30)],
+                bytes(cpu.mem_read(0x300ee00, 0x200)))
+    assert execute(0x61ab5c, prologue) == execute(0x2000000, relocated)

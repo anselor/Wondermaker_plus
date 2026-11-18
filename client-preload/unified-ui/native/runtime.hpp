@@ -516,6 +516,11 @@ public:
   cancel_progress_.review_resolution=[this](const std::string&){return cancel_resolution_worker_->review();};
   cancel_progress_.confirm_resolution=[this](const std::string&id){return cancel_resolution_worker_->confirm(id);};
  }
+ bool backend_runout_owned(){
+  const auto data=stock_snapshot();
+  return data.value("fresh",false)&&data.value("owner","")=="standalone"
+   &&data.value("filament_runout_protocol",0)==1;
+ }
  bool standalone_mapping_owned(){
   const auto data=stock_snapshot();
   return data.value("fresh",false)&&data.value("owner","")=="standalone";

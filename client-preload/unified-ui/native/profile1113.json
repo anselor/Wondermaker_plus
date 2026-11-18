@@ -537,6 +537,11 @@
       "bytes": "ffc32ad1fd7b01a9fd430091f31300f9400107d000301c91010040b9009201b0"
     },
     {
+      "name": "filament_pause",
+      "address": "0x61ab5c",
+      "bytes": "fd7ba5a9fd030091f30b00f9400107f000301c91000040b91f0000712b390054"
+    },
+    {
       "name": "draw_pop",
       "address": "0x5352e0",
       "bytes": "fd7bbea9fd030091e01f00b9e01f40b9e10300aae0ffffb000a036917b4a0694"

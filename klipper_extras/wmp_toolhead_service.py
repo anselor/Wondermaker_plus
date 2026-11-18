@@ -600,8 +600,8 @@ class ToolheadService:
         if retry and not lock:
             raise gcmd.error("Confirmation retry requires LOCK=1")
         gcode = self.material.printer.lookup_object("gcode")
-        def guard():
-            self.material._check_command_generation(gcmd)
+        def guard(finish_coupling=False):
+            self.material._check_command_generation(gcmd, finish_coupling=finish_coupling)
             if self.material.printer.is_shutdown() or getattr(gcode, "quick_stop_flag", False):
                 raise gcmd.error("Coupling stopped; inspect the printer before recovery")
             now = self.material.printer.get_reactor().monotonic()
@@ -618,9 +618,14 @@ class ToolheadService:
                     "ECHELON_STEPPER STEPPER=trans_stepper SPEED=10 MOVE=%d" %
                     (-125 - retry * 10))
                 self.material.printer.lookup_object("toolhead").wait_moves()
-                guard()
+                guard(True)
             else:
-                self.material._recovery_actuator_stroke(lock, guard, disable_on_success=False)
+                self.material._recovery_actuator_stroke(lock, lambda: guard(True), disable_on_success=False)
+            if self.material._print_cancel_active():
+                # The cancelled macro tail cannot perform its normal disable.
+                guard(True)
+                self.material.printer.lookup_object("echelon_stepper trans_stepper").do_enable(False)
+                guard()  # Stop before confirmation retries or later motion.
         except Exception as error:
             try:
                 guard()

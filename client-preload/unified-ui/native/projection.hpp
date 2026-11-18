@@ -365,6 +365,7 @@ inline Json project(const Json&status,const Json&ace,bool present,const std::str
  out["capabilities"]["save_nozzle"]=!present&&screen_helper.value("nozzle_settings_protocol",0)==1;
  out["nozzle_settings"]=screen_helper.value("nozzles",Json::object());
  out["filament_recovery_protocol"]=screen_helper.value("filament_recovery_protocol",0);
+ out["filament_runout_protocol"]=screen_helper.value("filament_runout_protocol",0);
  out["toolhead_recovery_protocol"]=screen_helper.value("toolhead_recovery_protocol",0);
  out["filament_cancel_protocol"]=screen_helper.value("filament_cancel_protocol",0);
  out["nozzle_revision"]=screen_helper.value("nozzle_revision","");

@@ -130,6 +130,7 @@ class MaterialStatus:
                   "filament_sequence_protocol": 1,
                   "filament_cancel_protocol": 1,
                   "filament_recovery_protocol": 1,
+                  "filament_runout_protocol": int(self.material._filament_state()._runout_owned()),
                   "openace_unload_protocol": 1,
                   "openace_load_protocol": 1,
                   "filament_materials": [name for name, temperature in MATERIALS],

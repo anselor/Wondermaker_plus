@@ -5,7 +5,8 @@ Status: stationary and bounded cold-motion checks passed. Full heated startup an
 Candidate: `qualification/safe-cancel-r4`, based on local R4 `6e5510e`.
 The original feature branch `feature/safe-cancel-split` (`21b21d1`) is unchanged.
 The candidate includes the committed filament-load changes.
-Installed screen SHA256: `1ef58a1c1b337ca2a6cad235aeed538b2dbde6c618e205acd1d44c8347c0c985`.
+Initial screen SHA256: `1ef58a1c1b337ca2a6cad235aeed538b2dbde6c618e205acd1d44c8347c0c985`.
+Follow-up screen SHA256: `935306b2b9ad11722926f00e234389f6e8614b5435a6be3816fe1308bba768f2`.
 
 ## Live checks
 
@@ -58,9 +59,13 @@ and Head 4 confirmed mounted. All heaters remained off.
 
 The existing cold tool-change fixture then mounted Head 3 successfully but
 received a `PAUSE` before its intended cancellation window. `fail_flag` stayed
-zero and the attachment sensors confirmed Head 3. The source of that pause was
-not established; it must not be reported as a mounting failure or a fully
-successful uninterrupted fixture run. The job was cancelled, rather than
+zero and the attachment sensors confirmed Head 3. The operator subsequently
+identified the factory ZRU-M011 warning and confirmed Head 4 was empty. The
+fixture marked the print body ready before switching away from Head 4; the
+factory touchscreen has an independent selected-head runout detector which
+pushes that warning and sends PAUSE. Existing WM+ hooks replaced recovery,
+not this initial detector. This was not a mounting failure or a successful
+uninterrupted fixture run. The job was cancelled, rather than
 resumed. Paused cancellation completed in 6.022 seconds, cleared pause, left
 Head 3 attached, and lowered Z from 160.1675 to the 300 mm bottom coordinate.
 
@@ -78,22 +83,66 @@ Temporary fixture copies were removed; the original uploaded files were not
 changed. Z UART PC1, 64 microsteps, the saved probe offset, extruder calibration,
 and acceleration were verified unchanged after testing.
 
+## Follow-up: runout ownership and final cold repeat
+
+The verified factory `filament_check_for_pause()` at `0x61ab5c` independently
+checks the selected head and `print_body_ready`, pushes a ZRU warning and calls
+PAUSE. Recovery hooks alone did not intercept that initial action. The new
+entry hook delegates detection only when fresh standalone status explicitly
+advertises all eight guarded sensor paths. Missing/stale capability or another
+owner retains the original implementation. The ARM fallback prologue was
+executed in emulation against the original instructions. Backend notifications
+use ordinary guidance while retaining guarded runout/tangle pause callbacks.
+
+A first repeat demonstrated the handoff without M011 or a pause, but the
+shortened one-second observation dwell expired before cancellation arrived.
+The next tool change had begun and stopped at its generation fence, leaving
+Head 3 locked at its own dock. Cleanup completed but history recorded an error.
+Camera and raw hall/lock/dock readings were inspected; a slow straight retreat
+along the stock Y310 path restored confirmed Head 3 attachment. No actuator
+stroke or homing was used for that recovery. This is not counted as a passed
+cold cancellation fixture.
+
+An exact same-job cancellation fence now unwinds as cancellation rather than a
+print fault; changed session/file handle/owner, unrelated invalidation, shutdown
+and quick stop remain errors. Seven focused cases verify that distinction.
+
+The final repeat retained the original 30-second observation dwell and added
+a two-second dwell while empty Head 4 was selected and the print body was
+marked ready. It then mounted Head 3 without M011 or a pause and cancelled at
+the intended boundary. All later tool changes and the file tail were skipped.
+Cancellation and every cleanup stage completed; history reported `cancelled`
+with no error message. Head 3 remained confirmed attached, fail_flag stayed
+zero, pause cleared, heaters stayed off, extrusion stayed zero, and Z lowered
+from 150 to 300 mm. Cleanup took 36.488 seconds including draining the
+intentional 30-second G4 dwell; this is not a heat-wait interruption latency.
+
+Verification: 1,722 backend/sensor/actuator checks passed with two skipped before
+the final classification adjustment; afterward 143 stop-point/macro/actuator
+and 55 cancellation/generation checks passed. Four native compile/projection/
+profile/emulation checks and 144 delivery checks passed. The final package
+was resealed after the backend-only adjustment with compiled inputs and artifact
+hash independently unchanged.
+
 ## Limits and remaining work
 
-No cancellation was injected mid-lock/unlock. Existing R4 command-generation
-checks can reject continuation during a coupling stroke; they do not guarantee
-completion of the entire mechanical sequence after a cancel request. The
-35 actuator checks pass, including tests that deliberately prevent the
-post-homing stroke or confirmation adjustment after invalidation. AST comparison
-confirmed that `_check_command_generation`, `cmd_COUPLING_STROKE`, and
-`_recovery_actuator_stroke` are unchanged from R4. Review that existing behavior
-before claiming a general finish-the-current-coupling guarantee.
+No cancellation was injected mid-lock/unlock on the printer. The operator's
+required behavior is to finish an admitted stroke before ordinary cancellation.
+The follow-up correction permits only the exact generation fence created by
+that cancellation, only during its stopping phase, and only inside the already
+admitted coupling handler. The completed stroke disables its motor before
+rejecting the cancelled macro tail. Session/owner changes, shutdown, quick stop,
+physical faults and unrelated generation changes retain their refusal behavior.
+The actuator suite passes 46 checks, including normal Stop during lock/unlock
+and failures that must still prevent further motion. The shared PLR actuator
+implementation is unchanged; this exception belongs to normal coupling only.
 
 Do not interpret these results as qualification of cancellation inside
 homing, probing, docking, mounting, or purge motion. The live boundary tests
 and host macro tests establish the startup stop points; real heated startup
-and the complete startup-to-purge path remain unverified. The unexplained pause
-in the first cold fixture also remains an observation requiring follow-up.
+and the complete startup-to-purge path remain unverified. The factory runout pause
+in the first cold fixture is resolved by the ownership interception and final
+repeat above.
 
 Temporary qualification G-code files and the macro/include were removed.
 Raw evidence and screenshots are retained off-printer in the qualification

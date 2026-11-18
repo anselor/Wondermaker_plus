@@ -31,6 +31,16 @@ class FilamentState:
         self._guard_filament_notifications()
 
 
+    def _runout_owned(self):
+        # Claim the native detector only after all factory sensor paths are
+        # guarded. An unsupported/missing helper retains factory protection.
+        if any(self.material.printer.lookup_object(owner, None) is not None
+               for owner in ("openace", "AFC")):
+            return False
+        guarded = getattr(self, "_guarded_filament_notifications", set())
+        return all(name in guarded for head in range(4)
+                   for name in ("filament%d" % head, "path_%d" % head))
+
     def _guard_filament_notifications(self):
         # The vendor emits its error before checking whether a print needs this
         # sensor. Guard only that notification, not sensor updates or callbacks.
@@ -53,7 +63,14 @@ class FilamentState:
                     if stats.get("state") == "printing" and self._runout_pause_needed(pause):
                         attachment = self.material._attachment(now)
                         if attachment == {"state": "attached", "head": "h%d" % head}:
-                            return original()
+                            # Factory ZRU errors also activate the touchscreen's
+                            # independent pause/recovery path. The guarded sensor
+                            # callback below owns pausing; publish plain guidance.
+                            self.material.printer.lookup_object("gcode").respond_info(
+                                "%s on Head %d; checking filament." % (
+                                    "Filament path blocked" if name.startswith("path_")
+                                    else "Filament not detected", head + 1))
+                            return
                         if attachment.get("state") == "unknown":
                             # Report the actual sensor without inventing which
                             # head is attached or changing pause admission.

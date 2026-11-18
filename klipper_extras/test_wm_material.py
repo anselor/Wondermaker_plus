@@ -8789,15 +8789,15 @@ def test_vendor_runout_notification_only_for_active_required_head(sensor_name, j
     assert helper._respond_runout_error is wrapper
     helper.note_filament_present(False)
     assert helper.filament_present is False
-    assert bool(errors) is expected
-    assert bool(info) is (job == 'printing' and head == 'unknown')
-    if info:
+    assert errors == []
+    assert bool(info) is (expected or (job == 'printing' and head == 'unknown'))
+    if info and head == 'unknown':
         assert sensor_name in info[0] and 'attached head is unknown' in info[0]
     # Existing event dispatch remains intact; its macro owns pause admission.
     assert len(callbacks) == (1 if job == 'printing' else 0)
     helper.note_filament_present(False)
-    assert len(errors) == int(expected)
-    assert len(info) == int(job == 'printing' and head == 'unknown')
+    assert errors == []
+    assert len(info) == int(expected or (job == 'printing' and head == 'unknown'))
 
     if queued_change == 'head':
         material._material_status()._attachment = lambda now: {'state': 'attached', 'head': 'h3'}
@@ -10474,3 +10474,23 @@ def test_lane_projection_reuses_rows_until_presence_or_profile_changes(filament_
     sensor.detected = False
     empty = material._lane_data(4.)
     assert empty is not updated and empty['wmplus_tool_2']['loaded'] is False
+
+
+def test_runout_ownership_requires_all_guarded_sensors_and_standalone():
+    from types import SimpleNamespace
+    from wmp_filament_state import FilamentState
+    owners = {}
+    state = FilamentState.__new__(FilamentState)
+    state.material = SimpleNamespace(printer=SimpleNamespace(
+        lookup_object=lambda name, default=None: owners.get(name, default)))
+    assert not state._runout_owned()
+    names = {'filament%d' % n for n in range(4)} | {'path_%d' % n for n in range(4)}
+    for missing in names:
+        state._guarded_filament_notifications = names - {missing}
+        assert not state._runout_owned()
+    state._guarded_filament_notifications = names
+    assert state._runout_owned()
+    for owner in ('openace', 'AFC'):
+        owners[owner] = object()
+        assert not state._runout_owned()
+        owners.clear()

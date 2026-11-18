@@ -785,8 +785,13 @@ it does not own every restart source.
   `unified_resume_check`). The explicit Resume-preparation hook sends only
   RESUME. The old October policy allowing stock fallback when openACE is absent
   is historical and does **not** describe the unified r116 screen.
-- Runout/tangle popups 99/100 route to Filaments. Initial fault detection/PAUSE
-  remains active; it should not be removed just to eliminate competing recovery.
+- Runout/tangle popups 99/100 route to Filaments. The native initial detector at
+  `0x61ab5c` delegates to WM+ only while a fresh standalone status advertises
+  `filament_runout_protocol=1`. That capability requires all eight sensor
+  notification paths to be guarded. Missing/stale capability or another owner
+  retains the original native detector through a relocated-prologue trampoline.
+  Backend sensor callbacks retain runout/tangle pause protection and publish
+  ordinary guidance instead of ZRU errors that activate competing recovery.
 - Standalone RESUME and paused M24 use `WMP_CHECK_RESUME`. These protect ordinary
   paused continuation; they do not imply PLR or arbitrary internal aliases are
   protected by the same entry contract.

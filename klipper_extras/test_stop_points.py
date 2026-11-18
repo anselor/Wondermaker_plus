@@ -618,7 +618,8 @@ def test_cancel_during_start_print_wait_stops_without_tool_change_or_purge(
             env.objects['gcode'].run_script('CANCEL_PRINT')
     env.on_pause = cancel
     with pytest.raises(env.vendor.CommandError,
-                       match='^Print cancellation requested; stopped while heating ' + sensor + '$'):
+                       match='^Print cancellation requested; stopped while heating ' +
+                       {'extruder1': 'Head 2', 'heater_bed': 'bed'}.get(sensor, sensor) + '$'):
         env.run(env.script)
     assert len(env.pauses) == 1 and mark
     assert env.ran[mark[0] - 1].startswith('TEMPERATURE_WAIT SENSOR=' + sensor)
@@ -796,3 +797,24 @@ def test_pre_homing_state_text_does_not_claim_axes_unhomed(phase):
     from wm_material import WMMaterial
     label, state = WMMaterial._STOP_POINTS[phase]
     assert state.startswith('not homed by this job')
+
+
+@pytest.mark.parametrize('change', [None, 'generation', 'session', 'handle', 'openace', 'quick_stop', 'shutdown'])
+def test_cancel_generation_unwind_is_only_cancelled_for_its_bound_job(legacy_cancel_routes, change):
+    import io
+    from test_wm_material import FakeCommand
+    material, objects, stats = _printing(legacy_cancel_routes)
+    command = FakeCommand(SESSION=material.session_id, GENERATION=getattr(material, "_command_generation", 0))
+    objects['gcode'].run_script('CANCEL_PRINT')
+    if change == 'generation': material._command_generation += 1
+    if change == 'session': material.session_id = 'new-session'
+    if change == 'handle': objects['virtual_sdcard'].current_file = io.StringIO('other')
+    if change == 'openace': objects[change] = object()
+    if change == 'quick_stop': objects['gcode'].quick_stop_flag = True
+    if change == 'shutdown': material.printer.is_shutdown = lambda: True
+    with pytest.raises(Exception) as failure:
+        material._check_command_generation(command)
+    message = str(failure.value)
+    stats.note_error(message)
+    assert stats.state == ('cancelled' if change is None else 'error')
+    assert message.startswith('Print cancellation requested; stopped ') is (change is None)

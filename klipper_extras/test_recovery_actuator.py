@@ -264,3 +264,47 @@ def test_lock_report_wait_honors_cancel_without_adjustment(actuator_machine):
     with pytest.raises(ValueError,match='invalidated'):
         material.cmd_COUPLING_STROKE(command)
     assert calls==['home','zero','post','wait'] and saved['fail_flag']==0
+
+
+@pytest.mark.parametrize('lock', [True, False])
+@pytest.mark.parametrize('extra_fault', [None, 'owner', 'quick_stop', 'shutdown', 'generation'])
+def test_admitted_coupling_finishes_on_normal_stop_only(actuator_machine, lock, extra_fault):
+    material, objects, calls, fault, _ = actuator_machine
+    command, saved = coupling_command(material, objects, calls, lock)
+    original = objects['homing'].manual_home
+    def cancel(*args):
+        original(*args)
+        cancellation = material._cancellation()
+        cancellation._coupling_finish_generation = material._command_generation
+        material._command_generation += 1
+        cancellation._print_cancel = {'state': 'pending', 'phase': 'stopping'}
+        if extra_fault == 'owner': objects['openace'] = object()
+        if extra_fault == 'quick_stop': objects['gcode'].quick_stop_flag = True
+        if extra_fault == 'shutdown': material.printer.is_shutdown = lambda: True
+        if extra_fault == 'generation': material._command_generation += 1
+    objects['homing'].manual_home = cancel
+    with pytest.raises(ValueError):
+        material.cmd_COUPLING_STROKE(command)
+    if extra_fault is None:
+        assert calls == ['home', 'zero'] + (['post'] if lock else []) + ['wait', 'disable']
+    else:
+        assert calls == ['home']
+    assert saved['fail_flag'] == 0
+
+
+def test_stop_during_admitted_lock_adjustment_drains_and_disables(actuator_machine):
+    material, objects, calls, fault, _ = actuator_machine
+    command, saved = coupling_command(material, objects, calls)
+    original = command.get_int
+    command.get_int = lambda name, default=None, **kw: 1 if name == 'RETRY' else original(name, default, **kw)
+    def move(script):
+        calls.append(script)
+        cancellation = material._cancellation()
+        cancellation._coupling_finish_generation = material._command_generation
+        material._command_generation += 1
+        cancellation._print_cancel = {'state': 'pending', 'phase': 'stopping'}
+    objects['gcode'].run_script_from_command = move
+    with pytest.raises(ValueError, match='invalidated'):
+        material.cmd_COUPLING_STROKE(command)
+    assert calls == ['ECHELON_STEPPER STEPPER=trans_stepper SPEED=10 MOVE=-135', 'wait', 'disable']
+    assert saved['fail_flag'] == 0
