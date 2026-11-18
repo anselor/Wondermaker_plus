@@ -40,6 +40,7 @@ def pickup(actuator_machine):
              wm_material={'session_id': 'session', 'command_generation': 0})
     p['gcode_move'] = {'position': NS(x=pos[0], y=pos[1], z=pos[2])}
     p['gcode_macro _LOCK_CHECK'] = {'retry': 0}
+    p['configfile']={'settings':{'printer':{'max_velocity':600.}}}
     events = []
     options = dict(dock_after_lock=True, detached=True, cancel_at='', stop_at='', fail_at='', wrong_pose=False,
                    incoming_offset=[0., 0., 0., 0.])
@@ -73,7 +74,7 @@ def pickup(actuator_machine):
                 if options['wrong_pose']: pos[0] += 1
             p['gcode_move']['position'] = NS(x=pos[0], y=pos[1], z=pos[2])
             code = templates[name].render(printer=p, params=args,
-                retry=p['gcode_macro _LOCK_CHECK']['retry'], action_respond_info=lambda *a: '',
+                retry=p['gcode_macro _LOCK_CHECK']['retry'], travel_speed=300., hot_travel_speed=500., action_respond_info=lambda *a: '',
                 action_raise_error=lambda message: (_ for _ in ()).throw(ValueError(message)))
             for line in code.splitlines(): execute(line.strip())
         elif name == '_WMP_COUPLING_STROKE': material.cmd_COUPLING_STROKE(Command(**args))
@@ -105,7 +106,7 @@ def test_supported_failed_pickup_unlocks_then_retreats_and_retires_outer_tail(pi
     assert calls.count('post') == 1  # Never another lock stroke.
     assert saved['current_extruder'] == 99 and saved['fail_flag'] == -2
     assert events.count('G0 Y310 F9600') == 1
-    assert events.count('G0 Y270 F18000') == 1
+    assert events.count('_WMP_XY_TRAVEL Y=270') == 1
     assert not any('_CHECK_T_SEQUENCE' in e or 'WIPE' in e or e.startswith('G28') for e in events)
 
 

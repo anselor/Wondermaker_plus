@@ -100,7 +100,7 @@ class MotionModel:
                 'homing_origin': {'x': 1., 'y': 2., 'z': .3}, 'speed': 3600.,
                 'speed_factor': override, 'extrude_factor': 1.2,
                 'absolute_coordinates': absolute, 'absolute_extrude': False},
-            'configfile': {'settings': {'stepper_z': {'position_endstop': 330}, 'printer': {'max_accel': 5000.}}},
+            'configfile': {'settings': {'stepper_z': {'position_endstop': 330}, 'printer': {'max_accel': 5000., 'max_velocity': 600.}}},
             'print_stats': {'state': state}, 'pause_resume': {'is_paused': False},
             'gcode_macro START_PRINT': {'print_body_ready': True}}
         for name, values in self.defaults.items(): self.p['gcode_macro ' + name] = values.copy()
@@ -411,3 +411,53 @@ def test_toolhead_progress_brackets_stock_dock_and_mount_without_changing_motion
     assert managed.index('_WMP_TOOLHEAD_PROGRESS T=1 PHASE=docking') < managed.index('_UNLOCK_TOOL T=0')
     assert managed.index('_UNLOCK_TOOL T=0') < managed.index('_WMP_TOOLHEAD_PROGRESS T=1 PHASE=moving')
     assert managed.index('_WMP_TOOLHEAD_PROGRESS T=1 PHASE=moving') < managed.index('_LOCK_TOOL T=1 DEFER_CHECK=1')
+
+
+def test_shared_xy_travel_rates_apply_to_wipe_and_print_return():
+    m = MotionModel(absolute=True, override=.6)
+    m.p['gcode_macro _WMP_XY_TRAVEL']['hot_travel_speed'] = 275.
+    m.run('T1')
+    finish = [name for name,_ in m.events].index('_WMP_TOOL_RETURN_FINISH')
+    moves = [value for name,value in m.events[finish:] if name == 'MOVE']
+    assert moves[1]['speed'] == 275. * 60
+    assert moves[1]['gcode_position'] == pytest.approx(dict(x=100,y=150,z=14))
+    assert m.p['gcode_move']['speed_factor'] == .6
+    before = len(m.events)
+    m.run('WIPE_NOZZLE', XY_ONLY='1')
+    moves = [value for name,value in m.events[before:] if name == 'MOVE']
+    assert all(value['speed'] == 275. * 60 for value in moves[:2])
+    assert all(value['speed'] == 12000 for value in moves[2:])
+
+
+def test_shared_general_travel_rate_changes_live_and_respects_machine_limit():
+    m = MotionModel(absolute=True, override=1.)
+    before = copy.deepcopy(m.p['gcode_move'])
+    m.run('_WMP_XY_TRAVEL', X='120', Y='160')
+    assert m.p['gcode_move']['speed'] == 18000
+    m.command('SET_GCODE_VARIABLE MACRO=_WMP_XY_TRAVEL VARIABLE=travel_speed VALUE=175')
+    m.run('_WMP_XY_TRAVEL', X='130')
+    assert m.p['gcode_move']['speed'] == 10500
+    m.p['configfile']['settings']['printer']['max_velocity'] = 100.
+    m.run('_WMP_XY_TRAVEL', Y='170', HOT='1')
+    assert m.p['gcode_move']['speed'] == 6000
+    assert m.p['gcode_move']['gcode_position']['z'] == before['gcode_position']['z']
+    assert m.p['gcode_move']['homing_origin'] == before['homing_origin']
+
+
+@pytest.mark.parametrize('params', [{}, {'Z':'1'}, {'E':'1'}, {'X':'nan'}, {'X':'inf'}, {'Y':'-inf'}, {'X':'bad'}, {'X':'1','HOT':'2'}])
+def test_shared_xy_travel_refuses_invalid_coordinates_before_motion(params):
+    m = MotionModel(absolute=True)
+    before = copy.deepcopy(m.p['gcode_move'])
+    with pytest.raises(ValueError):m.run('_WMP_XY_TRAVEL', **params)
+    assert m.p['gcode_move'] == before
+    assert not any(name=='MOVE' for name,_ in m.events)
+
+
+@pytest.mark.parametrize('value', [0., -1., float('nan'), float('inf'), 'bad'])
+@pytest.mark.parametrize('hot', [False, True])
+def test_shared_xy_travel_refuses_invalid_configured_rate_before_motion(value, hot):
+    m = MotionModel(absolute=True)
+    m.p['gcode_macro _WMP_XY_TRAVEL']['hot_travel_speed' if hot else 'travel_speed'] = value
+    before = copy.deepcopy(m.p['gcode_move'])
+    with pytest.raises(ValueError):m.run('_WMP_XY_TRAVEL', X='120', HOT=str(int(hot)))
+    assert m.p['gcode_move'] == before

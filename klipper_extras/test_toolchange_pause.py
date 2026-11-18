@@ -264,7 +264,7 @@ def clearance_job(job):
     text = (ROOT / 'config/live/change_macros.cfg').read_text()
     env = jinja2.Environment('{%', '%}', '{', '}', undefined=jinja2.StrictUndefined)
     templates = {}
-    for name in ('T3', '_CHANGE_TOOL', '_WMP_TOOL_RETURN_BEGIN', '_WMP_TOOL_RETURN_FINISH'):
+    for name in ('T3', '_CHANGE_TOOL', '_WMP_TOOL_RETURN_BEGIN', '_WMP_TOOL_RETURN_FINISH', '_WMP_XY_TRAVEL'):
         body = text.split('[gcode_macro '+name+']',1)[1].split('[gcode_macro ',1)[0]
         code = re.search(r'(?m)^gcode:\s*\n([\s\S]*)', body)[1]
         templates[name] = env.from_string('\n'.join(line.split('#',1)[0] for line in code.splitlines()))
@@ -274,8 +274,9 @@ def clearance_job(job):
     th = job.states['toolhead'];th.update(max_accel=1234.,position=Coord(120,130,4),axis_maximum=Coord(300,300,5))
     job.states['gcode_macro _CHANGE_TOOL'] = {'save_position':1}
     job.states['wm_material'] = {'session_id':'session', 'command_generation':0}
-    job.states['configfile'] = {'settings':{'printer':{'max_accel':5000.}}}
-    job.context.update(return_speed=200.,pending=0)
+    job.states['configfile'] = {'settings':{'printer':{'max_accel':5000., 'max_velocity':600.}}}
+    job.context.update(pending=0)
+    job.states['gcode_macro _WMP_XY_TRAVEL']={'travel_speed':300.,'hot_travel_speed':500.}
     job.saved.update(fail_flag=0,current_extruder=2,probe_tool=0,t0_offset=[0,0,0],t3_offset=[0,0,0])
     job.material._attachment=lambda now:{'state':'attached','head':'h%d'%job.saved['current_extruder']}
     def macro(cmd):
@@ -284,7 +285,7 @@ def clearance_job(job):
         snapshot['pause_resume']={'is_paused':job.pause.is_paused}
         snapshot['wm_material']['command_generation']=job.material._command_generation
         def error(message):raise cmd.error(message)
-        script=templates[cmd.get_command()].render(printer=snapshot,params=cmd.get_command_parameters(),action_raise_error=error)
+        script=templates[cmd.get_command()].render(printer=snapshot,params=cmd.get_command_parameters(),action_raise_error=error, **snapshot.get('gcode_macro '+cmd.get_command(),{}))
         job.gcode.run_script_from_command(script)
     def register(name,fn):
         job.gcode.register_command(name,None);job.gcode.register_command(name,fn)
@@ -313,6 +314,7 @@ def clearance_job(job):
         if cmd.get('F',None) is not None:gm['speed']=float(cmd.get('F'))
         job.events.append(('return_move',tuple(pos)))
     register('G1',move)
+    register('G0',move)
     register('M220',lambda cmd:gm.update(speed_factor=float(cmd.get('S'))/100))
     register('SET_VELOCITY_LIMIT',lambda cmd:th.update(max_accel=float(cmd.get('ACCEL'))))
     for name,key,value in [('G90','absolute_coordinates',True),('G91','absolute_coordinates',False),('M82','absolute_extrude',True),('M83','absolute_extrude',False)]:

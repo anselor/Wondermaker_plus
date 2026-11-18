@@ -157,7 +157,7 @@ class FilamentPlanning:
         run("ACTIVATE_EXTRUDER EXTRUDER=%s\nSAVE_VARIABLE VARIABLE=current_extruder VALUE=%d" % (heater, head))
         # Off-bed purge in machine coordinates. Restore head-relative offsets
         # without travel after arriving; never restore the previous XY point.
-        run("G1 X-13 F30000\nG1 Y80 F30000\nM400")
+        run("_WMP_XY_TRAVEL X=-13 HOT=1\n_WMP_XY_TRAVEL Y=80 HOT=1\nM400")
         offset, reference = context["offsets"][head], context["offsets"][context["probe"]]
         restore_offset = context.get("restore_offset", tuple(a-b for a,b in zip(offset, reference)))
         run("SET_GCODE_OFFSET X=%.5f Y=%.5f Z=%.5f MOVE=0" % tuple(restore_offset))

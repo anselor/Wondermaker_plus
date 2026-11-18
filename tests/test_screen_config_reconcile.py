@@ -1105,5 +1105,18 @@ def test_print_return_upgrade_migrates_old_default_only(printer, rate, expected)
     for _ in range(2):
         apply_plan(printer, reconcile.plan(ROOT, printer))
         current = vendor_parser(printer)
-        assert current.getfloat('gcode_macro _WMP_TOOL_RETURN_BEGIN', 'variable_return_speed') == expected
+        assert current.getfloat('gcode_macro _WMP_XY_TRAVEL', 'variable_hot_travel_speed') == expected
+        assert (printer / 'custom.cfg').read_bytes() == original
+
+
+def test_shared_travel_settings_override_legacy_and_survive_upgrade(printer):
+    with (printer / 'custom.cfg').open('a') as stream:
+        stream.write('\n[gcode_macro _WMP_TOOL_RETURN_BEGIN]\nvariable_return_speed: 350\n'
+                     '[gcode_macro _WMP_XY_TRAVEL]\nvariable_travel_speed: 225\nvariable_hot_travel_speed: 475\n')
+    original = (printer / 'custom.cfg').read_bytes()
+    for _ in range(2):
+        apply_plan(printer, reconcile.plan(ROOT, printer))
+        current = vendor_parser(printer)
+        assert current.getfloat('gcode_macro _WMP_XY_TRAVEL', 'variable_travel_speed') == 225
+        assert current.getfloat('gcode_macro _WMP_XY_TRAVEL', 'variable_hot_travel_speed') == 475
         assert (printer / 'custom.cfg').read_bytes() == original

@@ -103,3 +103,40 @@ o hot-print quality improvement or reduction in actual stringing was measured.
 
 Raw evidence and test scripts are retained locally in the ignored
 `analysis/homing-center-travel/` directory. Nothing was pushed.
+
+## Shared travel settings
+
+The audited free XY travel routes now use `_WMP_XY_TRAVEL`. Its defaults are
+`travel_speed: 300.0` and `hot_travel_speed: 500.0`, both in mm/s. The hot
+setting selects the existing ooze-sensitive routes; it is not selected by a
+live temperature threshold. Controlled dock approaches, brush strokes, Z
+moves and probing retain their separate rates.
+
+For persistent overrides, add this section to an included user configuration
+file, rather than editing the generated runtime file:
+
+```ini
+[gcode_macro _WMP_XY_TRAVEL]
+variable_travel_speed: 300.0
+variable_hot_travel_speed: 500.0
+```
+
+Changes can also be applied immediately with:
+
+```gcode
+SET_GCODE_VARIABLE MACRO=_WMP_XY_TRAVEL VARIABLE=travel_speed VALUE=300
+SET_GCODE_VARIABLE MACRO=_WMP_XY_TRAVEL VARIABLE=hot_travel_speed VALUE=500
+```
+
+The helper limits the requested rate to the configured XY maximum. Existing
+feed overrides and acceleration limits still apply. Configuration upgrades
+preserve explicit shared values. A custom former `variable_return_speed`
+is carried into the hot travel setting unless a shared value already exists;
+the former 200 mm/s default upgrades to 500 mm/s.
+
+Shared-setting validation: 411 targeted tests passed with three existing
+vendor-fixture skips. The matching config/backend was installed on the idle
+printer. Zero-distance XY commands verified live rates of 123 and 345 mm/s
+without changing position; defaults of 300/500 and the original G-code state
+were restored, with Klipper ready. Physical default-rate qualification is
+recorded above.

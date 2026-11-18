@@ -233,21 +233,25 @@ def plan(root, directory):
             output.set(section, option, value)
             ownership.setdefault(section, {})[option] = option_hash(value)
 
-    # Upgrade the former WM+ print-return default. Leave operator-selected
-    # rates alone; this override is receipted and reversible like bed_drop.
-    section, option = 'gcode_macro _WMP_TOOL_RETURN_BEGIN', 'variable_return_speed'
-    source = output if output.has_option(section, option) else base
-    if source.has_option(section, option):
+    # A shared hot-path rate replaces the former per-return variable. An
+    # explicitly configured shared value wins; otherwise carry a non-default
+    # legacy return speed forward. The old 200 mm/s default upgrades to 500.
+    section, option = 'gcode_macro _WMP_XY_TRAVEL', 'variable_hot_travel_speed'
+    legacy, old_option = 'gcode_macro _WMP_TOOL_RETURN_BEGIN', 'variable_return_speed'
+    if not actual.has_option(section, option) and actual.has_option(legacy, old_option):
+        value = actual.get(legacy, old_option)
         try:
-            old_default = float(source.get(section, option)) == 200.0
+            if float(value) in (200., 500.):
+                value = expected.get(section, option)
         except ValueError:
-            old_default = False
-        if old_default:
-            if not output.has_section(section):
-                output.add_section(section)
-            value = expected.get(section, option)
-            output.set(section, option, value)
+            pass  # Preserve invalid custom values for explicit operator review.
+        if not output.has_section(section):
+            output.add_section(section)
+        output.set(section, option, value)
+        if value == expected.get(section, option):
             ownership.setdefault(section, {})[option] = option_hash(value)
+        else:
+            ownership.get(section, {}).pop(option, None)
 
     import io
     stream = io.StringIO()

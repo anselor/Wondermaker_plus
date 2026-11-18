@@ -1576,7 +1576,7 @@ def test_service_same_head_reconciles_motor_without_toolchange(service_material)
     script = '\n'.join(scripts)
     assert 'ACTIVATE_EXTRUDER EXTRUDER=extruder2' in script
     assert 'SAVE_VARIABLE VARIABLE=current_extruder VALUE=2' in script
-    assert 'G1 X-13' in script and 'G1 Y80' in script
+    assert '_WMP_XY_TRAVEL X=-13' in script and '_WMP_XY_TRAVEL Y=80' in script
     assert 'LOCK' not in script and 'G28' not in script
     assert 'MOVE=1' not in script
 
@@ -2418,7 +2418,7 @@ def test_service_homing_precedes_travel_and_stops_on_failure(service_material, r
     if result == 'ok':
         material._prepare_service(2, context)
         assert scripts[0] == 'G28 X Y\nM400'
-        assert any('G1 X-13' in script for script in scripts[1:])
+        assert any('_WMP_XY_TRAVEL X=-13' in script for script in scripts[1:])
     else:
         with pytest.raises(Exception): material._prepare_service(2, context)
         assert scripts == ['G28 X Y\nM400']
@@ -2440,7 +2440,7 @@ def test_service_shared_dock_mount_failure_stops_before_filament_service(service
         material._prepare_service(2, context)
     assert '_UNLOCK_TOOL T=1 SERVICE=1' in calls
     assert calls[-1].startswith(failed_macro + ' ')
-    assert not any('ACTIVATE_EXTRUDER' in command or 'G1 X-13' in command for command in calls)
+    assert not any('ACTIVATE_EXTRUDER' in command or '_WMP_XY_TRAVEL X=-13' in command for command in calls)
     assert not any(command.startswith('_CHECK_CHANGE_TOOL ') for command in calls)
 
 
@@ -2492,7 +2492,7 @@ def test_filament_service_starts_heating_after_xy_home_before_tool_travel(servic
     heat = calls.index('SET_HEATER_TEMPERATURE HEATER=extruder2 TARGET=250.000')
     assert heat < calls.index('_UNLOCK_TOOL T=0 SERVICE=1')
     assert heat < calls.index('_LOCK_TOOL T=2 SERVICE=1')
-    assert heat < next(i for i, command in enumerate(calls) if command.startswith('G1 X-13'))
+    assert heat < next(i for i, command in enumerate(calls) if command.startswith('_WMP_XY_TRAVEL X=-13'))
     if needs_home:
         assert calls.index('G28 X Y\nM400') < heat
     assert 'heat_target' not in context
@@ -3311,8 +3311,8 @@ def test_service_preparation_preserves_bed_height_without_z_reference(service_ma
     assert calls.count('G28 X Y') == (not axes)
     assert state['toolhead']['position'][2] == z
     assert not state['wmp_recovery']['z_reference_valid']
-    assert any(line.startswith('G1 X-13') for line in calls)
-    assert any(line.startswith('G1 Y80') for line in calls)
+    assert any(line.startswith('_WMP_XY_TRAVEL X=-13') for line in calls)
+    assert any(line.startswith('_WMP_XY_TRAVEL Y=80') for line in calls)
     for line in calls:
         assert not line.startswith(('SET_KINEMATIC_POSITION', 'FORCE_MOVE', 'PROBE'))
         if line.startswith(('G0 ', 'G1 ', 'G28 ')):
@@ -10441,7 +10441,7 @@ def test_service_progress_follows_physical_commands_without_jumping_ahead(servic
             assert phase == prefix + 'docking'
         elif command.startswith('_LOCK_TOOL'):
             assert phase == prefix + 'mounting'
-        elif command.startswith('G1 X-13'):
+        elif command.startswith('_WMP_XY_TRAVEL X=-13'):
             assert phase == phase_name
     objects['gcode'] = SimpleNamespace(run_script_from_command=run)
     material._prepare_service(2, context, phase_name=phase_name)
