@@ -23,6 +23,9 @@ class StopPoints:
         "purged": ("after purge", "first tool picked up; purge finished"),
     }
     STOP_ERROR_PREFIX = "Print cancellation requested; stopped "
+    # Recorded by the bed mesh hook, not a macro stop point.
+    MESH_PHASE = "mesh_probing"
+    MESH_STATE = "homed; probe head attached and raised; bed mesh not saved"
 
     def __init__(self, material):
         self.material = material
@@ -36,6 +39,7 @@ class StopPoints:
         gcode.register_command("_WMP_STOP_POINT", self.material.cmd_STOP_POINT)
         gcode.register_command("_WMP_STOP_WAITS", self.material.cmd_STOP_WAITS)
         self.material._install_wait_wrappers()
+        self.material._install_mesh_stop()
         self.material._install_stop_note_error()
 
     def _stop_owner_present(self):
@@ -102,6 +106,43 @@ class StopPoints:
         except Exception:
             logging.exception("Unable to record stop point %s", phase)
         return error("Print cancellation requested; stopped while heating " + label)
+
+    def _stop_mesh(self, measured, total):
+        """Close the wait region, record the stop and return the error to raise."""
+        self._stop_waits = None
+        label = "bed mesh, %d of %d points measured" % (measured, total)
+        try:
+            self.material._record_stop_point(self.MESH_PHASE, label[:160], self.MESH_STATE)
+        except Exception:
+            logging.exception("Unable to record stop point %s", self.MESH_PHASE)
+        return self.material.printer.lookup_object("gcode").error(
+            "Print cancellation requested; stopped during " + label)
+
+    def _install_mesh_stop(self):
+        """Stop BED_MESH_CALIBRATE between probe points after Cancel.
+
+        Wraps the vendor ProbePointsHelper owned by bed_mesh (extras/probe.py),
+        which raises the head to horizontal_move_z before _move_next() moves to
+        the next point. Only bed_mesh's helper is wrapped, so G28 and other probe
+        users never stop here (a G28 error turns the motors off). The gcode error
+        reaches the vendor dispatcher, whose gcode:command_error event ends the
+        probe session; the bed_mesh finalize callback never runs, so no partial
+        mesh is built or saved. Only managed while the stop-wait region is open.
+        """
+        mesh = self.material.printer.lookup_object("bed_mesh", None)
+        manager = getattr(getattr(mesh, "bmc", None), "probe_mgr", None)
+        helper = getattr(manager, "probe_helper", None)
+        original = getattr(helper, "_move_next", None)
+        if not callable(original) or getattr(original, "__wrapped__", None) is not None:
+            return
+        material = self.material
+        def move_next(probe_num):
+            if material.stop_waits_open() and material.stop_requested() is not None:
+                points = getattr(helper, "probe_points", None) or ()
+                raise self._stop_mesh(min(probe_num, len(points)), len(points))
+            return original(probe_num)
+        move_next.__wrapped__ = original
+        helper._move_next = move_next
 
     def _install_stop_note_error(self):
         """Record a stop-point unwind as a cancelled print, not a failed one.

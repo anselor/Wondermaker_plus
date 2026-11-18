@@ -483,8 +483,11 @@ Vendor-macro patch inventory (re-check each on every firmware re-baseline):
 
 The `stop-points` lines patch only the vendor `START_PRINT` body. Heat-wait
 interruption is not a macro patch: the `TEMPERATURE_WAIT` wrapper in
-`klipper_extras/wmp_stop_points.py` acts inside the `_WMP_STOP_WAITS` region. After a
-re-baseline, confirm the marked blocks still sit at the same phase boundaries in
+`klipper_extras/wmp_stop_points.py` acts inside the `_WMP_STOP_WAITS` region. Bed mesh
+interruption is not a macro patch either: the same module wraps `_move_next` on the
+vendor `ProbePointsHelper` owned by `bed_mesh` (`extras/probe.py`). After a
+re-baseline, confirm `bed_mesh.bmc.probe_mgr.probe_helper` still exists and
+`ProbePointsHelper.start_probe` still raises the head before `_move_next`. Also, confirm the marked blocks still sit at the same phase boundaries in
 the new vendor `START_PRINT`, confirm vendor `M190` and `M109` still wait through
 `TEMPERATURE_WAIT`, confirm no macro overrides `TEMPERATURE_WAIT` (the managed
 loop re-implements it inside the open region), and re-run

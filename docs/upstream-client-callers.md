@@ -2062,18 +2062,40 @@ Stops early:
 - Within about one second inside three heat waits: the probe-nozzle preheat, the
   bed wait (vendor `M190` reaching `TEMPERATURE_WAIT`) and the print-nozzle wait at
   the purge position (vendor `M109` reaching `TEMPERATURE_WAIT`).
-- The error text is `Print cancellation requested; stopped at <label>` or
-  `Print cancellation requested; stopped while heating <heater>`. The native
-  cancel panel shows `Stopped at: <label>`.
+- Between bed mesh probe points (added 18 November): before `BED_MESH_CALIBRATE`
+  moves to the next point, with the head raised to `horizontal_move_z` after the
+  previous point. Phase `mesh_probing`, label `bed mesh, <n> of <total> points
+  measured`.
+- The error text is `Print cancellation requested; stopped at <label>`,
+  `Print cancellation requested; stopped while heating <heater>` or
+  `Print cancellation requested; stopped during bed mesh, <n> of <total> points
+  measured`. The native cancel panel shows `Stopped at: <label>`.
 - A stopped `START_PRINT` ends as print_stats `cancelled`, not `error`: a wrapper
-  on `print_stats.note_error` translates those two texts while a live cancel is
-  bound to the current job, because the vendor `note_error` would otherwise make
-  the cleanup's `note_cancel` a no-op.
+  on `print_stats.note_error` translates texts with the
+  `Print cancellation requested; stopped ` prefix while a live cancel is bound to
+  the current job, because the vendor `note_error` would otherwise make the
+  cleanup's `note_cancel` a no-op.
+
+Bed mesh stop:
+
+- Not a macro patch. `_install_mesh_stop` wraps `_move_next` on the vendor
+  `ProbePointsHelper` owned by `bed_mesh` (`bed_mesh.bmc.probe_mgr.probe_helper`,
+  `extras/probe.py`) at `klippy:ready`, and acts only inside the open
+  `_WMP_STOP_WAITS` region. `G28` and other probe users do not use this helper.
+- The stop raises the G-code error type. The vendor dispatcher reports it and
+  sends `gcode:command_error`, whose probe handler ends the probe session. The
+  `bed_mesh` finalize callback never runs, and the `START_PRINT` mesh save lines
+  after `BED_MESH_CALIBRATE` never run, so no partial mesh is built or saved. As
+  with any vendor mesh failure, no mesh is loaded afterwards (`BED_MESH_CALIBRATE`
+  clears it first); the next `START_PRINT` clears, measures or loads it again.
 
 Still runs to completion:
 
-- `G28`, `BED_MESH_CALIBRATE`, each `T{INITIAL_TOOL}` tool change including its
-  `_WAIT_TOOL_TEMPERATURE` heat wait, and mid-print tool changes.
+- `G28`. The vendor `cmd_G28` turns all motors off on any command error inside
+  homing (`stepper_enable.motor_off()`), which drops a raised bed, so no stop is
+  added inside homing; the `homed` stop point follows it.
+- Each `T{INITIAL_TOOL}` tool change including its `_WAIT_TOOL_TEMPERATURE` heat
+  wait, and mid-print tool changes.
 - Stop points, wait regions and heat-wait wrappers are inert when openACE or AFC
   is present; vendor behaviour is unchanged. No new motion is added and the
   new commands do not use `M400`.
@@ -2100,6 +2122,8 @@ Deployment (not yet performed):
 - SSH, `material` component: `klipper_extras/wmp_stop_points.py` (new; listed
   in `HELPERS`), with its hooks in `wm_material.py`, `wmp_command_routing.py`
   and `wmp_print_cancel.py`, and `klipper_extras/wmp_recovery_file_envelope.py`.
+  The bed mesh stop changes only `wmp_stop_points.py` and `wm_material.py`; it
+  does not change `START_PRINT` or its pinned digest.
 - Native screen: `stock_recovery_progress.hpp` (the `Stopped at:` line) is a
   compiled input of the sealed prebuilt library in
   `client-preload/unified-screen1113/` (listed in `source-inputs.json`).

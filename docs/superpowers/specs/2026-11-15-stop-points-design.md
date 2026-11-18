@@ -244,6 +244,20 @@ partial mesh as the job mesh; a stop inside homing leaves the axis unhomed and r
 that. These need their own stop-point tables and tests, and must be re-checked on
 each firmware re-baseline because they wrap vendor Python.
 
+Status (18 November):
+
+- Mesh probing: built, between probe points only. The hook wraps `_move_next` on
+  the `ProbePointsHelper` owned by `bed_mesh`, inside the open wait region, and
+  records phase `mesh_probing`. The vendor `gcode:command_error` handler ends the
+  probe session and the finalize callback never runs, so no partial mesh is saved.
+  Stopping between samples of one point was not added: one point takes a few
+  seconds, and between samples the nozzle is only `sample_retract_dist` above the
+  bed rather than at `horizontal_move_z`.
+- Homing: not built. Vendor `cmd_G28` (`klippy/extras/homing.py`) calls
+  `stepper_enable.motor_off()` on any command error inside `kin.home()`, which
+  drops a raised bed. A stop inside `G28` would need a non-error exit from the
+  vendor homing path; the `homed` stop point after `G28` stays the earliest stop.
+
 ## Constraints
 
 - Retained vendor 1.1.13 dispatcher, SD worker and heater implementations under

@@ -298,6 +298,7 @@ class WMMaterial:
     _close_stop_waits = component_method("_stop_points", "_close_stop_waits")
     _record_stop_point = component_method("_stop_points", "_record_stop_point")
     _install_wait_wrappers = component_method("_stop_points", "_install_wait_wrappers")
+    _install_mesh_stop = component_method("_stop_points", "_install_mesh_stop")
     _install_stop_note_error = component_method("_stop_points", "_install_stop_note_error")
 
     _cancellation = component_accessor(PrintCancellation, '_print_cancellation')

@@ -488,20 +488,168 @@ def test_wait_wrappers_skipped_when_vendor_pieces_missing(legacy_cancel_routes):
     assert 'TEMPERATURE_WAIT' not in handlers
 
 
+
+# Bed mesh: the retained vendor ProbePointsHelper loop, stopped before moving to the next point.
+
+PROBE_SOURCE = (__import__('pathlib').Path(__file__).resolve().parents[1] /
+                'analysis/fw_1.1.13_payload/root/home/t13dp/klipper/klippy/extras/probe.py')
+MESH_LABEL = '^Print cancellation requested; stopped during bed mesh, %d of %d points measured$'
+
+
+def _vendor_points_helper_class():
+    """ProbePointsHelper's probing loop and point moves, executed from the retained vendor source."""
+    import ast
+    from types import SimpleNamespace as NS
+    if not PROBE_SOURCE.exists():
+        pytest.skip('retained vendor probe unavailable')
+    tree = ast.parse(PROBE_SOURCE.read_text())
+    cls = next(node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == 'ProbePointsHelper')
+    cls.body = [node for node in cls.body if isinstance(node, ast.FunctionDef) and node.name in
+                ('start_probe', '_move', '_raise_tool', '_invoke_callback', '_move_next')]
+    namespace = {'manual_probe': NS(verify_no_manual_probe=lambda printer: None)}
+    exec(compile(ast.fix_missing_locations(ast.Module(body=[cls], type_ignores=[])), str(PROBE_SOURCE), 'exec'),
+         namespace)
+    return namespace['ProbePointsHelper']
+
+
+class MeshRig:
+    """A vendor ProbePointsHelper owned by bed_mesh, with a recording probe session and toolhead."""
+    def __init__(self, printer, objects, gcode, points=5):
+        from types import SimpleNamespace as NS
+        self.moves, self.probed, self.finalized, self.ended = [], [], [], []
+        self.on_probe = None
+        helper = _vendor_points_helper_class().__new__(_vendor_points_helper_class())
+        helper.printer, helper.gcode = printer, gcode
+        helper.probe_points = [(10. * i, 20., 0.) for i in range(points)]
+        helper.finalize_callback = lambda offsets, results: self.finalized.append(list(results))
+        helper.use_offsets, helper.speed, helper.default_horizontal_move_z = False, 100., 5.
+        helper.mcu_probe = NS(home_zero=lambda: None)
+        self.helper = helper
+        session = NS(pull_probed_results=lambda: list(self.probed),
+                     end_probe_session=lambda: self.ended.append(True))
+        def run_probe(gcmd):
+            self.probed.append(self.moves[-1])
+            if self.on_probe:
+                self.on_probe(len(self.probed))
+        session.run_probe = run_probe
+        objects['probe'] = NS(get_probe_params=lambda gcmd: {'lift_speed': 5.},
+                              get_offsets=lambda: (0., 0., 0.), start_probe_session=lambda gcmd: session)
+        toolhead = objects.setdefault('toolhead', NS())
+        toolhead.manual_move = lambda coord, speed: self.moves.append(tuple(coord))
+        toolhead.wait_moves = lambda: None
+        toolhead.dwell = lambda seconds: None
+        toolhead.get_last_move_time = lambda: 0.
+        objects['bed_mesh'] = NS(bmc=NS(probe_mgr=NS(probe_helper=helper)))
+
+    def xy_points(self):
+        return [move for move in self.moves if move[0] is not None]
+
+
+class MeshCommand:
+    def get(self, name, default=None): return default
+    def get_float(self, name, default=None, **kwargs): return default
+    def respond_info(self, message): pass
+
+
+@pytest.fixture
+def mesh_env(wait_env):
+    env = wait_env
+    env.objects['gcode'].respond_info = lambda message: None
+    env.rig = MeshRig(env.material.printer, env.objects, env.objects['gcode'])
+    env.material._install_mesh_stop()
+    return env
+
+
+def test_mesh_without_request_probes_every_point_and_finalizes(mesh_env):
+    env = mesh_env
+    _open(env)
+    env.rig.helper.start_probe(MeshCommand())
+    assert len(env.rig.xy_points()) == 5 and len(env.rig.finalized) == 1
+    assert env.rig.ended == [True]
+    assert env.material.stop_requested() is None
+
+
+@pytest.mark.parametrize('after', [0, 2, 4])
+def test_mesh_stops_before_next_point_without_finalizing(mesh_env, after):
+    env = mesh_env
+    _open(env)
+    if after == 0:
+        env.objects['gcode'].run_script('CANCEL_PRINT')
+    else:
+        env.rig.on_probe = lambda count: count == after and env.objects['gcode'].run_script('CANCEL_PRINT')
+    with pytest.raises(ValueError, match=MESH_LABEL % (after, 5)):
+        env.rig.helper.start_probe(MeshCommand())
+    # The head was raised after the last point and never moved to the next one.
+    assert len(env.rig.xy_points()) == after == len(env.rig.probed)
+    assert env.rig.moves[-1] == (None, None, 5.)
+    assert env.rig.finalized == []
+    point = env.material._print_cancel['stop_point']
+    assert point == {'phase': 'mesh_probing',
+                     'label': 'bed mesh, %d of 5 points measured' % after,
+                     'state': 'homed; probe head attached and raised; bed mesh not saved'}
+    assert env.material._print_cancel['version'] == 3
+    assert env.material.stop_waits_open() is False
+    assert env.cleanup == []
+
+
+def test_mesh_with_closed_region_ignores_request(mesh_env):
+    env = mesh_env
+    env.objects['gcode'].run_script('CANCEL_PRINT')
+    assert env.material.stop_requested() is not None and not env.material.stop_waits_open()
+    env.rig.helper.start_probe(MeshCommand())
+    assert len(env.rig.finalized) == 1
+    assert 'stop_point' not in env.material._print_cancel
+
+
+@pytest.mark.parametrize('owner', ['openace', 'AFC'])
+def test_mesh_stop_inert_with_other_owner(mesh_env, owner):
+    env = mesh_env
+    _open(env)
+    env.objects['gcode'].run_script('CANCEL_PRINT')
+    env.objects[owner] = object()
+    env.rig.helper.start_probe(MeshCommand())
+    assert len(env.rig.finalized) == 1
+
+
+def test_mesh_stop_installs_once(mesh_env):
+    env = mesh_env
+    first = env.rig.helper._move_next
+    env.material._install_mesh_stop()
+    assert env.rig.helper._move_next is first
+
+
+@pytest.mark.parametrize('missing', ['bed_mesh', 'bmc', 'probe_mgr', 'probe_helper', 'move_next'])
+def test_mesh_stop_skipped_when_vendor_pieces_missing(wait_env, missing):
+    from types import SimpleNamespace as NS
+    env = wait_env
+    helper = NS(probe_points=[])
+    if missing != 'move_next':
+        helper._move_next = lambda probe_num: None
+    chain = {'bed_mesh': NS(bmc=NS(probe_mgr=NS(probe_helper=helper)))}
+    if missing == 'bmc': chain['bed_mesh'] = NS()
+    elif missing == 'probe_mgr': chain['bed_mesh'] = NS(bmc=NS())
+    elif missing == 'probe_helper': chain['bed_mesh'] = NS(bmc=NS(probe_mgr=NS()))
+    if missing != 'bed_mesh':
+        env.objects['bed_mesh'] = chain['bed_mesh']
+    env.material._install_mesh_stop()
+    if missing != 'move_next':
+        assert not hasattr(helper._move_next, '__wrapped__')
+
+
 # End to end: rendered START_PRINT through the retained vendor dispatcher and the SD error path.
 
 STUCK = {'probe_preheat': ('extruder1', 140.), 'bed_wait': ('heater_bed', 60.),
          'purge_wait': ('extruder1', 220.)}
 
 
-def _render_start_print():
+def _render_start_print(params=None):
     import sys
     from pathlib import Path
     tests = str(Path(__file__).resolve().parents[1] / 'tests')
     if tests not in sys.path:
         sys.path.insert(0, tests)
     from test_stop_points_macros import render_start_print
-    return render_start_print()
+    return render_start_print(params=params)
 
 
 def _start_print_env(managed_cancel_intent, guarded_legacy_dispatch, stuck=None):
@@ -654,6 +802,58 @@ def test_cancel_between_steps_stops_at_next_stop_point(managed_cancel_intent, gu
     _finish_sd_error_cancel(env)
 
 
+def test_cancel_during_start_print_bed_mesh_stops_before_next_point(managed_cancel_intent, guarded_legacy_dispatch):
+    env = _start_print_env(managed_cancel_intent, guarded_legacy_dispatch)
+    events = guarded_legacy_dispatch[2]
+    rig = MeshRig(env.material.printer, env.objects, env.dispatcher)
+    env.material._install_mesh_stop()
+    def calibrate(gcmd):
+        env.ran.append(gcmd.get_commandline())
+        rig.helper.start_probe(gcmd)
+    env.dispatcher.gcode_handlers['BED_MESH_CALIBRATE'] = calibrate
+    rig.on_probe = lambda count: count == 2 and env.objects['gcode'].run_script('CANCEL_PRINT')
+    with pytest.raises(env.vendor.CommandError, match=MESH_LABEL % (2, 5)):
+        env.run(env.script)
+    # The macro unwinds at BED_MESH_CALIBRATE: no mesh profile save or later step runs.
+    assert env.ran[-1].startswith('BED_MESH_CALIBRATE PROFILE=wmp_print')
+    assert rig.finalized == [] and len(rig.xy_points()) == 2
+    # The vendor dispatcher reports the gcode error, which ends the probe session (probe.py).
+    assert 'gcode:command_error' in events
+    assert not any(re.match(r'T\d', line) for line in env.ran)
+    assert env.material._print_cancel['stop_point']['phase'] == 'mesh_probing'
+    assert env.material.stop_waits_open() is False
+    assert env.cleanup == []
+    _finish_sd_error_cancel(env)
+
+
+def test_cancel_during_start_print_chamber_wait_uses_real_stop_points(managed_cancel_intent, guarded_legacy_dispatch):
+    """r4's _WMP_WAIT_CHAMBER (wmp_print_preparation) consumes the real stop request."""
+    env = _start_print_env(managed_cancel_intent, guarded_legacy_dispatch)
+    env.script = '\n'.join(_render_start_print(params={'CHAMBER': '45'}))
+    assert '_WMP_WAIT_CHAMBER TARGET=45.0 BED=60 HOLD=60.0' in env.script.splitlines()
+    class Chamber:
+        def get_temp(self, eventtime):
+            return 20., 45.
+    heaters = env.objects['heaters']
+    heaters.lookup_heater = lambda name: Chamber() if name == 'chamber' else heaters.heaters[name]
+    def wait_chamber(gcmd):
+        env.ran.append(gcmd.get_commandline())
+        env.material.cmd_WAIT_CHAMBER(env.dispatcher._get_extended_params(gcmd))
+    env.dispatcher.gcode_handlers['_WMP_WAIT_CHAMBER'] = wait_chamber
+    env.on_pause = lambda count: count == 2 and env.objects['gcode'].run_script('CANCEL_PRINT')
+    with pytest.raises(env.vendor.CommandError,
+                       match='^Print cancellation requested; stopped at during chamber preparation$'):
+        env.run(env.script)
+    assert env.ran[-1].startswith('_WMP_WAIT_CHAMBER')
+    assert not any(line.startswith('BED_MESH_CALIBRATE') or re.match(r'T\d', line) for line in env.ran)
+    assert env.material._print_cancel['stop_point'] == {
+        'phase': 'chamber_preparation', 'label': 'during chamber preparation',
+        'state': 'homed; chamber temperature stabilization interrupted'}
+    assert env.material._print_cancel['version'] == 3
+    assert env.cleanup == []
+    _finish_sd_error_cancel(env)
+
+
 # A stopped START_PRINT ends as print_stats "cancelled", not "error", through the vendor SD worker.
 
 def _sd_print(managed_cancel_intent, guarded_legacy_dispatch, handler=None, stuck=None):
@@ -736,7 +936,8 @@ def test_other_gcode_error_still_ends_error_through_vendor_worker(managed_cancel
 
 
 STOP_TEXTS = ['Print cancellation requested; stopped at after homing',
-              'Print cancellation requested; stopped while heating extruder1']
+              'Print cancellation requested; stopped while heating extruder1',
+              'Print cancellation requested; stopped during bed mesh, 2 of 5 points measured']
 
 
 def _printing(legacy_cancel_routes):
