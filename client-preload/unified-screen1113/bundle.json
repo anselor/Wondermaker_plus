@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "scope": "reviewed-delivery",
+  "scope": "packaging-control-only",
   "profile": {
     "firmware": "1.1.13",
     "sha256": "b60c96c5caf980a127a3d284e5ac98e799dfd79691cb1a52aafd06fd818c4715",
@@ -8,19 +8,20 @@
   },
   "artifact": {
     "file": "screen.so",
-    "sha256": "45e0d916643cd8c2128eafb4dc06584f5df10312a23a321662e2263cdb4e3aa6",
-    "size": 3084288,
+    "sha256": "811791792e635cd729d80dcc9717b9d7099242e1ed88a67ebc9f2ac8bbfa688a",
+    "size": 3225144,
     "machine": "AArch64",
     "nodelete": true,
     "needed": [
       "libc.so.6",
       "libdl.so.2",
       "libgcc_s.so.1",
+      "libm.so.6",
       "libpthread.so.0",
       "libstdc++.so.6"
     ]
   },
   "legacy_c_sha256": "6f5dc98cc32612212c6419694296c7dc63329f79c3d6ea226a211b6c2ff13799",
-  "source_manifest_sha256": "aafc09fc54b148f7277d17525b9b8d7434b94f1ad2c379bf8dc7bad4721c4de2",
-  "source_archive_sha256": "a40468edbe23f73b71ef36520e81bf85718615bc5ccc74475bd68ec68899e457"
+  "source_manifest_sha256": "dc9e17d662f767d937d3e612c0611fc4f81e77173ebda643bbe8d603e1f09d9b",
+  "source_archive_sha256": "2648621b91105eb2e6564477afb66744bc01381bec3fc91524a446b47e1b4411"
 }

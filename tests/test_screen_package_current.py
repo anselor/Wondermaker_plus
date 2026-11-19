@@ -23,6 +23,18 @@ def test_committed_package_is_selected_and_matches_this_tree():
     assert reseal.is_current(ROOT)
 
 
+def test_library_needs_no_glibc_symbol_version_above_2_17():
+    # The printer's glibc version is not recorded. The vendor client needs at
+    # most GLIBC_2.25; the library stays at the AArch64 base version.
+    import re
+    descriptor = json.loads((PACKAGE / 'bundle.json').read_text())
+    library = (PACKAGE / descriptor['artifact']['file']).read_bytes()
+    versions = {match.decode() for match in re.findall(rb'(?<![A-Z_])GLIBC_(\d+(?:\.\d+)+)\0', library)}
+    assert versions == {'2.17'}
+    assert set(descriptor['artifact']['needed']) <= {
+        'libc.so.6', 'libdl.so.2', 'libgcc_s.so.1', 'libm.so.6', 'libpthread.so.0', 'libstdc++.so.6'}
+
+
 def test_package_records_the_shaper_component():
     recorded = json.loads((PACKAGE / 'source-inputs.json').read_text())
     for name in ('tools/components/shaper.py', 'tools/shaper_backport.py',
