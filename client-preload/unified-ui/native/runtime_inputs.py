@@ -36,6 +36,7 @@ RUNTIME_INPUTS = (
     'klipper_extras/wmp_calibration_progress.py',
     'klipper_extras/wmp_nozzle_scrub.py',
     'klipper_extras/wmp_nozzle_touch.py',
+    'klipper_extras/wmp_tool_probe.py',
     'klipper_extras/wmp_offset_snapshot.py',
     'klipper_extras/wmp_calibration.py',
     'klipper_extras/wm_material.py',

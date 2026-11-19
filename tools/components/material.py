@@ -58,6 +58,7 @@ HELPERS = (
     'wmp_calibration_progress.py',
     'wmp_nozzle_scrub.py',
     'wmp_nozzle_touch.py',
+    'wmp_tool_probe.py',
     'wmp_offset_snapshot.py',
     'wmp_calibration.py',
     'wm_material.py',

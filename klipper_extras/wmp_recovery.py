@@ -25,12 +25,14 @@ try:
     from .wmp_probe_state import ProbeConfigChange, ProbeEditorReceipt
     from .wmp_probe_editor import ProbeEditorCommands
     from .wmp_calibration import CalibrationHeaterOwnership, CalibrationCommands
+    from . import wmp_tool_probe
 except ImportError:
     from wmp_xy_homing import XYHoming
     from wmp_calibration_records import ProbeSaveRecord, CalibrationSaveRecord
     from wmp_probe_state import ProbeConfigChange, ProbeEditorReceipt
     from wmp_probe_editor import ProbeEditorCommands
     from wmp_calibration import CalibrationHeaterOwnership, CalibrationCommands
+    import wmp_tool_probe
 
 
 class BottomZ:
@@ -55,6 +57,12 @@ class BottomZ:
     def _connect(self):
         enable = self.printer.lookup_object('stepper_enable').lookup_enable('stepper_z')
         enable.register_state_callback(self._motor_state)
+        # Repeats tool-setter touches that trigger before the nozzle moves
+        # (wmp_tool_probe.py); it installs only over the reviewed vendor source.
+        try:
+            wmp_tool_probe.install(self.printer)
+        except Exception:
+            logging.exception('WMP tool probe: false-trigger handling not installed')
 
     def _identification_ready(self):
         from .wmp_identification import IdentificationCommands
