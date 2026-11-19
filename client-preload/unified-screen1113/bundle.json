@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "scope": "packaging-control-only",
+  "scope": "reviewed-delivery",
   "profile": {
     "firmware": "1.1.13",
     "sha256": "b60c96c5caf980a127a3d284e5ac98e799dfd79691cb1a52aafd06fd818c4715",

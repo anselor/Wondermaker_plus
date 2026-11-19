@@ -107,6 +107,9 @@ uv run --with paramiko --with jinja2 python tools/deploy.py install all
 uv run --with paramiko python tools/deploy.py status
 ```
 
+The R4 screen package is reviewed for normal installation on the supported
+factory 1.1.13 client; no development qualification flag is needed.
+
 The installer checks all selected components before applying changes. It refuses
 installation during a running or paused print, or when printer state cannot be
 determined. A failed prerequisite check installs nothing.

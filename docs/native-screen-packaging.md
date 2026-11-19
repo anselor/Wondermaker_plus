@@ -93,8 +93,10 @@ necessary for the claimed bit-identical rebuild. No printer compiler install.
 
 Exports default to `packaging-control-only`; normal installation refuses that scope.
 Feature work should keep that scope until its release review is complete. The
-checked-in release package may use `reviewed-delivery`. Package integrity tests
-accept either scope; they do not grant release qualification.
+checked-in R4 release package uses `reviewed-delivery`, following UI review and
+printer qualification accepted on 2026-11-18. Its regression check requires that
+release scope. Exporter tests still cover both scopes; integrity checks alone
+do not grant release qualification.
 
 For development qualification, use the exported installer:
 

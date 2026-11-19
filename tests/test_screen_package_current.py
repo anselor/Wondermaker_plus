@@ -16,7 +16,7 @@ PACKAGE = ROOT / bundle.CURRENT_BUNDLE
 def test_committed_package_is_selected_and_matches_this_tree():
     assert bundle.bundle_relative(ROOT) == bundle.CURRENT_BUNDLE
     descriptor = bundle.load_bundle(ROOT)
-    assert descriptor['scope'] in ('reviewed-delivery', 'packaging-control-only')
+    assert descriptor['scope'] == 'reviewed-delivery'
     # A failure here means an installer or source file changed after the
     # package was sealed: run tools/reseal_screen_package.py.
     bundle.verify_source_binding(ROOT)
