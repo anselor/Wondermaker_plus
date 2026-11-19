@@ -145,7 +145,7 @@
   "config/live/macros.cfg": "42233d307cc0ee552f8be7b5eb127b0a6839466e160f89fe117e6554cddfef69",
   "config/live/moonraker.conf": "c6a62b87b23bd214a69f390beec0931e16b09d5a9f7768051a66f6a288b3553b",
   "config/live/offset_calibrate.cfg": "1602f59794e88bc853c476914bd3fff3e811d6a5211d96697d29d4d2d6546314",
-  "config/live/printer.cfg": "975a184dbbd9cd91242b6eba1e984fae3b88c20734ed9cc8c1ddf3cdf17baa89",
+  "config/live/printer.cfg": "1ae78f49bf44aa01f4e5cfc81c407fffbaeb65555d5b3d413b0d2307c3182975",
   "config/live/test_macro.cfg": "7b9722b4bd77acd42c19f1770c113419517a9566dfea0ab592e2632272866dbb",
   "config/live/timelapse.cfg": "8f8eb52a99be68be756c96ab661d51f0c4d6bfc4e3afb0d975ac024489341bf7",
   "config/live/zru-s.cfg": "7d3c9d7dd7d1b19fa7eabcf8029927ff9d73a919f5fbbf4c949cbfa2b807c057",

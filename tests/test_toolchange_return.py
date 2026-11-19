@@ -461,3 +461,27 @@ def test_shared_xy_travel_refuses_invalid_configured_rate_before_motion(value, h
     before = copy.deepcopy(m.p['gcode_move'])
     with pytest.raises(ValueError):m.run('_WMP_XY_TRAVEL', X='120', HOT=str(int(hot)))
     assert m.p['gcode_move'] == before
+
+
+@pytest.mark.parametrize('absolute', [False, True])
+def test_z_homing_after_same_head_xy_home_uses_absolute_center_and_lift(absolute):
+    from test_config_macros import templates
+    m = MotionModel(state='standby', current=2, absolute=absolute, z=300)
+    m.templates['Z_HOMING'] = templates(ROOT/'config/live')['Z_HOMING']
+    m.p['gcode_macro Z_HOMING'] = {'z_raise': 1}
+    sv = m.p['save_variables']['variables']
+    sv['probe_tool'] = 2
+    sv['t2_offset'] = [0, 0, 0]
+    sv['t2_flow_extruder'] = 100
+    gm = m.p['gcode_move']
+    gm['homing_origin'] = dict(x=0., y=0., z=0.)
+    gm['position'] = dict(x=298., y=0., z=300.)
+    gm['gcode_position'] = dict(gm['position'])
+    m.run('Z_HOMING')
+    moves = [v['position'] for k, v in m.events if k == 'MOVE']
+    center = next(v for v in moves if v['x'] != 298. or v['y'] != 0.)
+    assert center['x'] == 150. and center['y'] == 135.
+    assert all(-15 <= v['x'] <= 312 for v in moves)
+    assert moves[-1]['z'] == 7.  # Absolute post-home lift, not 300 + 7.
+    assert sv['current_extruder'] == 2
+    assert gm['absolute_coordinates']
