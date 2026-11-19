@@ -22,6 +22,11 @@
       "bytes": "fd7bbea9fd030091e00f00f9e00f40f91f0000f16100005429b30094e00f00f9"
     },
     {
+      "name": "lv_disp_get_inactive_time",
+      "address": "0x69725c",
+      "bytes": "fd7bbda9fd030091e00f00f9e00f40f91f0000f1a0000054e00f40f900a041b9"
+    },
+    {
       "name": "lv_event_send",
       "address": "0x697834",
       "bytes": "fd7bb9a9fd030091e01700f9e12700b9e20f00f9e01740f91f0000f161000054"
@@ -1040,6 +1045,45 @@
       "name": "stock_refresh_udisk",
       "address": "0x52583c",
       "bytes": "fd7bbea9fd030091f35301a9409a01900080209100fcdf08001c001200000012"
+    }
+  ],
+  "data": [
+    {
+      "name": "is_rapid_mode",
+      "address": "0x384c570",
+      "symbol": "is_rapid_mode"
+    },
+    {
+      "name": "auto_check_selected",
+      "address": "0x385fa88",
+      "symbol": "auto_check_selected"
+    },
+    {
+      "name": "current_thr_number",
+      "address": "0x385c260",
+      "symbol": "current_thr_number"
+    },
+    {
+      "name": "knife_pairing_failed",
+      "address": "0xe64572d",
+      "symbol": "knife_pairing_failed"
+    }
+  ],
+  "sender_returns": [
+    {
+      "name": "offset_home",
+      "address": "0x4b7fbc",
+      "call": "calibration_sender_10"
+    },
+    {
+      "name": "offset_rapid",
+      "address": "0x4b842c",
+      "call": "calibration_sender_13"
+    },
+    {
+      "name": "offset_park",
+      "address": "0x4b847c",
+      "call": "calibration_sender_14"
     }
   ]
 }

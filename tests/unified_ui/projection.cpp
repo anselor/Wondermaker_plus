@@ -189,6 +189,190 @@ int main(int argc,char**argv){
   editor["binding_valid"]=false;
   assert(native::probe_editor_status(editor,"cal-session",true)["binding_valid"]==false);
  }
+ {
+  const std::string attempt_request(32,'c');
+  Json scrub={{"protocol",1},{"head",2},{"phase","heating"},{"target",160.0},{"error",""},{"request",attempt_request}};
+  Json progress={{"protocol",1},{"head",-1},{"phase","homing"},{"request",attempt_request}};
+  auto input=status;input["wmp_recovery"]={{"nozzle_scrub",scrub},{"calibration_progress",progress}};
+  for(bool ace:{false,true}){
+   auto projected_scrub=native::project(input,ace?raw:Json::object(),ace,"session");
+   assert(projected_scrub["nozzle_scrub"]==scrub&&projected_scrub["calibration_progress"]==progress);
+  }
+  auto failed=input;failed["wmp_recovery"]["nozzle_scrub"]["phase"]="failed";failed["wmp_recovery"]["nozzle_scrub"]["error"]="Head 3 did not mount.";
+  assert(native::project(failed,Json::object(),false,"session")["nozzle_scrub"]==failed["wmp_recovery"]["nozzle_scrub"]);
+  const Json unavailable={{"phase","unavailable"}};
+  assert(native::project(status,Json::object(),false,"session")["nozzle_scrub"]==unavailable);
+  assert(native::project(status,Json::object(),false,"session")["calibration_progress"]==unavailable);
+  for(const auto&change:{Json{{"protocol",2}},Json{{"protocol","1"}},Json{{"head",4}},Json{{"head",-2}},Json{{"head",1.5}},Json{{"phase","positioned"}},Json{{"phase",1}},Json{{"target","160"}},Json{{"error",nullptr}}}){
+   auto bad=input;bad["wmp_recovery"]["nozzle_scrub"].update(change);
+   assert(native::project(bad,Json::object(),false,"session")["nozzle_scrub"]==unavailable);
+  }
+  for(const auto*key:{"protocol","head","phase","target","error","request"}){
+   auto bad=input;bad["wmp_recovery"]["nozzle_scrub"].erase(key);
+   assert(native::project(bad,Json::object(),false,"session")["nozzle_scrub"]==unavailable);
+  }
+  for(const auto&change:{Json{{"protocol",0}},Json{{"head",4}},Json{{"head","1"}},Json{{"phase","heating"}},Json{{"phase",nullptr}}}){
+   auto bad=input;bad["wmp_recovery"]["calibration_progress"].update(change);
+   assert(native::project(bad,Json::object(),false,"session")["calibration_progress"]==unavailable);
+  }
+  // request: the attempt's 32 lowercase hexadecimal characters, or "" when none.
+  for(const auto*key:{"nozzle_scrub","calibration_progress"}){
+   auto none=input;none["wmp_recovery"][key]["request"]="";
+   assert(native::project(none,Json::object(),false,"session")[key]==none["wmp_recovery"][key]);
+   for(const auto&bad_request:{Json(std::string(31,'c')),Json(std::string(33,'c')),Json(std::string(32,'C')),Json(std::string(32,'g')),Json(1),Json(),Json::object()}){
+    auto bad=input;bad["wmp_recovery"][key]["request"]=bad_request;
+    assert(native::project(bad,Json::object(),false,"session")[key]==unavailable);
+   }
+  }
+  {auto bad=input;bad["wmp_recovery"]["calibration_progress"].erase("request");
+   assert(native::project(bad,Json::object(),false,"session")["calibration_progress"]==unavailable);}
+  for(const auto&bad_value:{Json(),Json::array(),Json("homing"),Json(1)}){
+   auto bad=input;bad["wmp_recovery"]["nozzle_scrub"]=bad_value;bad["wmp_recovery"]["calibration_progress"]=bad_value;
+   auto projected_bad=native::project(bad,Json::object(),false,"session");
+   assert(projected_bad["nozzle_scrub"]==unavailable&&projected_bad["calibration_progress"]==unavailable);
+  }
+  for(const auto*phase:{"idle","mounting","position","height","docking"}){
+   auto good=input;good["wmp_recovery"]["calibration_progress"]={{"protocol",1},{"head",3},{"phase",phase},{"request",attempt_request}};
+   assert(native::project(good,Json::object(),false,"session")["calibration_progress"]==good["wmp_recovery"]["calibration_progress"]);
+  }
+ }
+ {
+  // Open doors: bit n while door switch n+1 reports RELEASED; -1 without any
+  // door state or while Klipper is not ready.
+  const auto doors=[](const Json&in){return native::project(in,Json::object(),false,"session")["doors"];};
+  assert(doors(status)==-1);
+  auto both=status;both["gcode_button Door_button1"]={{"state","PRESSED"}};both["gcode_button Door_button2"]={{"state","RELEASED"}};
+  assert(doors(both)==2);
+  both["gcode_button Door_button1"]["state"]="RELEASED";assert(doors(both)==3);
+  both["gcode_button Door_button1"]["state"]="PRESSED";both["gcode_button Door_button2"]["state"]="PRESSED";assert(doors(both)==0);
+  {auto one=status;one["gcode_button Door_button1"]={{"state","RELEASED"}};assert(doors(one)==1);}
+  {auto bad=both;bad["gcode_button Door_button1"]["state"]="open";bad["gcode_button Door_button2"]=Json("RELEASED");assert(doors(bad)==-1);}
+  {auto down=both;down["gcode_button Door_button2"]["state"]="RELEASED";down["webhooks"]["state"]="shutdown";assert(doors(down)==-1);}
+ }
+ {
+  // Nozzle touch status and the measured/measuring progress fields.
+  const std::string attempt_request(32,'c');
+  Json touch={{"protocol",2},{"request",attempt_request},{"heads",Json::array({0,1,2,3})},{"flagged",Json::array({1,3})},{"restore","none"}};
+  Json progress={{"protocol",1},{"head",2},{"phase","height"},{"request",attempt_request}};
+  auto input=status;input["wmp_recovery"]={{"nozzle_touch",touch},{"calibration_progress",progress}};
+  // heads entries that are not objects are left out.
+  const Json expected_touch={{"protocol",2},{"request",attempt_request},{"heads",Json::array()},{"flagged",Json::array({1,3})},{"restore","none"}};
+  assert(native::project(input,Json::object(),false,"session")["nozzle_touch"]==expected_touch);
+  // Protocol 1 (the per-group rule) and any other protocol project to an empty object.
+  for(const auto&protocol:{Json(1),Json(3),Json(2.0),Json("2"),Json()}){
+   auto other=input;other["wmp_recovery"]["nozzle_touch"]["protocol"]=protocol;
+   assert(native::project(other,Json::object(),false,"session")["nozzle_touch"]==Json::object());
+  }
+  {
+   // Per-head readings: head, centres, centre_span and flagged. Malformed
+   // entries and repeated heads are left out; anything but a list projects
+   // to an empty list.
+   const Json one={{"head",1},{"centres",3},{"centre_span",0.0062},{"flagged",false}};
+   auto good=input;
+   good["wmp_recovery"]["nozzle_touch"]["heads"]=Json::array({{{"head",0},{"centres",0},{"centre_span",0},{"flagged",false}},one,
+                                                              {{"head",3},{"centres",5},{"centre_span",0.0217},{"flagged",true},{"extra",1}}});
+   assert(native::project(good,Json::object(),false,"session")["nozzle_touch"]["heads"]==Json::array({
+    {{"head",0},{"centres",0},{"centre_span",0},{"flagged",false}},one,{{"head",3},{"centres",5},{"centre_span",0.0217},{"flagged",true}}}));
+   for(const auto&change:{Json{{"head",4}},Json{{"head",-1}},Json{{"head",1.5}},Json{{"head","1"}},Json{{"head",true}},Json{{"head",nullptr}},
+                          Json{{"centres",-1}},Json{{"centres",1.5}},Json{{"centres","3"}},Json{{"centres",true}},
+                          Json{{"centre_span",-0.001}},Json{{"centre_span","0.006"}},Json{{"centre_span",true}},Json{{"centre_span",nullptr}},
+                          Json{{"flagged",1}},Json{{"flagged","true"}},Json{{"flagged",nullptr}}}){
+    auto entry=one;entry.update(change);
+    auto bad=input;bad["wmp_recovery"]["nozzle_touch"]["heads"]=Json::array({entry,{{"head",2},{"centres",1},{"centre_span",0.001},{"flagged",false}}});
+    const auto projected=native::project(bad,Json::object(),false,"session")["nozzle_touch"];
+    assert(projected["heads"]==Json::array({{{"head",2},{"centres",1},{"centre_span",0.001},{"flagged",false}}}));
+    assert(projected["flagged"]==Json::array({1,3})&&projected["restore"]=="none");
+   }
+   for(const auto*key:{"head","centres","centre_span","flagged"}){
+    auto entry=one;entry.erase(key);
+    auto bad=input;bad["wmp_recovery"]["nozzle_touch"]["heads"]=Json::array({entry});
+    assert(native::project(bad,Json::object(),false,"session")["nozzle_touch"]["heads"]==Json::array());
+   }
+   // Entries of the earlier protocol carry none of the fields.
+   {auto old=input;old["wmp_recovery"]["nozzle_touch"]["heads"]=Json::array({{{"head",1},{"groups",3},{"spread_max",0.0062},{"over",0},{"discards",1},{"flagged",false}}});
+    assert(native::project(old,Json::object(),false,"session")["nozzle_touch"]["heads"]==Json::array());}
+   {auto twice=input;twice["wmp_recovery"]["nozzle_touch"]["heads"]=Json::array({one,{{"head",1},{"centres",9},{"centre_span",0.5},{"flagged",true}}});
+    assert(native::project(twice,Json::object(),false,"session")["nozzle_touch"]["heads"]==Json::array({one}));}
+   for(const auto&not_list:{Json(),Json::object(),Json("heads"),Json(1)}){
+    auto bad=input;bad["wmp_recovery"]["nozzle_touch"]["heads"]=not_list;
+    const auto projected=native::project(bad,Json::object(),false,"session")["nozzle_touch"];
+    assert(projected["heads"]==Json::array()&&projected["flagged"]==Json::array({1,3}));
+   }
+   {auto absent=input;absent["wmp_recovery"]["nozzle_touch"].erase("heads");
+    assert(native::project(absent,Json::object(),false,"session")["nozzle_touch"]["heads"]==Json::array());}
+  }
+  assert(native::project(input,Json::object(),false,"session")["calibration_progress"]==progress);
+  assert(native::project(status,Json::object(),false,"session")["nozzle_touch"]==Json::object());
+  for(const auto*restore:{"none","done","failed"}){
+   auto good=input;good["wmp_recovery"]["nozzle_touch"]["restore"]=restore;
+   assert(native::project(good,Json::object(),false,"session")["nozzle_touch"]["restore"]==restore);
+  }
+  for(const auto&flagged:{Json::array(),Json::array({0}),Json::array({0,1,2,3})}){
+   auto good=input;good["wmp_recovery"]["nozzle_touch"]["flagged"]=flagged;
+   assert(native::project(good,Json::object(),false,"session")["nozzle_touch"]["flagged"]==flagged);
+  }
+  {auto none=input;none["wmp_recovery"]["nozzle_touch"]["request"]="";
+   assert(native::project(none,Json::object(),false,"session")["nozzle_touch"]["request"]=="");}
+  for(const auto&bad_flagged:{Json::array({4}),Json::array({-1}),Json::array({1,1}),Json::array({3,1}),Json::array({1.5}),Json::array({"1"}),Json::array({true}),Json::array({0,1,2,3,3}),Json::array({0,1,2,3,4}),Json("1"),Json(1),Json::object(),Json()}){
+   auto bad=input;bad["wmp_recovery"]["nozzle_touch"]["flagged"]=bad_flagged;
+   assert(native::project(bad,Json::object(),false,"session")["nozzle_touch"]==Json::object());
+  }
+  for(const auto&change:{Json{{"restore","unknown"}},Json{{"restore",1}},Json{{"restore",nullptr}},Json{{"protocol",1}},Json{{"protocol","2"}},Json{{"request",std::string(31,'c')}},Json{{"request",std::string(32,'C')}},Json{{"request",1}}}){
+   auto bad=input;bad["wmp_recovery"]["nozzle_touch"].update(change);
+   assert(native::project(bad,Json::object(),false,"session")["nozzle_touch"]==Json::object());
+  }
+  for(const auto*key:{"protocol","request","flagged","restore"}){
+   auto bad=input;bad["wmp_recovery"]["nozzle_touch"].erase(key);
+   assert(native::project(bad,Json::object(),false,"session")["nozzle_touch"]==Json::object());
+  }
+  for(const auto&bad_value:{Json(),Json::array(),Json("none"),Json(1)}){
+   auto bad=input;bad["wmp_recovery"]["nozzle_touch"]=bad_value;
+   assert(native::project(bad,Json::object(),false,"session")["nozzle_touch"]==Json::object());
+  }
+  // measured and measuring are projected when present; absent they stay absent.
+  {auto good=input;good["wmp_recovery"]["calibration_progress"]["measured"]=Json::array({0,2});good["wmp_recovery"]["calibration_progress"]["measuring"]=true;
+   assert(native::project(good,Json::object(),false,"session")["calibration_progress"]==good["wmp_recovery"]["calibration_progress"]);}
+  {auto good=input;good["wmp_recovery"]["calibration_progress"]["measured"]=Json::array();good["wmp_recovery"]["calibration_progress"]["measuring"]=false;
+   assert(native::project(good,Json::object(),false,"session")["calibration_progress"]==good["wmp_recovery"]["calibration_progress"]);}
+  for(const auto&bad_measured:{Json::array({4}),Json::array({1,1}),Json::array({2,1}),Json::array({1.5}),Json::array({0,1,2,3,3}),Json("0"),Json::object(),Json()}){
+   auto bad=input;bad["wmp_recovery"]["calibration_progress"]["measured"]=bad_measured;bad["wmp_recovery"]["calibration_progress"]["measuring"]=false;
+   assert(native::project(bad,Json::object(),false,"session")["calibration_progress"]==Json({{"phase","unavailable"}}));
+  }
+  for(const auto&bad_measuring:{Json(1),Json("true"),Json(),Json::array()}){
+   auto bad=input;bad["wmp_recovery"]["calibration_progress"]["measured"]=Json::array();bad["wmp_recovery"]["calibration_progress"]["measuring"]=bad_measuring;
+   assert(native::project(bad,Json::object(),false,"session")["calibration_progress"]==Json({{"phase","unavailable"}}));
+  }
+ }
+ {
+  // Attempt status: only the protocol values of offsets are projected, and
+  // early_save_available only as a boolean; anything else reads as false.
+  Json attempt={{"protocol",1},{"session",std::string(32,'a')},{"request",std::string(32,'c')},{"state","failed"},{"error","x"},
+   {"next",3},{"earlier_results",true},{"offset_stage",true}};
+  assert(native::calibration_attempt_result(attempt).size()==5);
+  for(const auto*value:{"none","measured","stopped"}){
+   attempt["offsets"]=value;const auto projected=native::calibration_attempt_result(attempt);
+   assert(projected.size()==6&&projected["offsets"]==value);
+  }
+  for(const auto&bad:{Json("saved"),Json(1),Json(),Json::object()}){
+   attempt["offsets"]=bad;assert(native::calibration_attempt_result(attempt).size()==5);
+  }
+  for(const bool value:{true,false}){
+   attempt["offsets"]="stopped";attempt["early_save_available"]=value;const auto projected=native::calibration_attempt_result(attempt);
+   assert(projected.size()==7&&projected["early_save_available"].is_boolean()&&projected.value("early_save_available",!value)==value);
+  }
+  for(const auto&bad:{Json(1),Json("true"),Json(),Json::object()}){
+   attempt["early_save_available"]=bad;const auto projected=native::calibration_attempt_result(attempt);
+   assert(!projected.contains("early_save_available")&&!projected.value("early_save_available",false));
+  }
+  // The fields pass through project() with the attempt.
+  attempt["early_save_available"]=true;
+  auto input=status;input["wmp_recovery"]={{"calibration_attempt_protocol",1},{"calibration_attempt",attempt}};
+  const auto projected=native::project(input,Json::object(),false,"session")["calibration_attempt"];
+  assert(projected.size()==7&&projected["offsets"]=="stopped"&&projected["early_save_available"]==true&&projected["state"]=="failed");
+  // A refused attempt is projected: the scrub flow stops on it.
+  attempt["state"]="refused";
+  assert(native::calibration_attempt_result(attempt)["state"]=="refused");
+ }
  auto position_status=status;position_status["wm_material"]["filament_position"]={{"ready",false},{"reason","Z position is unknown"}};
  auto standalone_position=native::project(position_status,Json::object(),false,"position-session");
  assert(standalone_position["filament_position"]==position_status["wm_material"]["filament_position"]);

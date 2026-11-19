@@ -13,20 +13,28 @@ lv_obj_set_scroll_dir lv_obj_set_scrollbar_mode lv_obj_get_scroll_y lv_obj_scrol
 lv_obj_get_parent lv_obj_get_child lv_obj_get_child_cnt lv_obj_is_valid lv_obj_has_flag lv_obj_has_state
 lv_obj_move_to_index lv_obj_del lv_obj_clean lv_obj_add_event_cb lv_event_get_code
 lv_event_get_user_data lv_event_get_target lv_event_send lv_indev_get_act lv_indev_get_scroll_obj
-lv_disp_get_default lv_disp_get_scr_act lv_disp_get_layer_top lv_disp_get_layer_sys lv_obj_get_coords lv_obj_get_content_coords
+lv_disp_get_default lv_disp_get_scr_act lv_disp_get_layer_top lv_disp_get_layer_sys lv_disp_get_inactive_time lv_obj_get_coords lv_obj_get_content_coords
 lv_obj_set_style_img_recolor lv_obj_set_style_img_recolor_opa lv_obj_remove_style lv_obj_set_style_bg_color lv_obj_set_style_bg_opa
 lv_obj_set_style_text_color lv_obj_set_style_text_font lv_obj_set_style_text_align lv_obj_set_style_text_opa
 lv_obj_set_style_radius lv_obj_set_style_border_width lv_obj_set_style_border_color
 lv_obj_set_style_pad_top lv_obj_set_style_pad_bottom lv_obj_set_style_pad_left lv_obj_set_style_pad_right
 lv_obj_set_style_outline_width lv_obj_set_style_opa lv_obj_update_layout
 '''.split()
+# Vendor data read or written by the preload, by ELF symbol. Data has no code
+# window; the addresses hold for the client whose SHA-256 is checked above.
+DATA={'is_rapid_mode':0x384c570,'auto_check_selected':0x385fa88,'current_thr_number':0x385c260,'knife_pairing_failed':0xe64572d}
+# Return addresses of offset-stage command sends, by their profiled call site.
+SENDER_RETURNS={'offset_home':'calibration_sender_10','offset_rapid':'calibration_sender_13','offset_park':'calibration_sender_14'}
 def main():
  path=Path(sys.argv[1]);data=path.read_bytes()
  if hashlib.sha256(data).hexdigest()!=CLIENT_SHA:raise SystemExit('Unsupported client; refusing to regenerate profile')
- symbols={}
+ symbols={};located={}
  for line in subprocess.check_output(['nm','-n',str(path)],text=True).splitlines():
   fields=line.split()
   if len(fields)==3 and fields[2] in NAMES:symbols[fields[2]]=int(fields[0],16)
+  if len(fields)==3 and fields[2] in DATA:located[fields[2]]=int(fields[0],16)
+ for name,address in DATA.items():
+  if located.get(name)!=address:raise SystemExit('Data symbol moved: '+name)
  if set(NAMES)!=set(symbols):raise SystemExit('Missing symbols: '+str(set(NAMES)-set(symbols)))
  symbols.update({"popup_build":0x532da8,"popup_event":0x5303e4,"resume_prepare":0x51a7b4,"runout_purge":0x5328b4,"resume_check":0x61b2c4,"filament_pause":0x61ab5c,"draw_pop":0x5352e0})
  symbols.update({"setup_calibration":0x4b6470,"command_sender":0x614338,"pid_tool_sender_call":0x4b7cb4,"maintenance_event":0x4b4768,"nozzle_flow_event":0x529218,"setup_about":0x4b0510,"filament_guide_event":0x50c9bc,"setup_filament_guide":0x50d044,"guide_load_worker":0x50e83c,"guide_retry_worker":0x50ecf0,"text_key_user_data":0x54d890,"draw_text_keyboard":0x54ec48,"create_text_keys":0x54e654,"text_key_event":0x54db20,"schedule_preview_metadata":0x539474,"loading_popup":0x535958,"preview_metadata":0x538c7c,"preview_event":0x536958,"preview_refresh_event":0x5376d0,"draw_colour_picker":0x4f82a8,"draw_number_keyboard":0x52e418,"number_key_event":0x52da0c,"number_text_event":0x52db58,"main_event":0x519a34,"page_to":0x553b6c,"draw_preview":0x537710,"setup_filament":0x4f6dec,"filament_event":0x4f667c,"material_pick":0x4f86b8,"colour_pick":0x4f8020})
@@ -56,10 +64,20 @@ def main():
    header.append('constexpr int '+name+'_line_height = '+str(line_height)+';')
  for name,address in {'stock_filelist_buttons':0x386d6e8,'stock_setting_buttons':0x386d718}.items():
   header.append('constexpr std::uintptr_t '+name+' = '+hex(address)+';')
+ values=[{'name':name,'address':hex(address),'symbol':name} for name,address in DATA.items()]
+ returns=[]
+ for name,call in SENDER_RETURNS.items():
+  word=int.from_bytes(data[symbols[call]-0x400000:symbols[call]-0x400000+4],'little');offset=word&0x3ffffff
+  if offset&0x2000000:offset-=0x4000000
+  if word>>26!=0b100101 or symbols[call]+offset*4!=symbols['command_sender']:raise SystemExit('Not a command send: '+call)
+  returns.append({'name':name,'address':hex(symbols[call]+4),'call':call})
+ for comment,group in (('Vendor data. No code window.',values),('Return addresses of command sends.',returns)):
+  header.append('// '+comment)
+  for row in group:header.append('constexpr std::uintptr_t '+row['name']+' = '+row['address']+';')
  header.append('static const Window windows[] = {')
  for row in rows:header.append('{'+row['address']+', {'+','.join('0x'+row['bytes'][i:i+2] for i in range(0,64,2))+'}},')
  header.extend(['};','}}'])
  root=Path(__file__).resolve().parent
  (root/'profile1113.hpp').write_text('\n'.join(header)+'\n')
- (root/'profile1113.json').write_text(json.dumps({'client_sha256':CLIENT_SHA,'functions':rows},indent=2)+'\n')
+ (root/'profile1113.json').write_text(json.dumps({'client_sha256':CLIENT_SHA,'functions':rows,'data':values,'sender_returns':returns},indent=2)+'\n')
 if __name__=='__main__':main()

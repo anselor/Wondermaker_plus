@@ -2,6 +2,8 @@
 #pragma once
 #include "../model.hpp"
 #include "probe_editor_status.hpp"
+#include "nozzle_scrub_status.hpp"
+#include "case_light_status.hpp"
 #include <cstdint>
 #include <cstdio>
 namespace wmp_ui { namespace native {
@@ -18,7 +20,16 @@ inline Json calibration_attempt_result(const Json&value){
  for(const auto*key:{"session","request"})if(!value.contains(key)||!value[key].is_string()||value[key].get<std::string>().size()!=32||value[key].get<std::string>().find_first_not_of("0123456789abcdef")!=std::string::npos)return Json::object();
  if(!value.contains("state")||!value["state"].is_string()||!value.contains("error")||!value["error"].is_string())return Json::object();
  const auto state=value["state"].get<std::string>();if(state!="pending"&&state!="refused"&&state!="failed"&&state!="saved")return Json::object();
- return Json{{"protocol",1},{"session",value["session"]},{"request",value["request"]},{"state",state},{"error",value["error"].get<std::string>().substr(0,512)}};
+ Json out{{"protocol",1},{"session",value["session"]},{"request",value["request"]},{"state",state},{"error",value["error"].get<std::string>().substr(0,512)}};
+ // Outcome of the offset stage; absent from backends that do not report it.
+ if(value.contains("offsets")&&value["offsets"].is_string()){
+  const auto offsets=value["offsets"].get<std::string>();
+  if(offsets=="none"||offsets=="measured"||offsets=="stopped")out["offsets"]=offsets;
+ }
+ // The backend will admit one SAVE_CONFIG for this failed attempt. Absent or
+ // not a boolean reads as false.
+ if(value.contains("early_save_available")&&value["early_save_available"].is_boolean())out["early_save_available"]=value["early_save_available"];
+ return out;
 }
 // Brand names from OrcaSlicer CreatePresetsDialog.cpp, filament_vendors,
 // supplemented with Bambu Lab (reserved/excluded in Orca custom creation),
@@ -355,6 +366,11 @@ inline Json project(const Json&status,const Json&ace,bool present,const std::str
  out["calibration_session"]=recovery_status.value("calibration_session","");
  out["calibration_failed"]=present?recovery_status.value("calibration_failed",""):operation_display_text(recovery_status,"calibration_failed","");
  out["calibration_active"]=recovery_status.value("calibration_active",false);
+ out["nozzle_scrub"]=nozzle_scrub_status(recovery_status.value("nozzle_scrub",Json()));
+ out["calibration_progress"]=calibration_progress_status(recovery_status.value("calibration_progress",Json()));
+ out["nozzle_touch"]=nozzle_touch_status(recovery_status.value("nozzle_touch",Json()));
+ // Open doors (case_light_doors); -1 while Klipper is not ready.
+ out["doors"]=printer_state=="ready"?case_light_doors(status):-1;
  out["probe_editor"]=probe_editor_status(recovery_status.value("probe_editor",Json()),out["calibration_session"].get<std::string>(),!present);
  out["attachment"]=screen_helper.value("attachment",Json::object());
  out["toolhead_operation"]=screen_helper.value("toolhead_operation",Json::object());

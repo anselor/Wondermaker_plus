@@ -8,6 +8,19 @@ inline CaseLightStatusSink case_light_status_sink(){
  static auto sink=reinterpret_cast<CaseLightStatusSink>(dlsym(RTLD_DEFAULT,"wmp_case_light_observe_status"));
  return sink;
 }
+// Open doors in a printer status: bit n is set while door switch n+1 reports
+// RELEASED; -1 when neither switch reports PRESSED or RELEASED.
+inline int case_light_doors(const Json&status){
+ int doors=0;bool found=false;
+ for(int i=0;i<2;++i){
+  const auto key="gcode_button Door_button"+std::to_string(i+1);
+  if(!status.contains(key)||!status.at(key).is_object())continue;
+  const auto state=status.at(key).value("state",Json());
+  if(state=="RELEASED"){doors|=1<<i;found=true;}
+  else if(state=="PRESSED")found=true;
+ }
+ return found?doors:-1;
+}
 inline bool publish_case_light_status(const Json&status,std::int64_t received_at,CaseLightStatusSink sink){
  if(!sink||!status.contains("wmp_case_light"))return false;
  // Moonraker may retain object values after Klipper stops. Such a reply must
@@ -19,15 +32,7 @@ inline bool publish_case_light_status(const Json&status,std::int64_t received_at
  if(!light.is_object()||light.value("policy_version",0)!=2)return false;
  const auto enabled=light.value("enabled",Json());
  const int preference=enabled.is_boolean()?(enabled.get<bool>()?1:0):-1;
- int doors=0;bool found=false;
- for(int i=0;i<2;++i){
-  const auto key="gcode_button Door_button"+std::to_string(i+1);
-  if(!status.contains(key)||!status.at(key).is_object())continue;
-  const auto state=status.at(key).value("state",Json());
-  if(state=="RELEASED"){doors|=1<<i;found=true;}
-  else if(state=="PRESSED")found=true;
- }
- sink(preference,found?doors:-1,received_at);return true;
+ sink(preference,case_light_doors(status),received_at);return true;
 }
 inline void invalidate_case_light_status(CaseLightStatusSink sink){if(sink)sink(-1,-1,-1);}
 }}

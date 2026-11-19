@@ -23,7 +23,10 @@
       "identification.protocol": 2,
       "probe_editor.protocol": 1,
       "probe_editor.stop_protocol": 1,
-      "probe_editor.save_review_protocol": 2
+      "probe_editor.save_review_protocol": 2,
+      "nozzle_scrub.protocol": 1,
+      "calibration_progress.protocol": 1,
+      "nozzle_touch.protocol": 2
     },
     "commands": [
       "_WMP_IDENTIFY_HEADS",
@@ -49,6 +52,13 @@
       "_WMP_PROBE_EDITOR",
       "_WMP_CALIBRATION_TOOL",
       "_WMP_CALIBRATION_COMMAND",
+      "_WMP_CALIBRATION_PHASE",
+      "_WMP_SCRUB_HEAD",
+      "_WMP_SCRUB_HEAT",
+      "_WMP_SCRUB_COOL",
+      "_WMP_SCRUB_END",
+      "_WMP_SCRUB_ATTENTION",
+      "_WMP_OFFSETS_RESTORE",
       "WMP_RECOVERY_CONTINUE",
       "WMP_RECOVERY_RESOLVE"
     ]
