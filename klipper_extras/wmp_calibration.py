@@ -15,10 +15,20 @@ from contextlib import contextmanager
 
 
 try:
+    from . import wmp_calibration_outcome
     from .wmp_calibration_records import CalibrationSaveRecord
+    from .wmp_calibration_progress import CalibrationProgress
+    from .wmp_nozzle_scrub import NozzleScrubCommands
+    from .wmp_nozzle_touch import NozzleTouch
+    from .wmp_offset_snapshot import OffsetSnapshot
     from .wmp_probe_editor import ProbeEditorCommands
 except ImportError:
+    import wmp_calibration_outcome
     from wmp_calibration_records import CalibrationSaveRecord
+    from wmp_calibration_progress import CalibrationProgress
+    from wmp_nozzle_scrub import NozzleScrubCommands
+    from wmp_nozzle_touch import NozzleTouch
+    from wmp_offset_snapshot import OffsetSnapshot
     from wmp_probe_editor import ProbeEditorCommands
 
 
@@ -128,21 +138,26 @@ class CalibrationCommands:
         r'PARK_CURRENT_TOOL|SAVE_CONFIG|_WMP_CALIBRATION_TOOL T=[0-3]|'
         r'PID_CALIBRATE HEATER=extruder[1-3]? TARGET=220|'
         r'NOZZLE_PREPARE S=(?:[1-9][0-9]?|[12][0-9]{2}|300) T=[0-3]|'
-        r'NOZZLE_CALIBRATE_TOOL_OFFSET T=[0-3]|RAPID_MODE T=[0-3])')
+        r'NOZZLE_CALIBRATE_TOOL_OFFSET T=[0-3]|RAPID_MODE T=[0-3]|'
+        r'_WMP_SCRUB_HEAD T=[0-3]|_WMP_SCRUB_HEAT T=[0-3]|_WMP_SCRUB_COOL(?: T=[0-3])?|'
+        r'_WMP_SCRUB_END|_WMP_SCRUB_ATTENTION VALUE=[01]|_WMP_OFFSETS_RESTORE)')
+    RAPID_MODE = re.compile(r'RAPID_MODE T=([0-3])')
 
-    def __init__(self, printer, gcode):
+    def __init__(self, printer, gcode, config=None):
         self.printer, self.gcode = printer, gcode
         self.failure = ''
         self.session = uuid.uuid4().hex
         self.checkpoint = ''
         self.active = False
         self._saving = False
+        self._early_save_admitted = False
         self.save_result = {'protocol': 1, 'state': 'unconfirmed', 'session': '', 'request': '', 'error': ''}
         self._save_requests = set()
         self._attempts = {}  # Legacy v1 tombstones; never evict replay protection.
         self._ticket_counter = 0
         self._ticket_attempt = None
         self._current_attempt = None
+        self.executing = None  # The bound attempt whose command is executing.
         self.attempt_result = {}
         self._heater_ownership = None
         self._heater_ownership_error = 'heater tracking not initialized'
@@ -152,6 +167,10 @@ class CalibrationCommands:
             register('klippy:ready', self._initialize_heater_ownership)
         gcode.register_command('_WMP_CALIBRATION_COMMAND', self.cmd_run,
                                desc='Execute a stock calibration stage with failure latching')
+        self.progress = CalibrationProgress(self)
+        self.nozzle_scrub = NozzleScrubCommands(self, config)
+        self.nozzle_touch = NozzleTouch(self, config)
+        self.offset_snapshot = OffsetSnapshot(self)
         self.probe_editor = ProbeEditorCommands(self)
 
     def _initialize_heater_ownership(self):
@@ -182,6 +201,8 @@ class CalibrationCommands:
         self._heater_ownership.cool(owner)
 
     def _cleanup_failed_heaters(self, owner):
+        self.nozzle_scrub.attempt_failed(self.failure)
+        self.progress.idle()
         try:
             self._cool_failed_attempt(owner)
         except Exception:
@@ -265,7 +286,7 @@ class CalibrationCommands:
             self._save_evidence_warning(store, error)
         return store, record, evidence_ok
 
-    def _save_with_receipt(self, gcmd, store, record, evidence_ok):
+    def _save_with_receipt(self, gcmd, store, record, evidence_ok, allow_fail_flag=False):
         original = self.gcode.request_restart
         confirmed = False
         def restart(result):
@@ -279,7 +300,7 @@ class CalibrationCommands:
             self.gcode.run_script_from_command('SAVE_CONFIG')
             if not confirmed:
                 raise gcmd.error('Calibration save writer completion was not confirmed')
-            self._check(gcmd)
+            self._check(gcmd, allow_fail_flag=allow_fail_flag)
         except Exception:
             # Includes a writer which changed configuration before failing.
             # Cleanup is diagnostic and must preserve the original exception.
@@ -299,7 +320,7 @@ class CalibrationCommands:
         # The completed writer still completes this attempt; do not run heater
         # failure cleanup or block later actions merely for lost diagnostics.
 
-    def _check(self, gcmd, fresh_action=False):
+    def _check(self, gcmd, fresh_action=False, allow_fail_flag=False):
         if getattr(self, 'identification_blocked', False):
             raise gcmd.error('Restart Klipper after head identification before calibration')
         now = self.printer.get_reactor().monotonic()
@@ -316,9 +337,28 @@ class CalibrationCommands:
             begin = getattr(material, '_begin_explicit_physical_action', None)
             if begin is not None:
                 begin('calibration')
+        if allow_fail_flag:
+            return  # Early save only; the flag is neither read nor written.
         variables = self.printer.lookup_object('save_variables').get_status(now)['variables']
         if int(variables.get('fail_flag', 0)) != 0:
             raise gcmd.error('Tool change failed during calibration: fail_flag=%s' % repr(variables.get('fail_flag', 0))[:80])
+
+    def _early_save_available(self, attempt):
+        return wmp_calibration_outcome.early_save_available(attempt, self._current_attempt, self.printer)
+
+    def save_admitted(self):
+        """True only while this object executes a SAVE_CONFIG it admitted:
+        the ordinary save (no failure latched) or the one early save of the
+        current failed attempt. The restart gate asks nothing else."""
+        return bool(self.active is True and self._saving is True
+                    and (self.failure == '' or self._early_save_admitted is True))
+
+    def attempt_status(self):
+        return wmp_calibration_outcome.attempt_status(self.attempt_result, self._current_attempt, self.printer)
+
+    def _admit_early_save(self, gcmd, attempt, sequence):
+        return wmp_calibration_outcome.admit_early_save(
+            gcmd, attempt, sequence, self._current_attempt, self.printer)
 
     def _attempt(self, gcmd):
         sequence = gcmd.get('SEQUENCE', None)
@@ -354,9 +394,7 @@ class CalibrationCommands:
                 if sequence != 0:
                     raise gcmd.error('New calibration ticket requires SEQUENCE=0; start a new calibration')
                 self._ticket_counter = ticket
-                attempt = {'protocol': 1, 'session': session, 'request': request,
-                           'ticket': str(ticket), 'state': 'pending', 'error': '',
-                           'next': 0, 'executed': False}
+                attempt = wmp_calibration_outcome.new_attempt(session, request, ticket=str(ticket))
                 self._ticket_attempt = attempt
             else:
                 raise gcmd.error('Calibration ticket is retired or not yet issued; start a new calibration using current status')
@@ -365,8 +403,7 @@ class CalibrationCommands:
             if attempt is None:
                 if len(self._attempts) >= 1024:
                     raise gcmd.error('Legacy calibration attempt history is full; update the WM+ screen for bounded calibration tickets, or restart Klipper for this older client')
-                attempt = {'protocol': 1, 'session': session, 'request': request,
-                           'state': 'pending', 'error': '', 'next': 0, 'executed': False}
+                attempt = wmp_calibration_outcome.new_attempt(session, request)
                 self._attempts[request] = attempt
         if self.active:
             if attempt is not self._current_attempt:
@@ -375,23 +412,58 @@ class CalibrationCommands:
             # or replace its status, including a replay of its sequence zero.
             raise gcmd.error('Calibration command is already running')
         if attempt['state'] != 'pending':
+            if self._admit_early_save(gcmd, attempt, sequence):
+                # Cleared when cmd_run ends, however it ends.
+                self._early_save_admitted = True
+                self.attempt_result = attempt
+                attempt['next'] = sequence + 1
+                return attempt
             raise gcmd.error('Calibration attempt is already stopped: ' + attempt['error'])
         self.attempt_result = attempt
         if sequence != attempt['next']:
             attempt.update(state='refused', error='Calibration stage was missing, repeated, or out of order: SEQUENCE=%s; expected %s' % (sequence, attempt['next']))
             # A missing/replayed stage after execution cannot prove that the
             # partially executed calibration is safe to continue or save.
+            # Exception: a gap inside the offset stage still admits the one
+            # early save (_admit_early_save); every earlier stage ran in order.
             if attempt['executed']:
                 self.failure = attempt['error']
-                attempt['state'] = 'failed'
+                wmp_calibration_outcome.fail_attempt(attempt, attempt['error'])
             raise gcmd.error(attempt['error'])
         attempt['next'] += 1
         return attempt
 
+    def _note_refused_save(self, gcmd, attempt, error):
+        # A bound SAVE_CONFIG refused before its receipt was prepared still
+        # names its run, so a screen waiting for that save can stop waiting.
+        request = gcmd.get('REQUEST', '')
+        if (attempt is None or attempt['request'] != request or gcmd.get('SESSION', '') != self.session
+                or gcmd.get('HEX', '').lower() != b'SAVE_CONFIG'.hex()):
+            return
+        if self.save_result['state'] in ('pending', 'saved'):
+            return  # A save is in progress or done; its receipt stands.
+        self.save_result.update(session=self.session, request=request, state='unconfirmed',
+                                error=str(error)[:512] or 'Calibration save was refused')
+
+    def _reset_owners(self, request):
+        """A new attempt is admitted. The scrub's cool-down may refuse the
+        command; every owner is still reset, and every published request
+        names the new attempt. The first error is raised afterwards."""
+        error = None
+        for reset in (self.nozzle_scrub.reset, self.progress.reset,
+                      self.nozzle_touch.reset, self.offset_snapshot.take):
+            try:
+                reset(request)
+            except Exception as exc:
+                if error is None:
+                    error = exc
+        if error is not None:
+            raise error
+
     def cmd_run(self, gcmd):
         try:
             attempt = self._attempt(gcmd)
-        except Exception:
+        except Exception as refusal:
             attempt = self._attempts.get(gcmd.get('REQUEST', '')) if gcmd.get('TICKET', None) is None else self._ticket_attempt
             if (attempt is not None and gcmd.get('TICKET', None) is not None
                     and (attempt['request'] != gcmd.get('REQUEST', '')
@@ -400,24 +472,35 @@ class CalibrationCommands:
             if (not self.active and attempt is not None
                     and attempt['state'] == 'failed' and attempt['executed']):
                 self._cleanup_failed_heaters(attempt['request'])
+            self._note_refused_save(gcmd, attempt, refusal)
             raise
+        # Admitted by _admit_early_save: the one save after a failed offset stage.
+        early_save = attempt is not None and attempt['state'] == 'failed'
         if self.failure:
             if attempt is not None and attempt['next'] == 1 and not attempt['executed']:
                 self.failure = ''  # Explicit new attempt; recheck live conditions below.
-            else:
-                raise gcmd.error('Calibration stopped: %s. Start a new calibration attempt after inspecting the printer.' % self.failure)
+            elif not early_save:
+                error = 'Calibration stopped: %s. Start a new calibration attempt after inspecting the printer.' % self.failure
+                self._note_refused_save(gcmd, attempt, error)
+                raise gcmd.error(error)
         if self.probe_editor.busy() or self.active:
             error = ('Close or resolve the probe editor before another calibration'
                      if self.probe_editor.busy() else 'Calibration command is already running')
+            if not self.active:
+                self._early_save_admitted = False
+            self._note_refused_save(gcmd, attempt, error)
             if attempt is not None:
-                attempt.update(state='failed' if attempt['executed'] else 'refused', error=error)
                 if attempt['executed']:
+                    wmp_calibration_outcome.fail_attempt(attempt, error)
                     self.failure = error
                     if not self.active:
                         self._cleanup_failed_heaters(attempt['request'])
+                else:
+                    attempt.update(state='refused', error=error)
             raise gcmd.error(error)
         started = False
         bound_save = False
+        command = ''
         try:
             encoded = gcmd.get('HEX', '')
             if not encoded or len(encoded) > 512 or not re.fullmatch('[0-9A-Fa-f]+', encoded):
@@ -435,12 +518,14 @@ class CalibrationCommands:
                 raise gcmd.error('Invalid calibration save binding: ' + ('legacy binding only allowed with SAVE_CONFIG' if command != 'SAVE_CONFIG' else 'SESSION differs from calibration session' if session != self.session else 'REQUEST must contain 32 lowercase hexadecimal characters'))
             if attempt is not None and command == 'SAVE_CONFIG' and not attempt['executed']:
                 raise gcmd.error('Calibration save requires completed stages from this attempt')
-            self._check(gcmd, fresh_action=attempt is not None and not attempt['executed'])
+            self._check(gcmd, fresh_action=attempt is not None and not attempt['executed'],
+                        allow_fail_flag=early_save)
             if attempt is not None and attempt is not self._current_attempt:
                 previous = self._current_attempt
                 if previous is not None and previous['state'] == 'pending':
                     previous.update(state='superseded', error='A newer calibration attempt was admitted')
                 self._current_attempt = attempt
+                self._reset_owners(attempt['request'])
             save = self._prepare_save(gcmd, request) if bound_save else None
             if command == 'SAVE_CONFIG':
                 material = self.printer.lookup_object('wm_material', None)
@@ -450,34 +535,54 @@ class CalibrationCommands:
                     material._restart_requested(None)
             if attempt is not None:
                 attempt['executed'] = True
+                wmp_calibration_outcome.note_admitted(attempt, command)
+                if command == 'G28':
+                    self.progress.set_homing()
+                elif command == 'PARK_CURRENT_TOOL':
+                    self.progress.set_docking()
             self._saving = command == 'SAVE_CONFIG'
             self.active = True
             started = True
+            self.executing = attempt
+            rapid = self.RAPID_MODE.fullmatch(command) if attempt is not None else None
+            if rapid:
+                self.progress.measure_started(int(rapid.group(1)))
             with self._heater_execution(attempt['request'] if attempt else 'legacy'):
                 if save is not None:
-                    self._save_with_receipt(gcmd, *save)
+                    self._save_with_receipt(gcmd, *save, allow_fail_flag=early_save)
                 else:
                     self.gcode.run_script_from_command(command)
             # Some vendor macros signal a tool failure without raising. Never
             # let subsequent PARK clear that flag or SAVE_CONFIG persist results.
+            # Exception: one SAVE_CONFIG after a failed offset stage (offset stage reached, earlier results exist, not shut down).
             if save is None:
-                self._check(gcmd)
+                self._check(gcmd, allow_fail_flag=early_save)
             if token:
                 self.checkpoint = token
-            if command == 'SAVE_CONFIG':
+            if attempt is not None and not early_save:
+                wmp_calibration_outcome.note_completed(attempt, command)
+            if rapid:
+                self.progress.measure_completed(int(rapid.group(1)))
+            if command == 'SAVE_CONFIG' and not early_save:
+                # After an early save the attempt stays failed: its heaters were
+                # turned off when it failed and the failure latch stays set.
                 if self._heater_ownership is not None:
                     self._heater_ownership.release(attempt['request'] if attempt else 'legacy')
+                self.progress.idle()
                 if attempt is not None:
                     attempt.update(state='saved', error='')
         except Exception as exc:
             error = str(exc)[:512] or 'Calibration command failed'
             clean_refusal = attempt is not None and not attempt['executed']
-            if attempt is not None:
-                attempt.update(state='refused' if clean_refusal else 'failed', error=error)
+            if clean_refusal:
+                attempt.update(state='refused', error=error)
+            elif attempt is not None:
+                wmp_calibration_outcome.fail_attempt(attempt, error, saving=command == 'SAVE_CONFIG')
             if not clean_refusal:
                 self.failure = error
             if bound_save:
                 self.save_result.update(state='unconfirmed', error=error)
+                self._note_refused_save(gcmd, attempt, error)
             if started or (attempt is not None and attempt['executed']):
                 # Includes a later stage refused before dispatch: heaters from
                 # earlier stages still belong to this now-stopped attempt.
@@ -485,6 +590,9 @@ class CalibrationCommands:
             raise
         finally:
             self._saving = False
+            self._early_save_admitted = False
             self.active = False
+            self.executing = None
+            self.progress.measure_ended()
 
 

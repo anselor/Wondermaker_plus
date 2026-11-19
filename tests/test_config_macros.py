@@ -1001,6 +1001,39 @@ def test_rapid_calibration_saves_xy_before_z_then_saves_combined_result():
                         'CALIBRATE_TOOL_Z_OFFSET T=2', 'SAVE_TOOL_OFFSET        T=2']
 
 
+def calibration_commands(macro, tool):
+    m = HeaterModel(ROOT / 'config/live')
+    m.p['print_stats']['state'] = 'standby'
+    m.p['toolhead']['homed_axes'] = 'xyz'
+    m.p['save_variables']['variables'].update(probe_position=(299, 290, 8.5, 6.9, 5.8))
+    script = m.templates[macro].render(printer=m.p, params={'T': str(tool)}, action_respond_info=lambda *a: '')
+    return [line.strip() for line in script.splitlines() if line.strip() and not line.lstrip().startswith('#')]
+
+
+@pytest.mark.parametrize('tool', range(4))
+def test_rapid_mode_reports_phases(tool):
+    offset = calibration_commands('CALIBRATE_TOOL_OFFSET', tool)
+    height = calibration_commands('CALIBRATE_TOOL_Z_OFFSET', tool)
+    phase = lambda name: f'_WMP_CALIBRATION_PHASE HEAD={tool} PHASE={name}'
+    sensor = 'TOOL_LOCATE_SENSOR' if tool == 0 else 'TOOL_CALIBRATE_TOOL_OFFSET'
+    assert offset.index(phase('mounting')) < offset.index(f'_CHANGE_TOOL T={tool}')
+    assert offset.index(phase('position')) < offset.index(sensor)
+    assert height.index(phase('height')) < height.index('probe')
+    assert offset.count(phase('mounting')) == offset.count(phase('position')) == height.count(phase('height')) == 1
+
+
+def test_phase_calls_are_inside_marked_blocks():
+    text = (ROOT / 'config/live/offset_calibrate.cfg').read_text()
+    lines = text.splitlines()
+    found = [i for i, line in enumerate(lines) if '_WMP_CALIBRATION_PHASE' in line]
+    assert len(found) == 3
+    for i in found:
+        begin = max(j for j in range(i) if lines[j].strip().startswith('# >>> wondermaker+ begin:'))
+        assert lines[begin].strip() == '# >>> wondermaker+ begin: calibration-progress'
+        assert not any(lines[j].strip().startswith('# <<< wondermaker+ end:') for j in range(begin, i))
+        assert lines[i + 1].strip() == '# <<< wondermaker+ end: calibration-progress'
+
+
 def test_print_end_reaches_sd_eof_and_finishes_cleanup_without_resetting_reader():
     m = HeaterModel(ROOT / 'config/live')
     m.p['configfile']['settings']['printer'] = {'max_velocity': 600, 'max_accel': 10000}

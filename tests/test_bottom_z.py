@@ -40,7 +40,7 @@ def harness(fail_home=False):
                  register_event_handler=lambda name, cb: events.setdefault(name, []).append(cb),
                  get_reactor=lambda: NS(monotonic=lambda: 0),
                  invoke_shutdown=lambda why: calls.append(('shutdown', why)))
-    extra = module.load_config(NS(get_printer=lambda: printer))
+    extra = module.load_config(NS(get_printer=lambda: printer, getfloat=lambda name, default=None, **kwargs: default))
     gcmd = NS(error=ValueError, respond_info=lambda s: calls.append(('message', s)))
     return extra, gcmd, calls, objects, events, callbacks, th, settings
 

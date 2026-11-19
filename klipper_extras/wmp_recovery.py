@@ -40,7 +40,7 @@ class BottomZ:
         self.xy_homing = XYHoming(self.printer)
         self.valid = False
         self.active = False
-        self.calibration = CalibrationCommands(self.printer, self.gcode)
+        self.calibration = CalibrationCommands(self.printer, self.gcode, config)
         self.identification = None
         self.gcode.register_command('_WMP_IDENTIFY_HEADS', self.cmd_identify,
                                     desc='Identify physical heads and atomically save the complete mapping')
@@ -100,7 +100,10 @@ class BottomZ:
                 'calibration_attempt_protocol': 1,
                 'calibration_ticket_protocol': 1,
                 'calibration_next_ticket': str(self.calibration._ticket_counter + 1),
-                'calibration_attempt': dict(self.calibration.attempt_result),
+                'calibration_attempt': self.calibration.attempt_status(),
+                'nozzle_scrub': self.calibration.nozzle_scrub.get_status(),
+                'calibration_progress': self.calibration.progress.get_status(),
+                'nozzle_touch': self.calibration.nozzle_touch.get_status(),
                 'identification': self.identification.get_status() if self.identification else
                     {'protocol': 2, 'state': 'idle', 'steps': [], 'failure': '', 'restart_required': False}}
 

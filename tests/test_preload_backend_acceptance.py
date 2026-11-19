@@ -22,7 +22,10 @@ def status():
                          'probe_editor': {'protocol':1, 'stop_protocol':1, 'save_review_protocol':2,
                                           'session':'calibration-session', 'binding_valid':True,
                                           'save_review_required':False, 'save_review_confirmable':False,
-                                          'save_review_sequence':0}},
+                                          'save_review_sequence':0},
+                         'nozzle_scrub': {'protocol':1, 'head':-1, 'phase':'idle', 'target':160.0, 'error':'', 'request':''},
+                         'calibration_progress': {'protocol':1, 'head':-1, 'phase':'idle', 'request':'', 'measured':[], 'measuring':False},
+                         'nozzle_touch': {'protocol':2, 'request':'', 'heads':[], 'flagged':[], 'restore':'none'}},
         'gcode': {'commands': {name:{} for name in preload.BACKEND_COMMANDS}},
     }
 
@@ -167,6 +170,29 @@ def test_identification_receipt_protocol_required(protocol):
     current['wmp_recovery']['identification']['protocol']=protocol
     with pytest.raises(deploy.DeployError, match='identification.protocol'):
         check(current)
+
+
+@pytest.mark.parametrize('owner', ['nozzle_scrub', 'calibration_progress', 'nozzle_touch'])
+@pytest.mark.parametrize('protocol', [None, True, 0, 'other'])
+def test_nozzle_scrub_protocols_required(owner, protocol):
+    current=status()
+    # 'other': the protocol next to the required one (nozzle_touch 2, the others 1).
+    required=current['wmp_recovery'][owner]['protocol']
+    current['wmp_recovery'][owner]['protocol']=(1 if required==2 else 2) if protocol=='other' else protocol
+    with pytest.raises(deploy.DeployError, match=owner+'.protocol'):
+        check(current)
+    del current['wmp_recovery'][owner]
+    with pytest.raises(deploy.DeployError, match=owner+'.protocol'):
+        check(current)
+
+
+def test_contract_declares_the_nozzle_scrub_backend():
+    contract=preload.backend_contract()
+    assert {'_WMP_SCRUB_HEAD','_WMP_SCRUB_HEAT','_WMP_SCRUB_COOL','_WMP_SCRUB_END','_WMP_SCRUB_ATTENTION',
+            '_WMP_CALIBRATION_PHASE','_WMP_OFFSETS_RESTORE'} <= set(contract['required']['commands'])
+    assert contract['required']['wmp_recovery']['nozzle_scrub.protocol']==1
+    assert contract['required']['wmp_recovery']['calibration_progress.protocol']==1
+    assert contract['required']['wmp_recovery']['nozzle_touch.protocol']==2
 
 
 def test_delivered_contract_is_sealed_and_matches_producer_consumer_sources():

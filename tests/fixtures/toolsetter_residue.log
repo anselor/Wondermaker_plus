@@ -1,0 +1,373 @@
+// x: 299.000000, y: 289.000000, dir: y+
+// Probe made contact at 299.000000, 291.756250, 8.650000
+// Probe made contact at 299.000000, 291.762500, 8.650000
+// x: 299.000000, y: 297.759375, dir: y-
+// Probe made contact at 299.000000, 294.962500, 8.650000
+// Probe made contact at 299.000000, 294.962500, 8.650000
+// x: 299.000000, y: 289.000000, dir: x+
+// Probe made contact at 301.318750, 289.000000, 8.650000
+// Probe made contact at 301.331250, 289.000000, 8.650000
+// x: 307.325000, y: 289.000000, dir: x-
+// Probe made contact at 305.768750, 289.000000, 8.650000
+// Probe made contact at 305.768750, 289.000000, 8.650000
+// Calibrated XY: 303.546875, 293.360937, dx: 4.443750, dy: 3.203125, dydx: 0.720816
+// x: 296.646875, y: 287.560937, dir: y+
+// Probe made contact at 296.646875, 291.846875, 8.650000
+// Probe made contact at 296.646875, 291.853125, 8.650000
+// Probe made contact at 296.646875, 291.846875, 8.650000
+// x: 296.646875, y: 297.846875, dir: y-
+// Probe made contact at 296.646875, 294.896875, 8.650000
+// Probe made contact at 296.646875, 294.896875, 8.650000
+// Probe made contact at 296.646875, 294.896875, 8.650000
+// x: 296.646875, y: 287.560937, dir: x+
+// Probe made contact at 301.353125, 287.559375, 8.650000
+// Probe made contact at 301.359375, 287.559375, 8.650000
+// Probe made contact at 301.359375, 287.559375, 8.650000
+// x: 307.359375, y: 287.560937, dir: x-
+// Probe made contact at 307.275000, 287.562500, 8.650000
+// Probe made contact at 307.300000, 287.562500, 8.650000
+// Probe made contact at 307.340625, 287.559375, 8.650000
+// Calibrated XY: 304.329687, 293.371875, dx: 5.940625, dy: 3.050000, dydx: 0.513414
+// x: 299.000000, y: 289.000000, dir: y+
+// Probe made contact at 299.001562, 291.750000, 8.650000
+// Probe made contact at 298.998437, 291.753125, 8.650000
+// x: 299.000000, y: 297.751562, dir: y-
+// Probe made contact at 299.001562, 294.975000, 8.650000
+// Probe made contact at 299.001562, 294.975000, 8.650000
+// x: 299.000000, y: 289.000000, dir: x+
+// Probe made contact at 301.351562, 289.000000, 8.650000
+// Probe made contact at 301.357812, 289.000000, 8.650000
+// x: 307.354687, y: 289.000000, dir: x-
+// Probe made contact at 307.257812, 289.000000, 8.650000
+// Probe made contact at 305.776562, 289.000000, 8.650000
+// Probe samples exceed tolerance. Retrying...
+// Probe made contact at 307.357812, 289.000000, 8.650000
+// Probe made contact at 308.107812, 289.000000, 8.650000
+// Probe samples exceed tolerance. Retrying...
+// Probe made contact at 305.770312, 289.000000, 8.650000
+// Probe made contact at 305.776562, 289.000000, 8.650000
+// Calibrated XY: 303.564062, 293.363281, dx: 4.418750, dy: 3.223437, dydx: 0.729491
+// x: 296.664062, y: 287.563281, dir: y+
+// Probe made contact at 296.664062, 291.856250, 8.650000
+// Probe made contact at 296.664062, 291.856250, 8.650000
+// Probe made contact at 296.664062, 291.850000, 8.650000
+// x: 296.664062, y: 297.856250, dir: y-
+// Probe made contact at 296.664062, 294.900000, 8.650000
+// Probe made contact at 296.664062, 294.893750, 8.650000
+// Probe made contact at 296.664062, 294.893750, 8.650000
+// x: 296.664062, y: 287.563281, dir: x+
+// Probe made contact at 301.364062, 287.562500, 8.650000
+// Probe made contact at 301.370312, 287.562500, 8.650000
+// Probe made contact at 301.370312, 287.562500, 8.650000
+// x: 307.370312, y: 287.563281, dir: x-
+// Probe made contact at 307.298437, 287.565625, 8.650000
+// Probe made contact at 307.335937, 287.565625, 8.650000
+// Probe made contact at 307.351562, 287.562500, 8.650000
+// Calibrated XY: 304.353125, 293.375000, dx: 5.965625, dy: 3.037500, dydx: 0.509167
+// x: 299.000000, y: 289.000000, dir: y+
+// Probe made contact at 299.000000, 291.746875, 8.650000
+// Probe made contact at 299.000000, 291.746875, 8.650000
+// x: 299.000000, y: 297.746875, dir: y-
+// Probe made contact at 299.000000, 294.978125, 8.650000
+// Probe made contact at 299.000000, 294.978125, 8.650000
+// x: 299.000000, y: 289.000000, dir: x+
+// Probe made contact at 301.359375, 289.000000, 8.650000
+// Probe made contact at 301.365625, 289.000000, 8.650000
+// x: 307.362500, y: 289.000000, dir: x-
+// Probe made contact at 307.228125, 289.000000, 8.650000
+// Probe made contact at 305.784375, 289.000000, 8.650000
+// Probe samples exceed tolerance. Retrying...
+// Probe made contact at 307.365625, 289.000000, 8.650000
+// Probe made contact at 308.115625, 289.000000, 8.650000
+// Probe samples exceed tolerance. Retrying...
+// Probe made contact at 305.771875, 289.000000, 8.650000
+// Probe made contact at 305.778125, 289.000000, 8.650000
+// Calibrated XY: 303.568750, 293.362500, dx: 4.412500, dy: 3.231250, dydx: 0.732295
+// x: 296.668750, y: 287.562500, dir: y+
+// Probe made contact at 296.668750, 291.853125, 8.650000
+// Probe made contact at 296.668750, 291.853125, 8.650000
+// Probe made contact at 296.668750, 291.853125, 8.650000
+// x: 296.668750, y: 297.853125, dir: y-
+// Probe made contact at 296.668750, 294.896875, 8.650000
+// Probe made contact at 296.668750, 294.896875, 8.650000
+// Probe made contact at 296.668750, 294.896875, 8.650000
+// x: 296.668750, y: 287.562500, dir: x+
+// Probe made contact at 301.371875, 287.562500, 8.650000
+// Probe made contact at 301.371875, 287.562500, 8.650000
+// Probe made contact at 301.371875, 287.562500, 8.650000
+// x: 307.371875, y: 287.562500, dir: x-
+// Probe made contact at 307.278125, 287.562500, 8.650000
+// Probe made contact at 307.253125, 287.562500, 8.650000
+// Probe made contact at 307.234375, 287.562500, 8.650000
+// Calibrated XY: 304.312500, 293.375000, dx: 5.881250, dy: 3.043750, dydx: 0.517535
+// Probe samples exceed tolerance. Retrying...
+// x: 299.000000, y: 289.000000, dir: y+
+// Probe made contact at 299.000000, 291.350000, 8.025000
+// Probe made contact at 299.000000, 291.350000, 8.025000
+// x: 299.000000, y: 297.350000, dir: y-
+// Probe made contact at 299.000000, 296.975000, 8.025000
+// Probe made contact at 299.000000, 296.943750, 8.025000
+// x: 299.000000, y: 289.000000, dir: x+
+// Probe made contact at 302.693750, 289.000000, 8.025000
+// Probe made contact at 302.693750, 289.000000, 8.025000
+// x: 308.693750, y: 289.000000, dir: x-
+// Probe made contact at 306.618750, 289.000000, 8.025000
+// Probe made contact at 306.631250, 289.000000, 8.025000
+// Calibrated XY: 304.659375, 294.154688, dx: 3.931250, dy: 5.609375, dydx: 1.426868
+// x: 297.759375, y: 288.354688, dir: y+
+// Probe made contact at 297.759375, 291.403125, 8.025000
+// Probe made contact at 297.759375, 291.403125, 8.025000
+// Probe made contact at 297.759375, 291.403125, 8.025000
+// x: 297.759375, y: 297.403125, dir: y-
+// Probe made contact at 297.759375, 296.853125, 8.025000
+// Probe made contact at 297.759375, 296.815625, 8.025000
+// Probe made contact at 297.759375, 296.778125, 8.025000
+// x: 297.759375, y: 288.354688, dir: x+
+// Probe made contact at 302.684375, 288.353125, 8.025000
+// Probe made contact at 302.684375, 288.353125, 8.025000
+// Probe made contact at 302.684375, 288.353125, 8.025000
+// x: 308.684375, y: 288.354688, dir: x-
+// Probe made contact at 306.656250, 288.356250, 8.025000
+// Probe made contact at 306.656250, 288.356250, 8.025000
+// Probe made contact at 306.653125, 288.353125, 8.025000
+// Calibrated XY: 304.670313, 294.109375, dx: 3.971875, dy: 5.412500, dydx: 1.362707
+// x: 299.000000, y: 289.000000, dir: y+
+// Probe made contact at 298.998438, 291.318750, 8.025000
+// Probe made contact at 299.001563, 291.321875, 8.025000
+// x: 299.000000, y: 297.320313, dir: y-
+// Probe made contact at 299.001563, 296.959375, 8.025000
+// Probe made contact at 298.998438, 296.943750, 8.025000
+// x: 299.000000, y: 289.000000, dir: x+
+// Probe made contact at 302.704688, 289.000000, 8.025000
+// Probe made contact at 302.704688, 289.000000, 8.025000
+// x: 308.704688, y: 289.000000, dir: x-
+// Probe made contact at 306.642188, 289.000000, 8.025000
+// Probe made contact at 306.642188, 289.000000, 8.025000
+// Calibrated XY: 304.673438, 294.135938, dx: 3.937500, dy: 5.631250, dydx: 1.430159
+// x: 297.773438, y: 288.335938, dir: y+
+// Probe made contact at 297.773438, 291.393750, 8.025000
+// Probe made contact at 297.773438, 291.393750, 8.025000
+// Probe made contact at 297.773438, 291.393750, 8.025000
+// x: 297.773438, y: 297.393750, dir: y-
+// Probe made contact at 297.773438, 296.837500, 8.025000
+// Probe made contact at 297.773438, 296.806250, 8.025000
+// Probe made contact at 297.773438, 296.793750, 8.025000
+// x: 297.773438, y: 288.335938, dir: x+
+// Probe made contact at 302.685938, 288.337500, 8.025000
+// Probe made contact at 302.682813, 288.334375, 8.025000
+// Probe made contact at 302.682813, 288.334375, 8.025000
+// x: 308.682813, y: 288.335938, dir: x-
+// Probe made contact at 306.657813, 288.334375, 8.025000
+// Probe made contact at 306.654688, 288.337500, 8.025000
+// Probe made contact at 306.657813, 288.334375, 8.025000
+// Calibrated XY: 304.670313, 294.100000, dx: 3.975000, dy: 5.412500, dydx: 1.361635
+// x: 299.000000, y: 289.000000, dir: y+
+// Probe made contact at 298.998438, 291.315625, 8.025000
+// Probe made contact at 299.001563, 291.312500, 8.025000
+// x: 299.000000, y: 297.314063, dir: y-
+// Probe made contact at 298.998438, 296.940625, 8.025000
+// Probe made contact at 298.998438, 296.928125, 8.025000
+// x: 299.000000, y: 289.000000, dir: x+
+// Probe made contact at 302.707813, 289.000000, 8.025000
+// Probe made contact at 302.701563, 289.000000, 8.025000
+// x: 308.704688, y: 289.000000, dir: x-
+// Probe made contact at 306.645313, 289.000000, 8.025000
+// Probe made contact at 306.645313, 289.000000, 8.025000
+// Calibrated XY: 304.675000, 294.124219, dx: 3.940625, dy: 5.620312, dydx: 1.426249
+// x: 297.775000, y: 288.324219, dir: y+
+// Probe made contact at 297.773438, 291.390625, 8.025000
+// Probe made contact at 297.776563, 291.387500, 8.025000
+// Probe made contact at 297.773438, 291.390625, 8.025000
+// x: 297.775000, y: 297.390625, dir: y-
+// Probe made contact at 297.773438, 296.796875, 8.025000
+// Probe made contact at 297.776563, 296.781250, 8.025000
+// Probe made contact at 297.773438, 296.778125, 8.025000
+// x: 297.775000, y: 288.324219, dir: x+
+// Probe made contact at 302.685938, 288.321875, 8.025000
+// Probe made contact at 302.682813, 288.325000, 8.025000
+// Probe made contact at 302.682813, 288.325000, 8.025000
+// x: 308.682813, y: 288.324219, dir: x-
+// Probe made contact at 306.657813, 288.325000, 8.025000
+// Probe made contact at 306.654688, 288.321875, 8.025000
+// Probe made contact at 306.657813, 288.325000, 8.025000
+// Calibrated XY: 304.670313, 294.085938, dx: 3.975000, dy: 5.390625, dydx: 1.356132
+// x: 299.000000, y: 289.000000, dir: y+
+// Probe made contact at 299.001563, 291.454688, 8.145625
+// Probe made contact at 299.001563, 291.460938, 8.145625
+// x: 299.000000, y: 297.457813, dir: y-
+// Probe made contact at 299.001563, 296.973438, 8.145625
+// Probe made contact at 298.998438, 296.957813, 8.145625
+// x: 299.000000, y: 289.000000, dir: x+
+// Probe made contact at 303.029688, 289.001563, 8.145625
+// Probe made contact at 303.039063, 288.998438, 8.145625
+// x: 309.034375, y: 289.000000, dir: x-
+// Probe made contact at 307.223438, 289.001563, 8.145625
+// Probe made contact at 307.223438, 289.001563, 8.145625
+// Calibrated XY: 305.128906, 294.211719, dx: 4.189062, dy: 5.507812, dydx: 1.314808
+// x: 298.228906, y: 288.411719, dir: y+
+// Probe made contact at 298.226563, 291.460938, 8.145625
+// Probe made contact at 298.229688, 291.464063, 8.145625
+// Probe made contact at 298.229688, 291.464063, 8.145625
+// x: 298.228906, y: 297.464063, dir: y-
+// Probe made contact at 298.229688, 296.939063, 8.145625
+// Probe made contact at 298.229688, 296.926563, 8.145625
+// Probe made contact at 298.229688, 296.932813, 8.145625
+// x: 298.228906, y: 288.411719, dir: x+
+// Probe made contact at 303.014063, 288.410938, 8.145625
+// Probe made contact at 303.014063, 288.410938, 8.145625
+// Probe made contact at 303.014063, 288.410938, 8.145625
+// x: 309.014063, y: 288.411719, dir: x-
+// Probe made contact at 307.235938, 288.414063, 8.145625
+// Probe made contact at 307.232813, 288.410938, 8.145625
+// Probe made contact at 307.232813, 288.410938, 8.145625
+// Calibrated XY: 305.123438, 294.198438, dx: 4.218750, dy: 5.468750, dydx: 1.296296
+// x: 299.000000, y: 289.000000, dir: y+
+// Probe made contact at 298.998438, 291.429688, 8.145625
+// Probe made contact at 298.998438, 291.429688, 8.145625
+// x: 299.000000, y: 297.429688, dir: y-
+// Probe made contact at 299.001563, 296.926563, 8.145625
+// Probe made contact at 298.998438, 296.917188, 8.145625
+// x: 299.000000, y: 289.000000, dir: x+
+// Probe made contact at 303.032813, 289.001563, 8.145625
+// Probe made contact at 303.045313, 289.001563, 8.145625
+// x: 309.039063, y: 289.000000, dir: x-
+// Probe made contact at 307.223438, 288.998438, 8.145625
+// Probe made contact at 307.223438, 288.998438, 8.145625
+// Calibrated XY: 305.131250, 294.175781, dx: 4.184375, dy: 5.492187, dydx: 1.312547
+// x: 298.231250, y: 288.375781, dir: y+
+// Probe made contact at 298.229688, 291.460938, 8.145625
+// Probe made contact at 298.229688, 291.454688, 8.145625
+// Probe made contact at 298.232813, 291.457813, 8.145625
+// x: 298.231250, y: 297.457813, dir: y-
+// Probe made contact at 298.232813, 296.926563, 8.145625
+// Probe made contact at 298.232813, 296.920313, 8.145625
+// Probe made contact at 298.232813, 296.920313, 8.145625
+// x: 298.231250, y: 288.375781, dir: x+
+// Probe made contact at 303.014063, 288.376563, 8.145625
+// Probe made contact at 303.017188, 288.373438, 8.145625
+// Probe made contact at 303.023438, 288.373438, 8.145625
+// x: 309.017188, y: 288.375781, dir: x-
+// Probe made contact at 307.229688, 288.373438, 8.145625
+// Probe made contact at 307.226563, 288.376563, 8.145625
+// Probe made contact at 307.226563, 288.376563, 8.145625
+// Calibrated XY: 305.121875, 294.189063, dx: 4.209375, dy: 5.462500, dydx: 1.297699
+// x: 299.000000, y: 289.000000, dir: y+
+// Probe made contact at 299.000000, 291.423438, 8.145625
+// Probe made contact at 299.000000, 291.423438, 8.145625
+// x: 299.000000, y: 297.423438, dir: y-
+// Probe made contact at 299.000000, 296.910938, 8.145625
+// Probe made contact at 299.000000, 296.904688, 8.145625
+// x: 299.000000, y: 289.000000, dir: x+
+// Probe made contact at 303.031250, 288.998438, 8.145625
+// Probe made contact at 303.040625, 289.001563, 8.145625
+// x: 309.035938, y: 289.000000, dir: x-
+// Probe made contact at 307.221875, 289.001563, 8.145625
+// Probe made contact at 307.225000, 288.998438, 8.145625
+// Calibrated XY: 305.129688, 294.165625, dx: 4.187500, dy: 5.484375, dydx: 1.309701
+// x: 298.229688, y: 288.365625, dir: y+
+// Probe made contact at 298.228125, 291.457813, 8.145625
+// Probe made contact at 298.228125, 291.457813, 8.145625
+// Probe made contact at 298.228125, 291.457813, 8.145625
+// x: 298.229688, y: 297.457813, dir: y-
+// Probe made contact at 298.231250, 296.910938, 8.145625
+// Probe made contact at 298.231250, 296.904688, 8.145625
+// Probe made contact at 298.231250, 296.904688, 8.145625
+// x: 298.229688, y: 288.365625, dir: x+
+// Probe made contact at 303.021875, 288.364063, 8.145625
+// Probe made contact at 303.021875, 288.364063, 8.145625
+// Probe made contact at 303.025000, 288.367188, 8.145625
+// x: 309.021875, y: 288.365625, dir: x-
+// Probe made contact at 307.231250, 288.367188, 8.145625
+// Probe made contact at 307.231250, 288.367188, 8.145625
+// Probe made contact at 307.228125, 288.364063, 8.145625
+// Calibrated XY: 305.126563, 294.181250, dx: 4.209375, dy: 5.446875, dydx: 1.293987
+// x: 299.000000, y: 289.000000, dir: y+
+// Probe made contact at 298.998438, 291.921875, 7.990000
+// Probe made contact at 298.998438, 291.921875, 7.990000
+// x: 299.000000, y: 297.921875, dir: y-
+// Probe made contact at 298.998438, 296.053125, 7.990000
+// Probe made contact at 299.001563, 296.056250, 7.990000
+// x: 299.000000, y: 289.000000, dir: x+
+// Probe made contact at 302.307813, 289.000000, 7.990000
+// Probe made contact at 302.295313, 289.000000, 7.990000
+// x: 308.301563, y: 289.000000, dir: x-
+// Probe made contact at 306.264063, 289.000000, 7.990000
+// Probe made contact at 306.257813, 289.000000, 7.990000
+// Calibrated XY: 304.281250, 293.988281, dx: 3.959375, dy: 4.132812, dydx: 1.043804
+// x: 297.381250, y: 288.188281, dir: y+
+// Probe made contact at 297.382813, 291.993750, 7.990000
+// Probe made contact at 297.382813, 291.993750, 7.990000
+// Probe made contact at 297.382813, 291.993750, 7.990000
+// x: 297.381250, y: 297.993750, dir: y-
+// Probe made contact at 297.379688, 295.990625, 7.990000
+// Probe made contact at 297.379688, 295.990625, 7.990000
+// Probe made contact at 297.379688, 295.990625, 7.990000
+// x: 297.381250, y: 288.188281, dir: x+
+// Probe made contact at 302.307813, 288.187500, 7.990000
+// Probe made contact at 302.310938, 288.190625, 7.990000
+// Probe made contact at 302.307813, 288.187500, 7.990000
+// x: 308.307813, y: 288.188281, dir: x-
+// Probe made contact at 306.264063, 288.187500, 7.990000
+// Probe made contact at 306.260938, 288.190625, 7.990000
+// Probe made contact at 306.260938, 288.190625, 7.990000
+// Calibrated XY: 304.284375, 293.992188, dx: 3.953125, dy: 3.996875, dydx: 1.011067
+// x: 299.000000, y: 289.000000, dir: y+
+// Probe made contact at 299.000000, 291.907813, 7.990000
+// Probe made contact at 299.000000, 291.914063, 7.990000
+// x: 299.000000, y: 297.910938, dir: y-
+// Probe made contact at 299.000000, 296.051563, 7.990000
+// Probe made contact at 299.000000, 296.051563, 7.990000
+// x: 299.000000, y: 289.000000, dir: x+
+// Probe made contact at 302.296875, 288.998438, 7.990000
+// Probe made contact at 302.296875, 288.998438, 7.990000
+// x: 308.296875, y: 289.000000, dir: x-
+// Probe made contact at 306.256250, 289.001563, 7.990000
+// Probe made contact at 306.259375, 288.998438, 7.990000
+// Calibrated XY: 304.277344, 293.981250, dx: 3.960937, dy: 4.140625, dydx: 1.045365
+// x: 297.377344, y: 288.181250, dir: y+
+// Probe made contact at 297.378125, 291.998438, 7.990000
+// Probe made contact at 297.378125, 291.992188, 7.990000
+// Probe made contact at 297.378125, 291.992188, 7.990000
+// x: 297.377344, y: 297.992188, dir: y-
+// Probe made contact at 297.378125, 295.985938, 7.990000
+// Probe made contact at 297.378125, 295.985938, 7.990000
+// Probe made contact at 297.378125, 295.985938, 7.990000
+// x: 297.377344, y: 288.181250, dir: x+
+// Probe made contact at 302.312500, 288.182813, 7.990000
+// Probe made contact at 302.309375, 288.179688, 7.990000
+// Probe made contact at 302.309375, 288.179688, 7.990000
+// x: 308.309375, y: 288.181250, dir: x-
+// Probe made contact at 306.259375, 288.179688, 7.990000
+// Probe made contact at 306.256250, 288.182813, 7.990000
+// Probe made contact at 306.256250, 288.182813, 7.990000
+// Calibrated XY: 304.282813, 293.989063, dx: 3.946875, dy: 3.993750, dydx: 1.011876
+// x: 299.000000, y: 289.000000, dir: y+
+// Probe made contact at 298.998438, 291.904688, 7.990000
+// Probe made contact at 298.998438, 291.904688, 7.990000
+// x: 299.000000, y: 297.904688, dir: y-
+// Probe made contact at 299.001563, 296.045313, 7.990000
+// Probe made contact at 298.998438, 296.048438, 7.990000
+// x: 299.000000, y: 289.000000, dir: x+
+// Probe made contact at 302.298438, 288.998438, 7.990000
+// Probe made contact at 302.301563, 289.001563, 7.990000
+// x: 308.300000, y: 289.000000, dir: x-
+// Probe made contact at 306.254688, 288.998438, 7.990000
+// Probe made contact at 306.254688, 288.998438, 7.990000
+// Calibrated XY: 304.277344, 293.975781, dx: 3.954687, dy: 4.142187, dydx: 1.047412
+// x: 297.377344, y: 288.175781, dir: y+
+// Probe made contact at 297.379688, 291.992188, 7.990000
+// Probe made contact at 297.379688, 291.992188, 7.990000
+// Probe made contact at 297.376563, 291.995313, 7.990000
+// x: 297.377344, y: 297.992188, dir: y-
+// Probe made contact at 297.379688, 295.985938, 7.990000
+// Probe made contact at 297.379688, 295.985938, 7.990000
+// Probe made contact at 297.379688, 295.985938, 7.990000
+// x: 297.377344, y: 288.175781, dir: x+
+// Probe made contact at 302.314063, 288.176563, 7.990000
+// Probe made contact at 302.314063, 288.176563, 7.990000
+// Probe made contact at 302.314063, 288.176563, 7.990000
+// x: 308.314063, y: 288.175781, dir: x-
+// Probe made contact at 306.257813, 288.176563, 7.990000
+// Probe made contact at 306.257813, 288.176563, 7.990000
+// Probe made contact at 306.257813, 288.176563, 7.990000
+// Calibrated XY: 304.285938, 293.989063, dx: 3.943750, dy: 3.993750, dydx: 1.012678

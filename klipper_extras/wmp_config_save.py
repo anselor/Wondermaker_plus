@@ -224,9 +224,15 @@ class ConfigurationSave:
                 editor_admission = (probe_editor is not None
                     and getattr(calibration, 'probe_editor', None) is probe_editor
                     and getattr(calibration, 'active', True) is False)
-                if not editor_admission and not (getattr(calibration, 'active', False) is True
-                        and getattr(calibration, '_saving', False) is True
-                        and getattr(calibration, 'failure', None) == ''):
+                # CalibrationCommands decides which of its saves it admitted,
+                # including the one early save of a failed attempt. An object
+                # without that predicate gets the ordinary-save rule.
+                save_admitted = getattr(calibration, 'save_admitted', None)
+                own_save = (save_admitted() is True if callable(save_admitted) else
+                            getattr(calibration, 'active', False) is True
+                            and getattr(calibration, '_saving', False) is True
+                            and getattr(calibration, 'failure', None) == '')
+                if not editor_admission and not own_save:
                     raise ValueError("Finish or stop calibration before restarting: calibration_active=%r, command_active=%r, saving=%r, failure=%r" % (
                         calibration_status.get("calibration_active"), getattr(calibration, 'active', None),
                         getattr(calibration, '_saving', None), str(getattr(calibration, 'failure', None))[:160]))
