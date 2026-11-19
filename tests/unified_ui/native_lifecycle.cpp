@@ -1752,7 +1752,7 @@ int main(int argc,char**argv){
   fake::del(page);view.update(state,"Unavailable",false,false);
  }
  // Calibration failure remains visible through stale updates and cannot expose
- // stock success ticks by dismissal. BACK only navigates; it sends no commands.
+ // stock success ticks by dismissal. DONE only navigates; it sends no commands.
  {
   StockCalibrationStatus view;auto*page=fake::make(fake::screen);unsigned backs=0;
   view.back=[&]{++backs;};view.created(page);
@@ -1760,16 +1760,17 @@ int main(int argc,char**argv){
   Json state={{"fresh",true},{"calibration_session","cal-one"},{"calibration_failed",""}};
   view.update(state);assert(page->children.empty());
   state["calibration_failed"]="PID failed";view.update(state);
-  assert(text("Calibration stopped.")&&text("BACK"));auto*panel=text("Calibration stopped.")->parent;
-  assert(panel->background_opacity==255&&panel->x==90&&panel->y==100);
+  assert(text("Calibration stopped.")&&text("DONE"));auto*panel=text("Calibration stopped.")->parent;
+  assert(panel->background_opacity==255&&panel->x==90&&panel->y==55&&panel->w==700&&panel->h==415
+    &&panel->background_color==0xff3c3f43U);
   auto count=fake::nodes.size();view.update(state);assert(fake::nodes.size()==count);
-  fake::send(text("BACK")->parent,7);assert(backs==1&&text("Calibration stopped."));
+  fake::send(text("DONE")->parent,7);assert(backs==1&&text("Calibration stopped."));
   state["fresh"]=false;state["calibration_failed"]="";view.update(state);assert(text("Calibration stopped."));
   state["fresh"]=true;state["session"]="different-owner-session";view.update(state);assert(text("Calibration stopped."));
   state["calibration_session"]="cal-two";view.update(state);assert(text("Printer restarted. Calibration result could not be confirmed."));
   assert(text("Printer restarted. Calibration result could not be confirmed.")->text.find("Previous error: PID failed")!=std::string::npos);
   state["fresh"]=false;view.update(state);assert(text("Printer restarted. Calibration result could not be confirmed."));
-  auto*old=text("BACK")->parent;auto*screen=fake::screen;fake::screen=fake::make(nullptr);
+  auto*old=text("DONE")->parent;auto*screen=fake::screen;fake::screen=fake::make(nullptr);
   fake::send(old,7);assert(backs==1);view.update(state);assert(page->children.empty());fake::screen=screen;
   state["fresh"]=true;view.update(state);assert(text("Printer restarted. Calibration result could not be confirmed."));
   state["calibration_session"]="";view.update(state);assert(text("Printer restarted. Calibration result could not be confirmed."));
@@ -1806,15 +1807,19 @@ int main(int argc,char**argv){
   auto has=[&](const std::string&prefix){for(auto&n:fake::nodes)if(n->live&&n->text.find(prefix)==0)for(auto*p=n->parent;p;p=p->parent)if(p==page)return true;return false;};
   Json receipt={{"protocol",1},{"session",origin},{"request",request},{"state","confirmed"},{"error",""}};
   Json state={{"fresh",true},{"calibration_session",origin},{"calibration_failed",""},{"maintenance_save_requested",true},{"calibration_save_result",receipt}};
-  view.update(state);assert(has("Saving calibration...")); // old session cannot confirm
-  state["calibration_session"]=next;view.update(state);assert(has("Calibration settings saved."));
-  for(const auto&value:{"pending","saved","unconfirmed"}){state["calibration_save_result"]["state"]=value;view.update(state);assert(has("Printer restarted. Calibration result could not be confirmed."));}
-  state["calibration_save_result"]=receipt;state["calibration_save_result"]["request"]=std::string(32,'d');view.update(state);assert(has("Printer restarted. Calibration result could not be confirmed."));
-  state["calibration_save_result"]=receipt;state["calibration_save_result"]["session"]=next;view.update(state);assert(has("Printer restarted. Calibration result could not be confirmed."));
-  state["calibration_save_result"]=receipt;state["fresh"]=false;view.update(state);assert(has("Printer restarted. Calibration result could not be confirmed."));
+  view.update(state);assert(has("Saving calibration settings...\nRestarting Klipper...")); // old session cannot confirm
+  state["fresh"]=false;state["maintenance_save_requested"]=false;view.update(state);
+  assert(has("Saving calibration settings...\nRestarting Klipper..."));
+  assert(!has("Restarting Klipper... Done."));
+  state["fresh"]=true;state["calibration_session"]=next;view.update(state);assert(has("Restarting Klipper... Done.\nCalibration settings saved."));
+  assert(has("DONE")&&!has("BACK"));
+  for(const auto&value:{"pending","saved","unconfirmed"}){state["calibration_save_result"]["state"]=value;view.update(state);assert(has("Restarting Klipper... Done.\nSaved calibration settings could not be verified."));}
+  state["calibration_save_result"]=receipt;state["calibration_save_result"]["request"]=std::string(32,'d');view.update(state);assert(has("Restarting Klipper... Done.\nSaved calibration settings could not be verified."));
+  state["calibration_save_result"]=receipt;state["calibration_save_result"]["session"]=next;view.update(state);assert(has("Restarting Klipper... Done.\nSaved calibration settings could not be verified."));
+  state["calibration_save_result"]=receipt;state["fresh"]=false;view.update(state);assert(has("Restarting Klipper... Done.\nSaved calibration settings could not be verified."));
   state["fresh"]=true;state["calibration_session"]=origin;state["calibration_failed"]="Earlier PID failure";
   state["calibration_attempt"]={{"session",origin},{"request",request},{"state","failed"},{"error","Earlier PID failure"}};view.update(state);
-  state["calibration_session"]=next;state["calibration_failed"]="";view.update(state);assert(has("Printer restarted. Calibration result could not be confirmed.")&&!has("Calibration settings saved."));
+  state["calibration_session"]=next;state["calibration_failed"]="";view.update(state);assert(has("Restarting Klipper... Done.\nSaved calibration settings could not be verified.")&&!has("Restarting Klipper... Done.\nCalibration settings saved."));
   // Deliberate START resets the same retained page, without a constructor.
   view.begin(next,std::string(32,'e'));state["maintenance_save_requested"]=false;view.update(state);assert(page->children.empty());
   // Old global errors and unrelated attempts cannot poison an explicit retry.
@@ -1822,7 +1827,8 @@ int main(int argc,char**argv){
   state["calibration_attempt"]={{"session",next},{"request",std::string(32,'e')},{"state","running"},{"error",""}};
   view.update(state);assert(page->children.empty());
   state["calibration_save_result"]={{"protocol",1},{"session",next},{"request",std::string(32,'e')},{"state","confirmed"}};
-  state["calibration_session"]=std::string(32,'f');view.update(state);assert(has("Calibration settings saved."));
+  state["calibration_session"]=std::string(32,'f');view.update(state);assert(has("Restarting Klipper... Done.\nCalibration settings saved."));
+  assert(has("DONE")&&!has("BACK"));
   assert(calibration_save_result(receipt)==receipt);
   for(const auto&bad:{Json{{"protocol",1}},Json{{"protocol",true}},Json{{"protocol",2}}})assert(calibration_save_result(bad).empty());
   auto malformed=receipt;malformed["request"]="invalid token";assert(calibration_save_result(malformed).empty());

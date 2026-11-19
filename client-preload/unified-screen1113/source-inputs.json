@@ -66,7 +66,7 @@
   "client-preload/unified-ui/native/stock_async.hpp": "d7bd9b49aba5024424011f7647c8825717196db3226ed3639c3d6299dec13ba2",
   "client-preload/unified-ui/native/stock_brand_controls.hpp": "db9791d988fbfbe772d414395e7c062833f16688a9135ee92c26891ca42c7d2e",
   "client-preload/unified-ui/native/stock_calibration_flow.hpp": "46627c51079d8f2147d677f62fedf17546727553acc1fb8335902c2944222415",
-  "client-preload/unified-ui/native/stock_calibration_status.hpp": "b71bee117fe57c4ad30222709e50703244dcbad418da1336a55a53883f948a55",
+  "client-preload/unified-ui/native/stock_calibration_status.hpp": "322595bbd8e1354f1cadd82f51f1be2905775808a1971faa66a4eee4bfa73e91",
   "client-preload/unified-ui/native/stock_cancel_route.hpp": "601a87a7214631b49f2331a45840f1975d1b994cb2c9fe5614a9aabca2bda6e9",
   "client-preload/unified-ui/native/stock_colour_picker.hpp": "c116d7a1ba5664cff688bdd87024c7b84168ecd06add12a16bab126156ec076b",
   "client-preload/unified-ui/native/stock_completed_display.hpp": "7cd884d1dc88567e26739a932a2739b25dc8622cea29624ae155ebd9b2688069",
