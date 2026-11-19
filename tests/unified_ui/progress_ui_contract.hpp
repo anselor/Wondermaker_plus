@@ -3,6 +3,7 @@
 // by executing the factory lv_txt_get_size against its actual font data.
 #include "native/stock_option_row.hpp"
 #include "native/stock_header_action.hpp"
+#include "native/stock_nozzle_scrub.hpp"
 static int progress_ui_contract(const char*path){
  using namespace wmp_ui;using namespace wmp_ui::native;
  std::ifstream input(path);Json cases;input>>cases;
@@ -18,9 +19,22 @@ static int progress_ui_contract(const char*path){
   if(consumer.empty()||consumer=="resume")assert(panel.attach(parent,0,0,parent->w,parent->h));
   StockOptionRow first,second;
   if(scenario.value("scrub_options",false)){
-   first=StockOptionRow::create(panel.choices_parent(),"Wire brush","Scrub each heated nozzle by hand. Have a wire brush ready.",0,0,400);
-   second=StockOptionRow::create(panel.choices_parent(),"Printed blob","Every head must be loaded with filament.",0,112,400);
+   // option_texts: [[title, detail], [title, detail]]; the Prepare texts when absent.
+   const Json texts=scenario.value("option_texts",Json::array({Json::array({"Wire brush","Scrub each heated nozzle by hand. Have a wire brush ready."}),
+                                                               Json::array({"Printed blob","Every head must be loaded with filament."})}));
+   first=StockOptionRow::create(panel.choices_parent(),texts.at(0).at(0).get<std::string>().c_str(),texts.at(0).at(1).get<std::string>().c_str(),0,0,400);
+   second=StockOptionRow::create(panel.choices_parent(),texts.at(1).at(0).get<std::string>().c_str(),texts.at(1).at(1).get<std::string>().c_str(),0,112,400);
    assert(first.object&&second.object);first.select(true);
+  }
+  // scrub_readings: [[name, span, mark], ...]; mark passed, flagged, measuring
+  // or "". scrub_reading_columns: 1 (Calibrate) or 2 (Re-check, above the options).
+  StockScrubReadings readings;int readings_height=0;
+  if(scenario.contains("scrub_readings")){
+   assert(readings.create(panel.choices_parent()));std::vector<ScrubRow>rows;
+   for(const auto&r:scenario.at("scrub_readings")){const auto mark=r.at(2).get<std::string>();
+    rows.push_back({r.at(0).get<std::string>(),r.at(1).get<std::string>(),mark=="passed"?ScrubMark::Passed:mark=="flagged"?ScrubMark::Flagged:mark=="measuring"?ScrubMark::Measuring:ScrubMark::None});}
+   const unsigned columns=scenario.value("scrub_reading_columns",1U);
+   readings.update(rows,columns);readings_height=nozzle_scrub_rows_height(rows.size(),columns);
   }
   auto view=scenario.at("view");
   if(consumer=="filament"){
@@ -37,7 +51,7 @@ static int progress_ui_contract(const char*path){
    assert(cancel&&confirm);auto*caption=static_cast<fake::Node*>(fake::child(confirm,0));
    assert(caption->h==25&&caption->y+caption->h<=40&&fake::height(confirm)==64);
   }
-  if(first.object){const int w=fake::width(panel.choices_parent());first.layout(0,0,w,104);second.layout(0,112,w,104);}
+  if(first.object){const int w=fake::width(panel.choices_parent());first.layout(0,readings_height,w,104);second.layout(0,readings_height+112,w,104);}
   const auto rect=[](fake::Node*n){int x=0,y=0;for(auto*p=n;p;p=p->parent){x+=p->x;y+=p->y;}return Json{{"x",x},{"y",y},{"w",n->w},{"h",n->h}};};
   Json labels=Json::array();
   for(const auto&node:fake::nodes){

@@ -37,6 +37,13 @@ inline int stock_maintenance_event(void*event,const std::function<bool()>&allowe
  }
  return 1;
 }
+// The START button of a Maintenance click that stock_maintenance_event
+// delegated (result 0); nullptr for every other action.
+inline void*stock_maintenance_start_button(void*event){
+ if(!event||stock_function<int(*)(void*)>(lv_event_get_code)(event)!=7)return nullptr;
+ if(reinterpret_cast<std::uintptr_t>(stock_function<void*(*)(void*)>(lv_event_get_user_data)(event))!=0)return nullptr;
+ return stock_function<void*(*)(void*)>(lv_event_get_target)(event);
+}
 // Factory action 12 opens read-only managed probe review. Trigger modes, knife
 // preparation and tool/wipe calibration need admission before vendor mutation.
 // 0 delegates, 1 consumes stale/invalid events, 2 reports busy, 3 opens review.

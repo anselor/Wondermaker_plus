@@ -38,6 +38,7 @@
 #include "stock_calibration_status.hpp"
 #include "stock_maintenance_command.hpp"
 #include "stock_calibration_flow.hpp"
+#include "nozzle_scrub_coordinator.hpp"
 #include "stock_identification.hpp"
 #include "../standalone_backend.hpp"
 #include "../../openace-compat/screen1113/source/client/native_management.hpp"
@@ -261,6 +262,7 @@ public:
   std::random_device random;std::string request;constexpr char hex[]="0123456789abcdef";
   for(unsigned i=0;i<16;++i){const auto value=random()&255;request+=hex[value>>4];request+=hex[value&15];}
   {std::lock_guard<std::mutex>lock(mutex_);if(calibration_reserved_){report_rejection("calibration START","Another calibration worker was reserved before admission completed.");return false;}
+   scrub_.bind_admitted_locked(request);
    calibration_binding_={this,session,request};calibration_binding_.ticket=ticket;calibration_binding_.sequenced=!ticket.empty()||data.value("calibration_attempt_protocol",0)==1;calibration_reserved_=true;calibration_queued_=calibration_running_=calibration_save_sent_=false;}
   if(data.value("owner","")=="standalone")calibration_flow_=StockCalibrationFlow{};
   calibration_status_.begin(session,request);return true;
@@ -290,9 +292,26 @@ public:
   }
   return wrapped;
  }
+ // Guided nozzle scrub (nozzle_scrub_coordinator.hpp). The two worker-thread
+ // calls pass the request of the vendor worker's own calibration binding.
+ bool nozzle_scrub_decided()const{return scrub_.decided();}
+ bool offer_nozzle_scrub(void*start_button){return ui_.profile1113()&&stock_maintenance_allowed()&&scrub_.offer(start_button);}
+ void nozzle_scrub_at_offset_stage(const std::function<void(const std::string&inner)>&send){
+  const auto*b=calibration_invocation();if(b&&b->owner==this)scrub_.at_offset_stage(b->request,send);
+ }
+ // send forwards a command the flow hands out while the park send holds the
+ // worker for the re-check; without it the worker is not held there.
+ bool withhold_offset_send(std::uintptr_t caller,const std::function<void(const std::string&inner)>&send=std::function<void(const std::string&)>()){
+  const auto*b=calibration_invocation();
+  return b&&b->owner==this&&scrub_.withhold_offset_send(caller,b->request,[this,b]{return early_save_available_locked(*b);},send);
+ }
  void update_stock_calibration(){update_stock_calibration(stock_snapshot());}
  void update_stock_calibration(const Json&snapshot){
-  auto data=snapshot;{std::lock_guard<std::mutex>lock(mutex_);data["maintenance_save_requested"]=calibration_save_sent_;}
+  auto data=snapshot;
+  {std::lock_guard<std::mutex>lock(mutex_);data["maintenance_save_requested"]=calibration_save_sent_;
+   data["maintenance_worker_returned"]=!calibration_reserved_;data["maintenance_scrub_heads"]=scrub_.result_heads_locked();
+   data["maintenance_flagged_heads"]=scrub_.result_flagged_heads_locked();data["maintenance_saved_anyway"]=scrub_.result_saved_anyway_locked();
+   data["maintenance_recheck_cancelled"]=scrub_.result_cancelled_locked();data["maintenance_restore_failed"]=scrub_.result_restore_failed_locked();}
   calibration_status_.update(data);
  }
  void leave_stock_calibration(){
@@ -613,6 +632,7 @@ public:
  }
  // Configure once before Runtime is published to GUI/status threads.
  ~Runtime(){
+  scrub_.shutdown();
   {std::lock_guard<std::mutex>lock(mutex_);selected_file_.clear();++preview_generation_;}
   for(auto*worker:{preview_worker_.get(),command_worker_.get(),off_worker_.get()})if(worker)worker->request_stop();
   preview_worker_.reset();command_worker_.reset();off_worker_.reset();
@@ -795,6 +815,8 @@ public:
   }
  }
  void gui_step()noexcept {
+  // First and on its own: a held vendor worker depends on this every tick.
+  try{scrub_.tick(calibration_status_.result_shown());}catch(...){}
   try {
    filament_details_needed_.store(stock_filament_.visible()||filament_procedure_.visible()||nozzle_editor_.visible());
    std::string maintenance_reason;
@@ -1052,6 +1074,15 @@ private:
  std::unique_ptr<RecoveryWorker>recovery_worker_;StockRecoveryProgress recovery_progress_;std::atomic<bool>show_recovery_{false};
  StockCalibrationStatus calibration_status_,guide_calibration_status_;
  StockPrintPreparation print_preparation_;
+ // mutex_ held. The latest status is fresh and reports that the backend will
+ // admit the early save for this worker's attempt.
+ bool early_save_available_locked(const CalibrationBinding&b)const{
+  const auto now=ui_.now_ms();
+  if(!normalized_.is_object()||!normalized_.value("fresh",false)||at_<0||now<at_||now-at_>2000)return false;
+  const auto attempt=normalized_.value("calibration_attempt",Json::object());
+  if(!attempt.is_object()||!attempt.contains("early_save_available")||!attempt["early_save_available"].is_boolean())return false;
+  return attempt["early_save_available"].get<bool>()&&attempt.value("session","")==b.session&&attempt.value("request","")==b.request;
+ }
  StockIdentification identification_panel_;StockIdentificationFlow identification_flow_;
  StockCalibrationFlow calibration_flow_;std::function<bool(const std::string&)>calibration_sender_;
  bool onboarding_=false;std::function<bool()>finish_onboarding_;
@@ -1072,6 +1103,8 @@ private:
  std::atomic<int>requested_{-1};std::function<void(const char*)>stock_;
  GuiStatusSnapshot gui_status_; // GUI-only; backend publication remains under mutex_.
  std::mutex mutex_;Json normalized_,raw_,objects_=Json::array();std::atomic<bool>filament_details_needed_{false};std::uint64_t status_publication_=0;std::string discovery_session_;bool discovery_bound_=false;std::int64_t discovery_at_=-1,at_=-1,last_poll_=-1000;
+ // Declared after mutex_, which it references: destroyed before it.
+ NozzleScrubCoordinator scrub_{mutex_,calibration_reserved_,calibration_binding_.request,[this]{return stock_snapshot();},[this]{return double(ui_.now_ms())/1000.0;}};
  // Selection generation is protected by mutex_; metadata generation belongs to the worker.
  std::string off_message_;
  std::unique_ptr<BoundedWorker> command_worker_,preview_worker_,off_worker_;

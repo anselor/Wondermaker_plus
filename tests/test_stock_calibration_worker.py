@@ -78,6 +78,168 @@ def test_error_parser_only_latches_failure_during_knife_pairing(pairing_active, 
     assert bytes(cpu.mem_read(0xe64572d, 1)) == bytes([expected_failure])
 
 
+SENDER, QUICK_STOP, SLEEP = 0x614338, 0x616558, 0x4471d0
+STRING_NE, STRING_EQ = 0x4b3ca0, 0x4b3b94
+WAIT_TOOL_CALIBRATE_SYNC, WAIT_SYNC = 0x4b8bc4, 0x6426dc
+IDLE_TIMEOUT_STATE, KLIPPER_STATE = 0xe6451b0, 0xe645170
+PAIRING_ING, PAIRING_FAILED, WORKER_STATUS = 0xe64572c, 0xe64572d, 0x385fc18
+G28_SENT, RAPID_SENT, PARK_SENT, SAVE_SENT = 0x4b7fbc, 0x4b842c, 0x4b847c, 0x4b869c
+
+
+def run_offset_stage(on_send=None, rapid=1):
+    """Run auto_checking from status 11 (offset stage) until it returns.
+
+    The worker and both wait helpers execute their own instructions. The
+    sender, quick_stop and sleep are recorded and skipped. The two string
+    comparisons answer from fixed states: idle_timeout_state "Ready" and
+    klipper_state "ready", the states of an idle printer on which no sent
+    command is running. Every other call is C++ formatting or logging and
+    is skipped. No send reaches anything; on_send models its side effects.
+    """
+    unicorn, cpu = machine()
+    from unicorn.arm64_const import (UC_ARM64_REG_LR, UC_ARM64_REG_PC, UC_ARM64_REG_SP,
+                                     UC_ARM64_REG_X0, UC_ARM64_REG_X1)
+    data = CLIENT.read_bytes()
+    cpu.mem_map(0x642000, 0x1000)
+    cpu.mem_write(0x642000, data[0x242000:0x243000])
+    cpu.mem_map(0x384c000, 0x1000)
+    cpu.mem_write(0x384c570, bytes([rapid]))                # is_rapid_mode
+    cpu.mem_write(0x385fa88, bytes([1, 0, 0, 1]))           # auto_check_selected
+    cpu.mem_write(0x385c260, (4).to_bytes(4, 'little'))     # current_thr_number
+    cpu.mem_write(WORKER_STATUS, (11).to_bytes(4, 'little'))
+    cpu.reg_write(UC_ARM64_REG_SP, 0x5001800)               # frame and callee frames stay mapped
+    cpu.reg_write(UC_ARM64_REG_LR, 0x5000000)               # return sentinel
+    states = {IDLE_TIMEOUT_STATE: b'Ready', KLIPPER_STATE: b'ready'}
+    run = {'sends': [], 'quick_stops': 0, 'sleeps': []}
+
+    def step(machine, address, size, _):
+        word = int.from_bytes(machine.mem_read(address, 4), 'little')
+        if word >> 26 != 0b100101:
+            return
+        displacement = word & 0x3ffffff
+        if displacement & (1 << 25):
+            displacement -= 1 << 26
+        target = address + displacement * 4
+        if target in (WAIT_TOOL_CALIBRATE_SYNC, WAIT_SYNC):
+            return
+        if target == SENDER:
+            run['sends'].append(address + 4)
+            if on_send is not None:
+                on_send(machine, address + 4)
+        elif target == QUICK_STOP:
+            run['quick_stops'] += 1
+        elif target == SLEEP:
+            run['sleeps'].append(address + 4)
+        elif target in (STRING_NE, STRING_EQ):
+            literal = machine.reg_read(UC_ARM64_REG_X1) - 0x400000
+            equal = states[machine.reg_read(UC_ARM64_REG_X0)] == data[literal:data.index(b'\0', literal)]
+            machine.reg_write(UC_ARM64_REG_X0, int(equal == (target == STRING_EQ)))
+        machine.reg_write(UC_ARM64_REG_PC, address + 4)
+    cpu.hook_add(unicorn.UC_HOOK_CODE, step)
+    cpu.emu_start(0x4b7558, 0x5000000, count=20000)
+    assert cpu.reg_read(UC_ARM64_REG_PC) == 0x5000000, 'worker did not return'
+    run['status'] = int.from_bytes(cpu.mem_read(WORKER_STATUS, 4), 'little')
+    run['failed'] = cpu.mem_read(PAIRING_FAILED, 1)[0]
+    return run
+
+
+def test_offset_stage_with_withheld_sends_reaches_save():
+    """Nothing acts on RAPID_MODE or PARK_CURRENT_TOOL; the worker still saves."""
+    run = run_offset_stage()
+    assert run['sends'] == [G28_SENT] + [RAPID_SENT] * 4 + [PARK_SENT, SAVE_SENT]
+    assert run['quick_stops'] == 0
+    assert run['status'] == 14
+    # Each wait helper sleeps once at entry and returns at its first state
+    # check; neither reaches its polling-loop sleep (0x4b8c28, 0x642740).
+    helper_sleeps = [address for address in run['sleeps'] if not 0x4b7558 <= address < 0x4b8bc4]
+    assert helper_sleeps == [0x4b8bd8] * 4 + [0x6426f0]
+
+
+def latch_failure_at_first_rapid_send(machine, returns_to):
+    # What parse_gcode_response does on a G-code error during the offset stage.
+    if returns_to == RAPID_SENT:
+        assert machine.mem_read(PAIRING_ING, 1)[0] == 1
+        machine.mem_write(PAIRING_FAILED, bytes([1]))
+
+
+def test_failed_byte_cleared_at_park_send_avoids_quick_stop():
+    def on_send(machine, returns_to):
+        latch_failure_at_first_rapid_send(machine, returns_to)
+        if returns_to == PARK_SENT:
+            assert machine.mem_read(PAIRING_FAILED, 1)[0] == 1
+            machine.mem_write(PAIRING_FAILED, bytes([0]))
+    run = run_offset_stage(on_send)
+    # The latched failure ends the RAPID_MODE loop after the first head.
+    assert run['sends'] == [G28_SENT, RAPID_SENT, PARK_SENT, SAVE_SENT]
+    assert run['quick_stops'] == 0
+    assert run['status'] == 14
+
+
+def test_failed_byte_left_set_calls_quick_stop_and_skips_save():
+    """Stock behaviour: PARK_CURRENT_TOOL is sent, then quick_stop, and no save."""
+    run = run_offset_stage(latch_failure_at_first_rapid_send)
+    assert run['sends'] == [G28_SENT, RAPID_SENT, PARK_SENT]
+    assert run['quick_stops'] == 1
+    assert (run['status'], run['failed']) == (14, 0)
+
+
+def test_worker_held_inside_the_park_send_then_parks_and_saves():
+    """The re-check holds the worker inside the send that returns to 0x4b847c.
+
+    Inside that send the worker is in the pairing window (knife_pairing_ing
+    1), its status is 11 and the failed byte is 0. Returning from the send, it
+    parks and sends SAVE_CONFIG without quick_stop.
+    """
+    inside = []
+
+    def on_send(machine, returns_to):
+        if returns_to == PARK_SENT:
+            inside.append((machine.mem_read(PAIRING_ING, 1)[0], machine.mem_read(PAIRING_FAILED, 1)[0],
+                           int.from_bytes(machine.mem_read(WORKER_STATUS, 4), 'little')))
+    run = run_offset_stage(on_send)
+    assert inside == [(1, 0, 11)]
+    assert run['sends'] == [G28_SENT] + [RAPID_SENT] * 4 + [PARK_SENT, SAVE_SENT]
+    assert run['quick_stops'] == 0
+    assert (run['status'], run['failed']) == (14, 0)
+
+
+def test_brush_run_reads_rapid_and_skips_fine_loop():
+    """is_rapid_mode set to 1 inside the G28 send hook selects the rapid branch.
+
+    The run starts in Accurate mode (0). The preload writes the byte before the
+    worker's send that returns to 0x4b7fbc comes back; the worker reads it once
+    after that return.
+    """
+    def on_send(machine, returns_to):
+        if returns_to == G28_SENT:
+            assert machine.mem_read(0x384c570, 1)[0] == 0
+            machine.mem_write(0x384c570, bytes([1]))
+    run = run_offset_stage(on_send, rapid=0)
+    assert 0x4b80b8 not in run['sends'] and 0x4b82e4 not in run['sends']  # NOZZLE_PREPARE, NOZZLE_CALIBRATE_TOOL_OFFSET
+    assert run['sends'] == [G28_SENT] + [RAPID_SENT] * 4 + [PARK_SENT, SAVE_SENT]
+    assert run['quick_stops'] == 0 and run['status'] == 14
+
+
+def test_offset_stage_profile_entries_match_the_worker():
+    """Data and send-return entries added for the scrub are the vendor's."""
+    import json
+    if not CLIENT.is_file():
+        pytest.skip('exact vendor client required')
+    profile = json.loads((ROOT / 'client-preload/unified-ui/native/profile1113.json').read_text())
+    assert {row['name']: int(row['address'], 16) for row in profile['data']} == {
+        'is_rapid_mode': 0x384c570, 'auto_check_selected': 0x385fa88,
+        'current_thr_number': 0x385c260, 'knife_pairing_failed': PAIRING_FAILED}
+    assert {row['name']: int(row['address'], 16) for row in profile['sender_returns']} == {
+        'offset_home': G28_SENT, 'offset_rapid': RAPID_SENT, 'offset_park': PARK_SENT}
+    calls = {row['name']: int(row['address'], 16) for row in profile['functions']}
+    for row in profile['sender_returns']:
+        assert int(row['address'], 16) == calls[row['call']] + 4
+    header = (ROOT / 'client-preload/unified-ui/native/profile1113.hpp').read_text()
+    for group in ('functions', 'data', 'sender_returns'):
+        for row in profile[group]:
+            assert header.count('constexpr std::uintptr_t %s = %s;' % (row['name'], row['address'])) == 1
+
+
 def test_every_worker_sender_is_profile_bound_and_guarded(tmp_path):
     import json
     import struct

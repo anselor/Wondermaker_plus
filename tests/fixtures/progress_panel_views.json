@@ -342,8 +342,15 @@
     "height": 480,
     "name": "scrub-state-10",
     "scrub_options": false,
+    "scrub_readings": [
+      ["Head 1", "0.006 mm", "passed"],
+      ["Head 2", "0.013 mm", "flagged"],
+      ["Head 3", "0.002 mm", "measuring"],
+      ["Head 4", "", ""]
+    ],
     "view": {
-      "decisions": false,
+      "choices_height": 144,
+      "decisions": true,
       "heading": "Head 4 of 4",
       "instruction": "Measuring nozzle height...",
       "note": "Keep the door closed.",
@@ -367,6 +374,66 @@
         {
           "label": "Head 4",
           "state": "complete"
+        },
+        {
+          "label": "Calibrate",
+          "state": "running"
+        }
+      ],
+      "steps_width": 200,
+      "title": "Nozzle offset calibration",
+      "title_width": 540
+    },
+    "width": 800
+  },
+  {
+    "fit": true,
+    "height": 480,
+    "name": "scrub-state-11",
+    "option_texts": [
+      [
+        "Clean again",
+        "Scrub the flagged heads, then measure again."
+      ],
+      [
+        "Save anyway",
+        "Keep the offsets as measured."
+      ]
+    ],
+    "scrub_options": true,
+    "scrub_reading_columns": 2,
+    "scrub_readings": [
+      ["Head 1", "0.783 mm", "flagged"],
+      ["Head 2", "0.050 mm", "flagged"],
+      ["Head 3", "0.033 mm", "flagged"],
+      ["Head 4", "0.011 mm", "passed"]
+    ],
+    "view": {
+      "choices_height": 288,
+      "decisions": true,
+      "heading": "Heads 1, 2, 3 and 4 may not be clean",
+      "instruction": "Their measurements did not repeat, which usually means residue on the nozzle.",
+      "note": "",
+      "steps": [
+        {
+          "label": "Prepare",
+          "state": "complete"
+        },
+        {
+          "label": "Head 1",
+          "state": "failed"
+        },
+        {
+          "label": "Head 2",
+          "state": "failed"
+        },
+        {
+          "label": "Head 3",
+          "state": "failed"
+        },
+        {
+          "label": "Head 4",
+          "state": "failed"
         },
         {
           "label": "Calibrate",

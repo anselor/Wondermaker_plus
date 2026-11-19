@@ -365,6 +365,30 @@ extern "C" __attribute__((noinline)) std::string unified_shell(std::string comma
  if(!original)throw std::runtime_error("Stock shell trampoline unavailable");
  return original(std::move(command));
 }
+// Forwards one stock command on behalf of the send that returns to caller.
+static void forward_stock_command(std::uintptr_t caller,const std::string&command){
+ auto original=original_command_sender.load();if(!original)return;
+ const auto preheat=wmp_ui::native::stock_resume_preheat_command(caller,command);
+ if(preheat!=command){original(preheat);return;}
+ auto*r=runtime.load();
+ // A stopped brush run ends the offset stage: its probing and park sends are not
+ // forwarded. The withheld park clears the vendor's pairing-failed byte only
+ // when that byte is 1 and fresh status shows early_save_available; the worker
+ // then goes on to its SAVE_CONFIG. Otherwise the byte is left as it is.
+ // The park send first holds the worker for the nozzle re-check; the commands
+ // sent during that hold leave through the same wrapper as the scrub's.
+ if(r&&caller==wmp_ui::native::offset_park){
+  if(r->withhold_offset_send(caller,[r,original](const std::string&inner){
+   original(r->stock_calibration_command_for_worker(wmp_ui::native::offset_park,inner));}))return;
+ }else if(r&&r->withhold_offset_send(caller))return;
+ original(r?r->stock_calibration_command_for_worker(caller,command):wmp_ui::native::stock_calibration_command(caller,command));
+ // The offset stage begins with this G28. A bound nozzle scrub holds the
+ // vendor worker here; its commands leave through the same wrapper, so they
+ // carry the worker's session, request, ticket and next sequence numbers.
+ if(r&&caller==wmp_ui::native::offset_home)
+  r->nozzle_scrub_at_offset_stage([r,original](const std::string&inner){
+   original(r->stock_calibration_command_for_worker(wmp_ui::native::offset_home,inner));});
+}
 extern "C" __attribute__((noinline)) void unified_command_sender(std::string command){
  if(wmp_ui::native::route_stock_cancel(command,[]{auto*screen=runtime.load();return !screen||screen->route_print_cancel();}))return;
  const auto caller=reinterpret_cast<std::uintptr_t>(__builtin_extract_return_addr(__builtin_return_address(0)));
@@ -375,11 +399,7 @@ extern "C" __attribute__((noinline)) void unified_command_sender(std::string com
  if(wmp_ui::native::refuse_factory_confirmation(caller,
     []{auto*r=runtime.load();return r&&r->stock_maintenance_allowed();},
     []{auto*r=runtime.load();if(r)r->request_factory_command_refusal();}))return;
- auto original=original_command_sender.load();if(!original)return;
- const auto preheat=wmp_ui::native::stock_resume_preheat_command(caller,command);
- if(preheat!=command){original(preheat);return;}
- auto*r=runtime.load();
- original(r?r->stock_calibration_command_for_worker(caller,command):wmp_ui::native::stock_calibration_command(caller,command));
+ forward_stock_command(caller,command);
 }
 extern "C" void unified_maintenance_event(void*event)noexcept {
  try{
@@ -392,6 +412,9 @@ extern "C" void unified_maintenance_event(void*event)noexcept {
   auto original=original_maintenance_event.load();if(!original)return;
   const auto action=reinterpret_cast<std::uintptr_t>(wmp_ui::native::stock_function<void*(*)(void*)>(wmp_ui::native::lv_event_get_user_data)(event));
   auto*r=runtime.load();const bool starting=action==0;
+  // Accurate offset calibration first asks how the nozzles will be cleaned.
+  // The choice re-sends this click with the decision made.
+  if(starting&&r&&!r->nozzle_scrub_decided()&&r->offer_nozzle_scrub(wmp_ui::native::stock_maintenance_start_button(event)))return;
   if(starting&&(!r||!r->begin_stock_calibration())){if(r)r->request_maintenance_refusal();return;}
   try{original(event);}catch(...){if(starting&&r)r->finish_stock_calibration_start();throw;}
   if(starting&&r)r->finish_stock_calibration_start();
