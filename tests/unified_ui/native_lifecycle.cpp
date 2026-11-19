@@ -18,6 +18,7 @@
 #include "native/setup_completion.hpp"
 #include <cstdlib>
 #include <cassert>
+#include <array>
 #include <fstream>
 #include <memory>
 #include <iostream>
@@ -28,7 +29,7 @@ int async_success(void(*callback)(void*),void*data){async_data=data;async_callba
 int async_failure(void(*)(void*),void*){return 0;}
 struct Event;
 struct Callback {void(*fn)(void*);int code;void*data;};
-struct Node {std::string text,image,options;unsigned layout_updates=0;bool height_fixed=false;bool pending_layout=false,open=false,is_image=false,is_label=false;unsigned selected=0,state=0,zoom_factor=256,disable_writes=0;int text_alignment=0,label_long_mode=-1;std::uintptr_t font_address=0;std::uint32_t text_color=0,background_color=0;int opacity=255,background_opacity=255;std::vector<std::uintptr_t>styles;std::uint32_t tint[2]={0,0};unsigned tint_opa[2]={0,0};Node*parent=nullptr;std::vector<Node*>children;std::vector<Callback>callbacks;bool live=true;unsigned flags=0;int x=0,y=0,w=800,h=480,scroll=0,dir=0,inset_x=0,inset_y=0;};
+struct Node {std::string text,image,options;unsigned layout_updates=0;bool height_fixed=false;bool pending_layout=false,open=false,is_image=false,is_label=false;unsigned selected=0,state=0,zoom_factor=256,disable_writes=0;int text_alignment=0,label_long_mode=-1;std::uintptr_t font_address=0;std::uint32_t text_color=0,background_color=0;int opacity=255,background_opacity=255;std::vector<std::uintptr_t>styles;std::uint32_t tint[2]={0,0};unsigned tint_opa[2]={0,0};Node*parent=nullptr;std::vector<Node*>children;std::vector<Callback>callbacks;bool live=true;unsigned flags=0;int x=0,y=0,w=800,h=480,scroll=0,dir=0,inset_x=0,inset_y=0;unsigned line_point_count=0;std::uint32_t line_color=0;};
 unsigned char menu_selection=255;
 unsigned style_resets=0;
 void clear_styles(void*p){++style_resets;static_cast<Node*>(p)->styles.clear();}
@@ -36,7 +37,7 @@ void menu(void*,unsigned char selected){menu_selection=selected;}
 void page_route(const char*){}
 std::string video_translation="Video";
 const char*translate(const char*text){return std::string(text)=="Video"?video_translation.c_str():text;}
-void line_points(void*,const void*,std::uint16_t){}
+void line_points(void*p,const void*,std::uint16_t n){static_cast<Node*>(p)->line_point_count=n;}
 struct Event {Node*node;int code;void*data;};
 std::vector<std::unique_ptr<Node>>nodes;std::function<void(Node*)>layout_hook;
 Node* make(void*p){nodes.emplace_back(new Node);auto*n=nodes.back().get();n->parent=static_cast<Node*>(p);if(p)n->parent->children.push_back(n);return n;}
@@ -57,6 +58,11 @@ int width(void*p){auto*n=static_cast<Node*>(p);return n->pending_layout?0:n->w-n
 void coords(void*p,void*out){auto*n=static_cast<Node*>(p);auto*a=static_cast<short*>(out);a[0]=n->x;a[1]=n->y;a[2]=n->x+n->w-1;a[3]=n->y+n->h-1;}
 unsigned count(void*p){return static_cast<Node*>(p)->children.size();}void*child(void*p,int i){return static_cast<Node*>(p)->children.at(i);}void*parent(void*p){return static_cast<Node*>(p)->parent;}
 void send(Node*n,int code){auto callbacks=n->callbacks;for(auto cb:callbacks)if(cb.code==code||cb.code==0){Event e{n,code,cb.data};cb.fn(&e);}}
+int event_send(void*p,int code,void*){assert(static_cast<Node*>(p)->live);send(static_cast<Node*>(p),code);return 1;}
+// Vendor maintenance bytes read by the nozzle scrub (nozzle_scrub_vendor.hpp).
+unsigned char vendor_rapid_mode=1,vendor_selected[4]={0,0,0,0},vendor_pairing_failed=0;std::uint32_t vendor_heads=4;
+// lv_disp_get_inactive_time: milliseconds since the last touch. 0 is a touch now.
+std::uint32_t inactive_ms=3600000;std::uint32_t inactive(void*){return inactive_ms;}
 void del(void*p){auto*n=static_cast<Node*>(p);assert(n->live);send(n,33);auto children=n->children;for(auto*c:children)del(c);n->live=false;n->callbacks.clear();if(n->parent){auto&v=n->parent->children;v.erase(std::remove(v.begin(),v.end(),n),v.end());}}
 void clean(void*p){auto children=static_cast<Node*>(p)->children;for(auto*c:children)del(c);}
 bool unbind(void*p,void(*fn)(void*)){auto&v=static_cast<Node*>(p)->callbacks;for(auto it=v.begin();it!=v.end();++it)if(it->fn==fn){v.erase(it);return true;}return false;}
@@ -87,7 +93,7 @@ void background_colour(void*p,std::uint32_t v,int){static_cast<Node*>(p)->backgr
 void text_alignment(void*p,int v,unsigned){static_cast<Node*>(p)->text_alignment=v;}
 void text_colour(void*p,std::uint32_t v,int){static_cast<Node*>(p)->text_color=v;}
 unsigned text_writes=0;
-void remove_style(void*,void*,unsigned){}void style(void*,int,int){}void color(void*,std::uint32_t,int){}void one_int(void*,int){}void text(void*p,const char*value){++text_writes;static_cast<Node*>(p)->text=value;}void update(void*p){auto*n=static_cast<Node*>(p);++n->layout_updates;n->pending_layout=false;for(auto*c:n->children)update(c);if(layout_hook)layout_hook(n);}
+void remove_style(void*,void*,unsigned){}void style(void*,int,int){}void color(void*p,std::uint32_t v,int){static_cast<Node*>(p)->line_color=v;}void one_int(void*,int){}void text(void*p,const char*value){++text_writes;static_cast<Node*>(p)->text=value;}void update(void*p){auto*n=static_cast<Node*>(p);++n->layout_updates;n->pending_layout=false;for(auto*c:n->children)update(c);if(layout_hook)layout_hook(n);}
 const void*image_source(void*p){return static_cast<Node*>(p)->image.c_str();}
 int image_type(const void*p){return p&&*static_cast<const char*>(p)?1:3;}
 bool decoder_fails=false;
@@ -209,10 +215,28 @@ struct RuntimeReceiptTest {
  static void pending(Runtime&r,bool tool,const std::string&id){if(tool)r.tool_receipt_=id;else r.stock_edit_receipt_=id;}
  static bool pending(const Runtime&r,bool tool){return !(tool?r.tool_receipt_:r.stock_edit_receipt_).empty();}
  static void observe(Runtime&r,const std::string&id){++r.status_publication_;r.normalized_["receipts"]={{id,{{"state","complete"},{"message","Confirmed"}}}};}
+ static void scrub_vendor(Runtime&,unsigned char rapid,std::array<unsigned char,4>selected,unsigned heads){
+  fake::vendor_rapid_mode=rapid;for(unsigned i=0;i<4;++i)fake::vendor_selected[i]=selected[i];fake::vendor_heads=heads;}
+ static unsigned char scrub_rapid(const Runtime&){return fake::vendor_rapid_mode;}
+ static void scrub_status(Runtime&r,const Json&data){std::lock_guard<std::mutex>lock(r.mutex_);r.normalized_=data;r.at_=r.ui_.now_ms();}
+ static void scrub_advance(Runtime&r,std::int64_t&clock,std::int64_t ms){std::lock_guard<std::mutex>lock(r.mutex_);clock+=ms;}
+ static ScrubView scrub_flow_view(Runtime&r){std::lock_guard<std::mutex>lock(r.mutex_);return nozzle_scrub_view(r.scrub_.flow_.facts());}
+ static ScrubOutcome scrub_outcome(Runtime&r){std::lock_guard<std::mutex>lock(r.mutex_);return r.scrub_.flow_.outcome();}
+ static void scrub_failed_byte(Runtime&r,unsigned char value){std::lock_guard<std::mutex>lock(r.mutex_);fake::vendor_pairing_failed=value;}
+ static unsigned char scrub_failed_byte(Runtime&r){std::lock_guard<std::mutex>lock(r.mutex_);return fake::vendor_pairing_failed;}
+ static void scrub_failure_wait(Runtime&r,int ms){std::lock_guard<std::mutex>lock(r.mutex_);r.scrub_.failure_wait_ms_=ms;}
+ static void scrub_shutdown(Runtime&r){r.scrub_.shutdown();}
+ static Json scrub_result(Runtime&r){std::lock_guard<std::mutex>lock(r.mutex_);
+  return {{"flagged",r.scrub_.result_flagged_heads_locked()},{"saved_anyway",r.scrub_.result_saved_anyway_locked()},
+   {"cancelled",r.scrub_.result_cancelled_locked()},{"restore_failed",r.scrub_.result_restore_failed_locked()}};}
 };
 void*test_stock_colour_picker(void*parent,int selected){assert(selected>=-1&&selected<16);return fake::make(parent);}
 void*test_resolve(std::uintptr_t a){
 if(a==0x38626e8){static const std::string asset("stock-white-filament.bin");return const_cast<std::string*>(&asset);}
+ if(a==is_rapid_mode)return &fake::vendor_rapid_mode;
+ if(a==auto_check_selected)return fake::vendor_selected;
+ if(a==current_thr_number)return &fake::vendor_heads;
+ if(a==knife_pairing_failed)return &fake::vendor_pairing_failed;
  #define MAP(name,fn) if(a==name)return reinterpret_cast<void*>(&fake::fn)
  MAP(lv_obj_set_width,set_width);MAP(lv_obj_check_type,check_type);MAP(lv_obj_get_width,outer_width);MAP(lv_obj_get_height,outer_height);
  MAP(lv_obj_get_event_user_data,callback_data);
@@ -226,10 +250,11 @@ if(a==0x38626e8){static const std::string asset("stock-white-filament.bin");retu
  MAP(lv_imgbtn_set_src,image_button_src);MAP(lv_obj_set_style_img_recolor,tint);MAP(lv_obj_set_style_img_recolor_opa,tint_opacity);
  MAP(stock_remove_all_styles,clear_styles);MAP(lv_i18n_get_text,translate);
  MAP(lv_line_create,make);MAP(lv_line_set_points,line_points);MAP(lv_obj_set_style_line_width,style);MAP(lv_obj_set_style_line_color,color);
- MAP(lv_obj_create,make);MAP(lv_btn_create,make);MAP(lv_label_create,make_label);MAP(lv_label_get_text,get_text);MAP(lv_disp_get_default,display);MAP(lv_disp_get_scr_act,active);MAP(lv_disp_get_layer_top,top_layer);MAP(lv_disp_get_layer_sys,sys_layer);
+ MAP(lv_obj_create,make);MAP(lv_btn_create,make);MAP(lv_label_create,make_label);MAP(lv_label_get_text,get_text);MAP(lv_disp_get_default,display);MAP(lv_disp_get_scr_act,active);MAP(lv_disp_get_layer_top,top_layer);MAP(lv_disp_get_layer_sys,sys_layer);MAP(lv_disp_get_inactive_time,inactive);
  MAP(lv_obj_is_valid,live);MAP(lv_obj_get_parent,parent);MAP(lv_obj_get_child,child);MAP(lv_obj_get_child_cnt,count);MAP(lv_obj_get_coords,coords);MAP(lv_obj_get_content_coords,coords);
  MAP(lv_obj_add_flag,flag);MAP(lv_obj_clear_flag,unflag);MAP(lv_obj_has_flag,has);MAP(lv_obj_has_state,has_state);MAP(lv_obj_set_pos,pos);MAP(lv_obj_set_size,size);MAP(lv_obj_del,del);MAP(lv_obj_clean,clean);MAP(lv_obj_add_event_cb,bind);
  MAP(lv_obj_align,align);MAP(lv_obj_get_content_width,width);MAP(lv_obj_get_content_height,height);
+ MAP(lv_event_send,event_send);
  MAP(lv_event_get_code,code);MAP(lv_event_get_user_data,userdata);MAP(lv_event_get_target,target);MAP(lv_indev_get_act,indev);MAP(lv_indev_get_scroll_obj,scroll_obj);
  MAP(lv_obj_set_style_bg_opa,background_opacity);
  MAP(lv_obj_remove_style,remove_style);MAP(lv_label_set_text,text);MAP(lv_label_set_long_mode,label_mode);MAP(lv_obj_move_to_index,one_int);MAP(lv_obj_add_state,one_int);
@@ -262,6 +287,7 @@ struct Http : wmp_openace::HttpPort {
  std::string post(const std::string&,const std::string&)override{assert(on_post);on_post();return "{\"result\":\"ok\"}";}
 };
 #include "progress_ui_contract.hpp"
+#include "nozzle_scrub_lifecycle.hpp"
 int main(int argc,char**argv){
  if(argc==3&&std::string(argv[1])=="--progress-fit")return progress_ui_contract(argv[2]);
  {auto*button=fake::make(nullptr);auto*caption=fake::make(button);button->w=130;button->h=54;button->pending_layout=true;
@@ -1751,6 +1777,7 @@ int main(int argc,char**argv){
   fake::send(text("START")->parent,7);assert(submits==1);
   fake::del(page);view.update(state,"Unavailable",false,false);
  }
+ nozzle_scrub_lifecycle(data);
  // Calibration failure remains visible through stale updates and cannot expose
  // stock success ticks by dismissal. DONE only navigates; it sends no commands.
  {
