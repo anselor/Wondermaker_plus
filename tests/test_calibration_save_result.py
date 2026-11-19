@@ -225,6 +225,8 @@ def test_retained_vendor_save_writer_and_restart_boundary(machine, fault):
     # Bed mesh supplies indented continuation lines before SAVE_CONFIG. Its
     # real write/reload strips this indentation in both disk and loaded status.
     config.set('bed_mesh default', 'points', '\n  -0.549375, -0.496563\n  -0.506875, -0.454688')
+    # Real user config retained an empty heater section after PID changes.
+    config.autosave.fileconfig.add_section('heater_bed')
     p.objects['configfile'] = config
     order = []
     def stage(name):
@@ -357,3 +359,32 @@ def test_diagnostic_preparation_failure_does_not_veto_valid_writer(machine, monk
     assert not runner.failure and not runner.active and not p.off
     assert runner.save_result['state'] == 'unconfirmed'
     assert 'diagnostic ' + failure + ' unavailable' in runner.save_result['error']
+
+
+@pytest.mark.parametrize('change', [None, 'disk_value', 'loaded_value', 'pending'])
+def test_shaper_save_with_empty_heater_section_is_verified(machine, change):
+    p, runner, path, expected = machine
+    expected['heater_bed'] = {}
+    expected['input_shaper'] = {'shaper_type_x': '3hump_ei', 'shaper_freq_x': '107.2',
+                               'shaper_type_y': 'mzv', 'shaper_freq_y': '34.8'}
+    config = p.objects['configfile']
+    config.autosave.fileconfig = parser(expected)
+    config.status_raw_config = copy.deepcopy(expected)
+    runner.cmd_run(SaveCommand(runner))
+    assert runner.save_result['state'] == 'saved'
+    assert runner._save_store()[0].read()['autosave']['heater_bed'] == {}
+    if change == 'disk_value':
+        altered = copy.deepcopy(expected)
+        altered['input_shaper']['shaper_freq_x'] = '99'
+        path.write_text(json.dumps(altered))
+    elif change == 'loaded_value': config.status_raw_config['input_shaper']['shaper_freq_x'] = '99'
+    elif change == 'pending': config.status_save_pending = {'input_shaper': {'shaper_freq_x': '99'}}
+    assert restore(p).save_result['state'] == ('confirmed' if change is None else 'unconfirmed')
+
+
+def test_only_empty_sections_do_not_claim_calibration_values(machine):
+    p, runner, path, expected = machine
+    p.objects['configfile'].autosave.fileconfig = parser({'heater_bed': {}})
+    runner.cmd_run(SaveCommand(runner))
+    assert runner.save_result['state'] == 'unconfirmed'
+    assert restore(p).save_result['state'] == 'unconfirmed'

@@ -262,9 +262,13 @@ class CalibrationSaveRecord(ProbeSaveRecord):
             raise ValueError('Invalid calibration save path')
         values = record['autosave']
         if (not isinstance(values, dict) or not values or not all(
-                isinstance(section, str) and section and isinstance(items, dict) and items
+                isinstance(section, str) and section and isinstance(items, dict)
                 and all(isinstance(k, str) and isinstance(v, str) for k, v in items.items())
                 for section, items in values.items())):
+            raise ValueError('Invalid calibration save values')
+        # Klipper can retain empty autosave sections (for example heater_bed).
+        # Preserve them in the snapshot, but require actual calibration values.
+        if not any(values.values()):
             raise ValueError('Invalid calibration save values')
         return json.dumps(record, sort_keys=True, allow_nan=False, separators=(',', ':')).encode()
 

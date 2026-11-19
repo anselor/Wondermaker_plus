@@ -165,7 +165,7 @@
   "klipper_extras/wm_material.cfg": "7e39d4c5423cd75628918c5e8e80a84a5fcf5d9a8694588b63c1d8044c782e93",
   "klipper_extras/wm_material.py": "9b7ec710b72f3df8aa3ca46e1b70887ec1ae46a711e505d266b97b7ab2d66409",
   "klipper_extras/wmp_calibration.py": "c73d9298132567ce9ed073c9f079df4ef8d56b7ac5f7faff311b5bbed582b9f8",
-  "klipper_extras/wmp_calibration_records.py": "e714251004f2b40edc3183cddb59247093522fb30cc88d2934dc5b541404446b",
+  "klipper_extras/wmp_calibration_records.py": "11279eba1c9279b7f9dc3c4820a64a62a65db4c86b748bebdce4b488a5c37f2c",
   "klipper_extras/wmp_case_light.py": "89ebe45a40a864144973a3cdb26cda36935ae66b68108f3f5eabd64ebc9107b9",
   "klipper_extras/wmp_command_routing.py": "efd013a0a5f780957d10157e3895d69d6f86980cfc2d233ebcd48c6ed01e8ef5",
   "klipper_extras/wmp_component.py": "2157ddcccb944ca6e89222b896715671d51f8ee3ad4e04ad3f294eb82ca1cd94",
