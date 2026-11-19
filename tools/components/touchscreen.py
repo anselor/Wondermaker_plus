@@ -10,6 +10,7 @@ import json
 import uuid
 import time
 import codecs
+import io
 from pathlib import Path
 from local_env import require
 
@@ -101,8 +102,15 @@ def upload(c):
             for fn in files:
                 if fn.endswith((".pyc", ".swp")):
                     continue
-                sftp.put(os.path.join(dirpath, fn),
-                         posixpath.join(remote_dir, fn))
+                local = Path(dirpath) / fn
+                remote = posixpath.join(remote_dir, fn)
+                if fn.endswith('.sh'):
+                    # Windows editors and existing checkouts can retain CRLF
+                    # despite .gitattributes; Linux shebangs require LF.
+                    data = local.read_bytes().replace(b'\r\n', b'\n')
+                    sftp.putfo(io.BytesIO(data), remote)
+                else:
+                    sftp.put(str(local), remote)
                 n += 1
     sftp.close()
     run(c, "chmod +x %s/scripts/*.sh" % stage, stream=False)

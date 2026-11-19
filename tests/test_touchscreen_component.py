@@ -94,3 +94,23 @@ def test_transaction_notes_on_stdout_do_not_break_result_parsing(capsys):
 def test_transaction_output_without_result_is_rejected():
     with pytest.raises(ValueError,match='no result'):
         touchscreen.transaction_result('Preserving the configured timelapse camera.\n')
+
+
+def test_upload_normalizes_windows_shell_scripts_without_changing_other_payloads(tmp_path, monkeypatch):
+    device = tmp_path/'device'
+    device.mkdir()
+    (device/'camera.sh').write_bytes(b'#!/bin/sh\r\necho ok\r\n')
+    (device/'asset.bin').write_bytes(b'raw\r\nbytes')
+    uploaded = {}
+    class Sftp:
+        def stat(self, path): return object()
+        def putfo(self, source, destination): uploaded[destination] = source.read()
+        def put(self, source, destination): uploaded[destination] = __import__('pathlib').Path(source).read_bytes()
+        def close(self): pass
+    monkeypatch.setattr(touchscreen, 'ROOT', str(tmp_path))
+    monkeypatch.setattr(touchscreen, 'PAYLOAD', ['device'])
+    monkeypatch.setattr(touchscreen, 'run', lambda *a, **kw: ('', '', 0))
+    stage = touchscreen.upload(SimpleNamespace(open_sftp=lambda: Sftp()))
+    assert uploaded[stage+'/device/camera.sh'] == b'#!/bin/sh\necho ok\n'
+    assert uploaded[stage+'/device/asset.bin'] == b'raw\r\nbytes'
+    assert (device/'camera.sh').read_bytes() == b'#!/bin/sh\r\necho ok\r\n'
