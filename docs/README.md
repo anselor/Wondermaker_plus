@@ -32,6 +32,8 @@ dates shown; they are not current installation instructions.
   and the historical mockup gallery. Review the [clickable screen mockups](ui/mockups.html)
   or [screen image gallery](ui/mockups/index.html) for the proposed layouts.
 - [Tool-change return](toolchange-return.md): sequence, coordinate handling, and tests.
+- [Nozzle scrub](nozzle-scrub.md): guided wire-brush clean before accurate offset
+  calibration, its screens, limits and settings, and the vendor worker findings.
 - [Start-print review](start-print-review.md): startup behavior and proposed optimizations.
 - [Bottom-Z investigation](z-recovery-investigation.md): measurements behind the recovery design.
 - [Cooling experiment](cooling-assist.md): measurements that led to its removal.

@@ -379,6 +379,41 @@ When disabled, requests are ignored. The setting is not shown on the
 touchscreen. `printer.wmp_case_light` reports `attention_enabled` and
 `attention_active`.
 
+### Guided nozzle scrub
+
+The [guided nozzle scrub](../docs/nozzle-scrub.md) mounts and heats each head
+and moves it to a fixed position for cleaning with a wire brush before offset
+calibration. Its position and temperature are optional settings of the
+`[wmp_recovery]` section in `printer.cfg`, read by
+`klipper_extras/wmp_nozzle_scrub.py`; `offset_centre_spread`, in the same
+section, is read by `klipper_extras/wmp_nozzle_touch.py`:
+
+| Option | Default | Limits | Meaning |
+|---|---|---|---|
+| `scrub_x` | 150 | none | X of the scrub position, mm |
+| `scrub_y` | 2 | none | Y of the scrub position, mm |
+| `scrub_z` | 100 | 20 to 250 | Z of the scrub position, mm |
+| `scrub_temp` | 160 | 0 to 170 | Nozzle target during the scrub, °C |
+| `offset_centre_spread` | 0.030 | 0 or more; 0 disables | Largest accepted span of a head's measured gauge centres during offset measurement, mm: the best five of the six `Calibrated XY` centres on the worse axis (with three to five centres, the best all but one); a larger span flags the head |
+
+```ini
+[wmp_recovery]
+scrub_z: 120
+```
+
+`scrub_x` and `scrub_y` are not range-checked when the configuration is read;
+a position outside the axis limits is refused by Klipper when the move is
+made, which stops the scrub. The move uses absolute coordinates with G-code
+offsets set to zero. The scrub requests the [attention signal](#attention-signal)
+while it waits for the user. The installed `printer.cfg` baseline sets none of
+these options. Klipper must be restarted after a change.
+
+The scrub's backend modules (`wmp_nozzle_scrub.py`, `wmp_nozzle_touch.py`,
+`wmp_calibration_progress.py` and `wmp_calibration_outcome.py`) are part of
+the backend helper set that unified-package installation of `config` and
+`material` installs. The historical configuration installer does not install
+them.
+
 ### Startup, print end, and cooling
 
 The startup purge runs on the plate's left edge at X0, Y100–150. The previous
