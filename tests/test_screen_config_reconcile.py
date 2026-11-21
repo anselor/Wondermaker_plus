@@ -351,6 +351,112 @@ def test_vendor_symlink_dependency_is_preserved_and_target_changes_refused(print
         reconcile.publish(printer, planned)
 
 
+@pytest.mark.parametrize('material_only', [False, True])
+def test_removal_preserves_external_timelapse_include(printer, tmp_path, material_only):
+    dependency = tmp_path / 'vendor-timelapse.cfg'
+    dependency.write_bytes((printer / 'timelapse.cfg').read_bytes())
+    original = dependency.read_bytes()
+    (printer / 'timelapse.cfg').unlink()
+    (printer / 'timelapse.cfg').symlink_to(dependency)
+    apply_plan(printer, reconcile.plan(ROOT, printer))
+
+    planned = reconcile.removal_plan(ROOT, printer, material_only=material_only)
+    assert planned['read_targets']['timelapse.cfg'] == str(dependency.resolve())
+    assert 'timelapse.cfg' not in {change['file'] for change in planned['changes']}
+    reconcile.publish(printer, planned)
+
+    assert (printer / 'timelapse.cfg').is_symlink()
+    assert (printer / 'timelapse.cfg').resolve() == dependency
+    assert dependency.read_bytes() == original
+    active = bundle.read_active_config(printer / 'printer.cfg')
+    # Removing material alone must retain the helper while active WM+ macros
+    # still need it; a full config removal can disable it.
+    assert active.has_section('wm_material') is material_only
+    assert bool(planned['retained_dependencies']) is material_only
+
+
+def test_removal_rejects_read_only_include_retargeted_after_review(printer, tmp_path):
+    original = (printer / 'timelapse.cfg').read_bytes()
+    dependency = tmp_path / 'vendor-timelapse.cfg'
+    dependency.write_bytes(original)
+    (printer / 'timelapse.cfg').unlink()
+    (printer / 'timelapse.cfg').symlink_to(dependency)
+    apply_plan(printer, reconcile.plan(ROOT, printer))
+    planned = reconcile.removal_plan(ROOT, printer)
+    replacement = tmp_path / 'replacement.cfg'
+    replacement.write_bytes(original)  # Same bytes do not excuse a new target.
+    (printer / 'timelapse.cfg').unlink()
+    (printer / 'timelapse.cfg').symlink_to(replacement)
+    before = (printer / 'printer.cfg').read_bytes()
+    with pytest.raises(ValueError, match='target changed'):
+        reconcile.publish(printer, planned)
+    assert (printer / 'printer.cfg').read_bytes() == before
+
+
+def test_removal_still_rejects_explicit_include_outside_config(printer, tmp_path):
+    dependency = tmp_path / 'outside.cfg'
+    dependency.write_text('[gcode_macro OUTSIDE]\ngcode: M400\n')
+    with (printer / 'printer.cfg').open('a') as stream:
+        stream.write('\n[include ../outside.cfg]\n')
+    with pytest.raises(ValueError, match='include outside printer directory'):
+        reconcile.removal_plan(ROOT, printer)
+
+
+@pytest.mark.parametrize('name', ['printer.cfg', reconcile.FILENAME, 'wm_material.cfg'])
+@pytest.mark.parametrize('material_only', [False, True])
+def test_removal_still_rejects_linked_writable_config(printer, tmp_path, name, material_only):
+    apply_plan(printer, reconcile.plan(ROOT, printer))
+    path = printer / name
+    if not path.exists():
+        path.write_text('[wm_material]\nload_feed_mm: 55\n')
+    dependency = tmp_path / ('linked-' + name)
+    dependency.write_bytes(path.read_bytes())
+    path.unlink()
+    path.symlink_to(dependency)
+    with pytest.raises(ValueError, match='linked writable configuration'):
+        reconcile.removal_plan(ROOT, printer, material_only=material_only)
+
+
+def test_removal_rejects_include_retargeted_during_read(printer, tmp_path, monkeypatch):
+    dependency = tmp_path / 'vendor-timelapse.cfg'
+    replacement = tmp_path / 'replacement.cfg'
+    original = (printer / 'timelapse.cfg').read_bytes()
+    dependency.write_bytes(original)
+    replacement.write_bytes(original)
+    link = printer / 'timelapse.cfg'
+    link.unlink()
+    link.symlink_to(dependency)
+    read_bytes = Path.read_bytes
+    def retarget(path):
+        data = read_bytes(path)
+        if path == link:
+            link.unlink()
+            link.symlink_to(replacement)
+        return data
+    monkeypatch.setattr(Path, 'read_bytes', retarget)
+    with pytest.raises(ValueError, match='target changed while planning removal'):
+        reconcile.removal_plan(ROOT, printer)
+
+
+def test_remote_removal_preserves_linked_timelapse(printer, tmp_path):
+    dependency = tmp_path / 'vendor-timelapse.cfg'
+    original = (printer / 'timelapse.cfg').read_bytes()
+    dependency.write_bytes(original)
+    (printer / 'timelapse.cfg').unlink()
+    (printer / 'timelapse.cfg').symlink_to(dependency)
+    apply_plan(printer, reconcile.plan(ROOT, printer))
+
+    result = json.loads(run_remote_script(reconcile.remote_script(
+        ROOT, printer, action='remove-plan')))
+    assert result['plan']['read_targets']['timelapse.cfg'] == str(dependency)
+    published = json.loads(run_remote_script(reconcile.remote_script(
+        ROOT, printer, result['plan'])))
+    assert published['state'] == 'published'
+    assert dependency.read_bytes() == original
+    assert (printer / 'timelapse.cfg').is_symlink()
+    assert not bundle.read_active_config(printer / 'printer.cfg').has_section('wm_material')
+
+
 def run_remote_script(script):
     result = subprocess.run([sys.executable, '-I', '-'], input=script, text=True, capture_output=True)
     if result.returncode:

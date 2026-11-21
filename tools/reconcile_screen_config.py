@@ -294,14 +294,20 @@ def removal_plan(root, directory, material_only=False):
     reads, targets, matches = {}, {}, {}
     def read(path):
         path = Path(path).absolute()
-        if os.path.commonpath((str(path.resolve()), str(directory.resolve()))) != str(directory.resolve()):
+        # Klipper may include an in-directory link to a vendor dependency such
+        # as timelapse.cfg. Match installation's lexical include boundary: these
+        # dependencies are read-only, while our three writable files cannot link.
+        if os.path.commonpath((str(path), str(directory))) != str(directory):
             raise ValueError('Configuration include outside printer directory: ' + str(path))
         if path in (main, managed, material) and path.is_symlink():
             raise ValueError('Refuse linked writable configuration: ' + str(path))
+        resolved = str(path.resolve())
         data = path.read_bytes()
+        if str(path.resolve()) != resolved or (path in targets and resolved != targets[path]):
+            raise ValueError('Configuration include target changed while planning removal: ' + str(path))
         if path in reads and reads[path] != data:
             raise ValueError('Configuration changed while planning removal: ' + str(path))
-        reads[path], targets[path] = data, str(path.resolve())
+        reads[path], targets[path] = data, resolved
         text = data.decode('utf-8')
         for line in text.splitlines():
             header = configparser.RawConfigParser.SECTCRE.match(line.split('#', 1)[0])
@@ -309,7 +315,10 @@ def removal_plan(root, directory, material_only=False):
                 pattern = os.path.normpath(str(path.parent/header.group('header')[8:].strip()))
                 if os.path.commonpath((pattern, str(directory))) != str(directory):
                     raise ValueError('Configuration include outside printer directory: ' + pattern)
-                matches[pattern] = sorted(glob.glob(pattern))
+                found = sorted(glob.glob(pattern))
+                if pattern in matches and found != matches[pattern]:
+                    raise ValueError('Configuration include membership changed while planning removal: ' + pattern)
+                matches[pattern] = found
         return text
     bundle.read_active_config(main, read_file=read)
     for path in (managed, material):
