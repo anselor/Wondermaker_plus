@@ -61,7 +61,8 @@ report['checks']['idle']=status['print_stats']['state'] not in ('printing','paus
 settings=status['configfile']['settings']
 active=[]
 for section,options in settings.items():
-    text=section+'\\n'+'\\n'.join(str(value) for value in options.values())
+    executable=section.startswith(('gcode_macro ','delayed_gcode ')) or section=='homing_override'
+    text=(section+'\\n' if executable else '')+'\\n'.join(str(value) for key,value in options.items() if key=='gcode' or key.endswith('_gcode'))
     if section in ('wm_material','wmp_recovery','wmp_case_light') or 'WMP_' in text.upper() or 'WM_MATERIAL' in text.upper():
         active.append(section)
 report['active_wmp_sections']=active

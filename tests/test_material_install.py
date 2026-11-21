@@ -356,3 +356,32 @@ def test_runtime_contract_matches_installable_helper_set():
     root = Path(material.ROOT)
     assert set(preload_bundle.backend_helper_names(root)) == set(material.HELPERS) | {
         'wmp_identification.py', 'wmp_recovery.py', 'wmp_case_light.py'}
+
+
+def test_full_removal_preflight_checks_last_shared_owner(tmp_path):
+    import file_ownership
+    ctx, sftp, extra, cfg = setup(tmp_path, existing=False)
+    material.install(ctx)
+    inventory_path = sftp.path(extra).with_name(file_ownership.FILENAME)
+    inventory = file_ownership.load(inventory_path.read_bytes(), set(material.HELPERS))
+    name = 'wm_material.py'
+    inventory['files'][name]['owners'] = ['config','material']
+    inventory_path.write_bytes(file_ownership.encode(inventory))
+    sftp.path(extra).write_bytes(b'unknown edited helper')
+    before = snapshot(tmp_path)
+    ctx.removing_components = {'config','material'}
+    with pytest.raises(ValueError, match='changed before removal'):
+        material.release_helpers(ctx,'config',dry_run=True)
+    assert snapshot(tmp_path) == before
+    ctx.removing_components = {'config'}
+    _, changes = material.release_helpers(ctx,'config',dry_run=True)
+    assert name not in changes
+
+
+def test_repeated_helper_release_does_not_republish_inventory(tmp_path):
+    ctx, sftp, extra, cfg = setup(tmp_path, existing=False)
+    material.install(ctx)
+    material.release_helpers(ctx,'material')
+    publications = sftp.publications
+    material.release_helpers(ctx,'material')
+    assert sftp.publications == publications

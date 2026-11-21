@@ -545,6 +545,7 @@ def uninstall(ctx):
     _helper(ctx,c,'adopt_legacy_preload(%r,%r,%r)\nrestore_preload_factory(%r,%r,%r)' % (
         _home(ctx)+'/lib',DROPIN,defaults,_home(ctx)+'/lib',DROPIN,defaults),sudo=True)
     _restart(ctx, c, expected_guard=False)
+    ctx.backend_restore_verified=True
     print("Restored original screen resources; restarted and verified the stock screen.")
 
 

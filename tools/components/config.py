@@ -197,6 +197,25 @@ def activate_restored_services(ctx):
         print('Restored '+name+' configuration is active')
 
 
+def wait_for_restored_backend(ctx):
+    """A running Moonraker server may not yet have reconnected to Klipper."""
+    import time
+    deadline=time.monotonic()+30
+    while True:
+        try:
+            result=json.loads(ctx.moonraker('/printer/info'))['result']
+            if result.get('state')=='ready':
+                print('Factory backend connection verified: Ready')
+                return
+            if result.get('state') in ('error','shutdown'):
+                raise ctx.DeployError(result.get('state_message','Klipper is not ready'))
+        except (OSError,ValueError,KeyError):
+            pass
+        if time.monotonic()>=deadline:
+            raise ctx.DeployError('Moonraker did not reconnect to the restored Klipper within 30 seconds')
+        time.sleep(.5)
+
+
 def preflight_uninstall(ctx):
     """Refuse incomplete legacy removal before other components are removed."""
     import preflight as checks

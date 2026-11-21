@@ -21,6 +21,8 @@ def inspect(tmp_path,monkeypatch,fault=None):
     if fault=='missing_helper':helper.unlink()
     settings={'printer':{'kinematics':'corexy'}}
     if fault=='config':settings['wm_material']={}
+    if fault=='saved_mesh':settings['bed_mesh wmp_print']={'points':'0.01, 0.02'}
+    if fault=='callback':settings['filament_switch_sensor custom']={'runout_gcode':'WMP_STOP'}
     status={'webhooks':{'state':'ready'},'configfile':{'settings':settings},
             'print_stats':{'state':'standby'},'pause_resume':{'is_paused':False},'virtual_sdcard':{'is_active':False}}
     def request(url,timeout):
@@ -55,6 +57,14 @@ def inspect(tmp_path,monkeypatch,fault=None):
 
 def test_verified_factory_sources_and_live_helper(tmp_path,monkeypatch):
     assert inspect(tmp_path,monkeypatch)['verified']
+
+
+def test_saved_mesh_is_preserved_user_data(tmp_path,monkeypatch):
+    assert inspect(tmp_path,monkeypatch,'saved_mesh')['verified']
+
+
+def test_executable_callback_is_still_rejected(tmp_path,monkeypatch):
+    assert not inspect(tmp_path,monkeypatch,'callback')['verified']
 
 
 @pytest.mark.parametrize('fault',['source','helper','missing_helper','config','mapping','screen','restart'])

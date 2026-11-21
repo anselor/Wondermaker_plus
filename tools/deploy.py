@@ -324,7 +324,8 @@ class Context:
 
     def restart_klipper(self):
         reload_modules = (not self.config_only and bool(
-            {'config', 'material', 'shaper'} & set(getattr(self, 'installing_components', ()))))
+            {'config', 'material', 'shaper'} & (set(getattr(self, 'installing_components', ()))
+                                             | set(getattr(self, 'removing_components', ())))))
         print('Restarting Klipper process...' if reload_modules else 'Restarting Klipper and its controllers...')
         try:
             before = json.loads(self.moonraker('/printer/info'))['result']
@@ -558,7 +559,7 @@ def main():
                         journal.complete_component(m.NAME, receipt)
                 if args.action != "status" and m.RESTART_AFTER == "klipper":
                     need_restart = True
-                if args.action == 'install' and getattr(m, 'RESTARTS_BACKEND', False):
+                if args.action in ('install','uninstall') and getattr(m, 'RESTARTS_BACKEND', False):
                     need_restart = False
             except DeployError as e:
                 print("!! %s: %s" % (m.NAME, e), file=sys.stderr)
@@ -586,6 +587,12 @@ def main():
                 REGISTRY['config'].activate_restored_services(ctx)
             except Exception as error:
                 print('Restored service activation failed: '+str(error),file=sys.stderr)
+                return 1
+        if args.action=='uninstall' and getattr(ctx,'backend_restore_verified',False):
+            try:
+                REGISTRY['config'].wait_for_restored_backend(ctx)
+            except Exception as error:
+                print('Software restored; final backend connection is unconfirmed: '+str(error),file=sys.stderr)
                 return 1
         if need_restart and not ctx.no_restart:
             if 'preload' in ctx.installing_components:

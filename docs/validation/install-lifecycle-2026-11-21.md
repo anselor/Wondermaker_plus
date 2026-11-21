@@ -29,7 +29,28 @@ Local verification:
 The configuration backup is protected local data and is not committed. No broad
 log, machine-identity, service-file or binary export was performed.
 
-Live install, repeated update, factory removal and attended print comparison
-remain the next validation stage. The passing local checks do not claim a
-physical timing result or that every operating-system file is factory content.
-See [the comparison protocol](factory-timing-comparison.md).
+Live verification:
+
+- Full install and a repeated partial config/touchscreen selection succeeded.
+  That selection included the matched backend/screen dependencies. Fingerprints
+  of all 51 helper originals, nine preload originals, and the bridge baseline
+  were identical before and after the repeated update.
+- Full uninstall restored the software, but exposed an early readiness check
+  during Moonraker reconnection and a redundant planned backend restart. The
+  finishing logic now accounts for a restart already performed by preload,
+  avoids repeating Moonraker activation, and waits for the restored connection.
+  Backend-only removal also reloads the Python process, clearing loaded helpers.
+- Repeated full uninstall with those fixes completed successfully. The final
+  verification passed all 23 source hashes, all 17 vendor macro contracts, stock
+  screen identity, absence of mapped WM+ libraries and active WM+ configuration,
+  rebuilt/mapped C helper, and Ready/idle status.
+- All 107 compared declared hardware/tuning values matched the protected
+  pre-install snapshot after both removals. Saved mesh profile `wmp_print` is
+  retained calibration data and does not count as executable WM+ configuration.
+- The finishing/verifier changes passed 231 targeted tests. Shared-owner removal
+  preflight and inventory no-op checks passed all 243 material/ownership tests.
+
+The attended PA comparison has started on Head 3 using the unchanged 7m22s file
+at 220°C/55°C. No physical timing outcome is claimed yet. These checks do not
+claim every operating-system file is factory content. See
+[the comparison protocol](factory-timing-comparison.md).

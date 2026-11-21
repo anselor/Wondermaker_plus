@@ -309,7 +309,14 @@ def release_helpers(ctx, owner, dry_run=False):
             file_ownership.install(inventory, name, data, data, owner, known)
     updated, changes = file_ownership.removal(inventory, owner, current)
     if dry_run:
+        # Check the final consumer's restore before any component is removed.
+        # Checking each owner independently misses conflicts on shared files.
+        for other in sorted(set(getattr(ctx, 'removing_components', ())) & file_ownership.OWNERS - {owner}):
+            updated, additional = file_ownership.removal(updated, other, current)
+            changes.update(additional)
         return updated, changes
+    if not changes and raw == file_ownership.encode(updated):
+        return
     # Validate all resources again immediately before each mutation.
     expected = {name: current(name) for name in changes}
     for name, content in changes.items():

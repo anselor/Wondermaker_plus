@@ -249,6 +249,8 @@ def uninstall(ctx):
         print('Moonraker sources are unmanaged; nothing to remove')
         return
     rollback(ctx, {'kind': 'moonraker-patches', 'version': 1, 'patches': entries})
+    # The service lifecycle just restarted Moonraker with the restored config.
+    getattr(ctx,'restored_config_services',set()).discard('moonraker')
     print('Original managed Moonraker implementations restored')
 
 

@@ -95,3 +95,30 @@ def test_new_backend_error_is_not_reported_as_successful_activation(monkeypatch)
     ctx.ssh = lambda: object()
     monkeypatch.setattr(touchscreen, 'run', lambda *a, **k: ('', '', 0))
     assert not ctx.restart_klipper()
+
+
+def test_helper_removal_reloads_python_process(monkeypatch):
+    from components import touchscreen
+    ctx, _, calls = restart(monkeypatch, [READY, dict(READY, process_id=11), dict(READY, process_id=11)])
+    ctx.removing_components = {'material'}
+    ctx.ssh = lambda: object()
+    commands = []
+    monkeypatch.setattr(touchscreen, 'run', lambda connection, command, **kwargs: commands.append(command) or ('', '', 0))
+    assert ctx.restart_klipper()
+    assert commands == ['systemctl restart klipper.service']
+    assert not any(post for _, post in calls)
+
+
+def test_restored_connection_waits_without_restarting(monkeypatch):
+    from components import config
+    ctx, clock, calls = restart(monkeypatch, [OSError('reconnecting'), {'state':'startup'}, READY])
+    config.wait_for_restored_backend(ctx)
+    assert clock[0] == 1
+    assert not any(post for _, post in calls)
+
+
+def test_restored_connection_refuses_backend_error(monkeypatch):
+    from components import config
+    ctx, _, _ = restart(monkeypatch, [{'state':'error','state_message':'bad config'}])
+    with pytest.raises(deploy.DeployError, match='bad config'):
+        config.wait_for_restored_backend(ctx)
