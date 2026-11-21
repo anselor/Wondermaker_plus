@@ -97,6 +97,22 @@ def rollback(ctx, receipt):
                               'is not ready. Check klippy.log.')
 
 
+def preflight_uninstall(ctx):
+    def inspect(printer):
+        states=tool.survey(printer)
+        if tool.describe(states)=='stock':
+            return 0
+        if any(value not in ('stock','backport') for value in states.values()):
+            raise tool.BackportError('Unknown input shaper files; no components removed')
+        raw=printer.read(printer.state('manifest.json'))
+        if raw is None:
+            raise tool.BackportError('Missing stock input shaper originals')
+        import json
+        tool.stock_originals(printer,json.loads(raw.decode()))
+        return 0
+    _run(ctx,inspect)
+
+
 def uninstall(ctx):
     if _run(ctx, tool.cmd_uninstall, None) != 0:
         raise ctx.DeployError('Stock input shaper files restored but Klipper '

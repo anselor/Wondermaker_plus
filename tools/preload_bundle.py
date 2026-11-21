@@ -94,6 +94,10 @@ def installer_source_files(root):
     root = Path(root)
     names = ['tools/deploy.py', 'tools/local_env.py', 'tools/preflight.py',
              'tools/preload_bundle.py', 'tools/factory_defaults.py', 'tools/reconcile_screen_config.py', 'utils/config_sync.py',
+             'tools/config_factory.py', 'config/provenance/legacy-behavior.json',
+             'tools/file_ownership.py',
+             'tools/build_legacy_config_catalog.py',
+             'tools/verify_factory_state.py', 'config/provenance/factory-motion.json',
              'tools/touchscreen_settings.py', 'tools/touchscreen_transaction.py', 'tools/touchscreen_runtime.py',
              'tools/install_journal.py', 'tools/validate_klipper_config.py', 'tools/verify_head_guard.py',
              'tools/moonraker_directory_patch.py', 'tools/moonraker_http_error_patch.py',
@@ -123,6 +127,9 @@ def installer_source_files(root):
         'macros.cfg', 'moonraker.conf', 'offset_calibrate.cfg', 'printer.cfg',
         'test_macro.cfg', 'timelapse.cfg', 'zru-s.cfg', 'case_light.cfg')]
     # Machine-owned wm_zru files intentionally remain on the destination printer.
+    # Removal needs its verified vendor behavior inputs in exported source too.
+    names += [path.relative_to(root).as_posix() for path in (root/'config/stock').glob('*')
+              if path.is_file() and path.suffix in ('.cfg','.conf') and not path.name.startswith('wm_zru_')]
     for name in names:
         path = root / name
         if not path.is_file() or path.is_symlink() or not path.resolve().is_relative_to(root.resolve()):
@@ -529,6 +536,179 @@ def recovery_environment(home):
             'WMP_RECOVERY_JOB_REQUIRED': '1'}
 
 
+def _preload_inventory_path(libdir):
+    return Path(libdir).parent / '.wmp-preload-ownership.json'
+
+
+def _preload_inventory(libdir, dropin, defaults_paths=None):
+    for directory in (Path(libdir).absolute(),Path(dropin).absolute().parent):
+        if directory.resolve()!=directory:
+            raise ValueError('Linked preload resource directory')
+    path = _preload_inventory_path(libdir)
+    if path.is_symlink():
+        raise ValueError('Linked preload ownership inventory')
+    record = json.loads(path.read_text(encoding='utf-8')) if path.exists() else {'version':1, 'files':{}}
+    if not isinstance(record,dict) or set(record)!={'version','files'} or record['version']!=1 or not isinstance(record['files'],dict):
+        raise ValueError('Invalid preload ownership inventory')
+    allowed = {str(Path(dropin).absolute())}
+    if defaults_paths:
+        allowed.update(str(Path(defaults_paths[key]).absolute()) for key in ('helper','dropin'))
+    for name,row in record['files'].items():
+        target = Path(name)
+        library = target.parent==Path(libdir).absolute() and re.fullmatch(r'libwmp_[A-Za-z0-9_-]+\.so',target.name)
+        if not (name in allowed or library) or set(row)!={'original','original_hash','metadata','installed','previous'}:
+            raise ValueError('Unexpected preload resource: '+name)
+        original = None if row['original'] is None else bytes.fromhex(row['original'])
+        if (None if original is None else hashlib.sha256(original).hexdigest()) != row['original_hash']:
+            raise ValueError('Preload original integrity mismatch: '+name)
+        for key in ('installed','previous','original_hash'):
+            value=row[key]
+            if value is not None and (not isinstance(value,str) or not re.fullmatch('[a-f0-9]{64}',value)):
+                raise ValueError('Invalid preload resource digest')
+        metadata=row['metadata']
+        if original is not None and (not isinstance(metadata,dict) or set(metadata)!={'mode','uid','gid'}
+                or any(type(value) is not int or value<0 for value in metadata.values()) or metadata['mode'] & ~0o777):
+            raise ValueError('Invalid preload original metadata')
+    return record
+
+
+def legacy_preload_resources(libdir, dropin, defaults_paths=None):
+    libdir,dropin=Path(libdir).absolute(),Path(dropin).absolute()
+    _preload_inventory(libdir,dropin,defaults_paths)
+    resources=sorted(libdir.glob('libwmp_*.so'))
+    resources.append(dropin)
+    if defaults_paths:
+        resources.extend(Path(defaults_paths[key]) for key in ('helper','dropin'))
+    existing=[p for p in resources if p.exists() or p.is_symlink()]
+    for path in existing:
+        if path.is_symlink() or not path.is_file():
+            raise ValueError('Refuse linked legacy preload resource: '+str(path))
+        if path==dropin and b'libwmp_' not in path.read_bytes():
+            raise ValueError('Legacy screen override has no proven WM+ ownership')
+        if defaults_paths and path==Path(defaults_paths['dropin']) and b'factory_defaults.py' not in path.read_bytes():
+            raise ValueError('Legacy defaults override has no proven WM+ ownership')
+    return existing
+
+
+def adopt_legacy_preload(libdir, dropin, defaults_paths=None):
+    """Archive reserved WM+ payloads once and record their factory absence."""
+    import shutil
+    import tempfile
+    libdir,dropin=Path(libdir).absolute(),Path(dropin).absolute()
+    inventory=_preload_inventory_path(libdir)
+    if inventory.exists():
+        return
+    existing=legacy_preload_resources(libdir,dropin,defaults_paths)
+    if not existing:
+        return
+    archive=Path(tempfile.mkdtemp(prefix='preload-legacy-originals-',dir=libdir.parent))
+    record={'version':1,'files':{}}
+    for index,path in enumerate(existing):
+        saved=archive/str(index)
+        shutil.copy2(path,saved);_sync_publication_file(saved)
+        value=digest(saved)
+        if digest(path)!=value:
+            raise ValueError('Legacy preload resource changed during adoption')
+        record['files'][str(path)]={'original':None,'original_hash':None,'metadata':None,
+                                   'installed':value,'previous':value}
+    (archive/'paths.json').write_text(json.dumps([str(p) for p in existing]),encoding='utf-8')
+    _sync_publication_file(archive/'paths.json');_sync_publication_directory(archive)
+    temporary=archive/'inventory'
+    temporary.write_text(json.dumps(record,sort_keys=True)+'\n',encoding='utf-8')
+    _sync_publication_file(temporary)
+    os.replace(temporary,inventory);_sync_publication_directory(inventory.parent)
+
+
+def _record_preload_targets(stage, targets, libdir, dropin, defaults_paths):
+    record = _preload_inventory(libdir,dropin,defaults_paths)
+    # Adopt retired names in the reserved payload namespace too; the current
+    # source list alone cannot describe what an older release installed.
+    for path in libdir.glob('libwmp_*.so'):
+        name=str(path.absolute())
+        if name not in record['files']:
+            if path.is_symlink() or not path.is_file():
+                raise ValueError('Refuse linked retired preload resource')
+            value=digest(path)
+            record['files'][name]={'original':None,'original_hash':None,'metadata':None,
+                                   'installed':value,'previous':value}
+    for target,source in targets:
+        if target.is_symlink() or target.exists() and not target.is_file():
+            raise ValueError('Refuse linked preload resource: '+str(target))
+        before = target.read_bytes() if target.exists() else None
+        old = None if before is None else hashlib.sha256(before).hexdigest()
+        after = digest(source)
+        name = str(target.absolute())
+        row = record['files'].get(name)
+        if row is None:
+            # WM+ libraries and its defaults helper occupy a reserved payload
+            # directory. A previous WM+ deployment is never a factory original.
+            legacy = target.parent==libdir or (defaults_paths and target==Path(defaults_paths['helper']))
+            if target==dropin and before is not None:
+                legacy = b'LD_PRELOAD=' in before and b'libwmp_' in before
+            if defaults_paths and target==Path(defaults_paths['dropin']) and before is not None:
+                legacy = b'ExecStartPre=' in before and b'factory_defaults.py' in before
+            original = None if legacy else before
+            metadata = None
+            if original is not None:
+                info=target.stat()
+                metadata={'mode':info.st_mode & 0o777,'uid':info.st_uid,'gid':info.st_gid}
+            row={'original':None if original is None else original.hex(),
+                 'original_hash':None if original is None else hashlib.sha256(original).hexdigest(),
+                 'metadata':metadata,'installed':after,'previous':old}
+            record['files'][name]=row
+        elif old not in (row['installed'],row['previous'],row['original_hash'],after):
+            raise ValueError('Preload resource changed outside installer: '+name)
+        if row['installed']!=after or old!=after:
+            row['previous']=old
+        row['installed']=after
+    source = stage/'prospective-ownership'
+    source.write_text(json.dumps(record,sort_keys=True,indent=2)+'\n',encoding='utf-8')
+    return (_preload_inventory_path(libdir), source)
+
+
+def restore_preload_factory(libdir, dropin, defaults_paths=None, dry_run=False):
+    """Restore immutable originals once; leave per-update rollback independent."""
+    import tempfile
+    libdir,dropin=Path(libdir).absolute(),Path(dropin).absolute()
+    record=_preload_inventory(libdir,dropin,defaults_paths)
+    if not record['files']:
+        resources=list(libdir.glob('libwmp_*.so'))+[dropin]
+        if defaults_paths:
+            resources.extend(Path(defaults_paths[key]) for key in ('helper','dropin'))
+        if not any(p.exists() or p.is_symlink() for p in resources):
+            return None
+        raise ValueError('No preload ownership inventory; legacy migration is required')
+    changes=[]
+    for name,row in record['files'].items():
+        target=Path(name)
+        if target.is_symlink() or target.exists() and not target.is_file():
+            raise ValueError('Refuse linked preload resource: '+name)
+        current=digest(target) if target.exists() else None
+        if current not in (row['installed'],row['previous'],row['original_hash']):
+            raise ValueError('Preload resource changed before removal: '+name)
+        if current!=row['original_hash']:
+            changes.append((target,row,current))
+    if dry_run:
+        return [str(target) for target,_,_ in changes]
+    if not changes:
+        return None
+    stage=Path(tempfile.mkdtemp(prefix='preload-factory-restore-',dir=libdir.parent))
+    rows=[]
+    for index,(target,record,current) in enumerate(changes):
+        backup=None
+        if record['original'] is not None:
+            backup='previous-'+str(index)
+            saved=stage/backup
+            saved.write_bytes(bytes.fromhex(record['original']))
+            info=record['metadata'];os.chmod(saved,info['mode']);os.chown(saved,info['uid'],info['gid'])
+            _sync_publication_file(saved)
+        rows.append(dict(target=str(target),backup=backup,before=record['original_hash'],
+                         after=current,resolved_target=str(target.resolve())))
+    _save_publication_journal(stage,rows)
+    restore_publication(stage)
+    return str(stage)
+
+
 def publish_stage(stage,libdir,dropin,recovery_env=None,start_backend=False,defaults_paths=None,require_guard=False):
     import shutil
     stage=Path(stage);libdir=Path(libdir);dropin=Path(dropin)
@@ -541,11 +721,11 @@ def publish_stage(stage,libdir,dropin,recovery_env=None,start_backend=False,defa
         if (not isinstance(row,dict) or set(row)!={'file','sha256'} or not re.fullmatch(r'[A-Za-z0-9_.-]+',row['file'])
                 or not re.fullmatch('[0-9a-f]{64}',row['sha256']) or digest(stage/row['file'])!=row['sha256']):
             raise ValueError('staged library bytes changed before publication: '+name)
-    duplicates=[p.name for p in libdir.glob('libwmp_openace*.so') if p.name!='libwmp_openace-compat.so']
-    if duplicates:raise ValueError('ambiguous duplicate compat/screen library: '+', '.join(duplicates))
     libdir.mkdir(parents=True,exist_ok=True);dropin.parent.mkdir(parents=True,exist_ok=True)
     targets=[(libdir/name,stage/row['file']) for name,row in sorted(outputs.items())]
-    libs=sorted({str(p) for p in libdir.glob('libwmp_*.so')}|{str(t) for t,_ in targets})
+    # Only this reviewed generation is loaded. Retired libraries in the payload
+    # directory must not quietly acquire hooks in the next process.
+    libs=sorted(str(t) for t,_ in targets)
     environment = ''
     for key, value in sorted((recovery_env or {}).items()):
         if key not in ('WMP_RECOVERY_JOB_PATH', 'WMP_RECOVERY_JOB_REQUIRED') or not isinstance(value, str) or any(ord(c) < 32 or ord(c) == 127 for c in value):
@@ -580,6 +760,7 @@ def publish_stage(stage,libdir,dropin,recovery_env=None,start_backend=False,defa
     environment += 'Environment="WMP_REQUIRE_HEAD_CONFIG_GUARD=1"\n'
     prospective=stage/'prospective-dropin';prospective.write_text(unit+'[Service]\nEnvironment="LD_PRELOAD=%s"\n'%' '.join(libs) + environment)
     targets.append((dropin,prospective));rows=[]
+    targets.insert(0,_record_preload_targets(stage,targets,libdir,dropin,defaults_paths))
     for index,(target,source) in enumerate(targets):
         if target.is_symlink() or target.exists() and not target.is_file():raise ValueError('refusing non-regular preload destination: '+str(target))
         backup=None

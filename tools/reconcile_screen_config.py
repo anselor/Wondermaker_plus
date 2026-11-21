@@ -16,6 +16,7 @@ import stat
 import tempfile
 
 import preload_bundle as bundle
+import config_factory
 
 FILENAME = 'wmp-screen-runtime.cfg'
 HEADER = '# WM+ managed screen runtime configuration (v1).\n'
@@ -23,6 +24,13 @@ OWNERSHIP = '# WM+ generated option hashes: '
 BLOCK = ('\n# >>> WM+ screen runtime include\n[include ' + FILENAME + ']\n'
          '# <<< WM+ screen runtime include\n')
 SAVE_MARKER = b'#*# <---------------------- SAVE_CONFIG ---------------------->'
+DESTINATIONS = {'printer.cfg', FILENAME, 'wm_material.cfg',
+                'macros.cfg', 'change_macros.cfg', 'offset_calibrate.cfg',
+                'fz-wipe-nozzle.cfg', 'case_light.cfg', 'change_extruder.cfg',
+                'extruder0.cfg', 'extruder1.cfg', 'extruder2.cfg', 'extruder3.cfg',
+                'hub.cfg', 'load_cell.cfg', 'test_macro.cfg', 'fluidd.cfg',
+                'timelapse.cfg', 'zru-s.cfg'}
+DESTINATIONS.update(('crowsnest.conf','moonraker.conf'))
 
 
 class RollbackUnconfirmed(RuntimeError):
@@ -325,11 +333,71 @@ def removal_plan(root, directory, material_only=False):
         if path.exists(): read(path)
     expected = bundle.read_active_config(root/'config/live/printer.cfg',
                                         include_paths=[root/name for name in bundle.CONFIG_BASELINES])
-    candidate, retained = {}, []
+    candidate, retained, legacy_removed = {}, [], set()
+    # Earlier releases modified these files inline. Restore only executable
+    # options matching published evidence, never geometry, MCU IDs or tuning.
+    stock, legacy = config_factory.inputs(root)
+    if not material_only:
+        catalog=json.loads((root/config_factory.CATALOG).read_text(encoding='utf-8'))
+        for name in ('crowsnest.conf','moonraker.conf'):
+            path=directory/name
+            factory=root/'config/stock'/name
+            if path.exists() and factory.exists() and not path.is_symlink():
+                data=path.read_bytes()
+                if hashlib.sha256(data).hexdigest() in catalog.get('files',{}).get(name,[]) and data!=factory.read_bytes():
+                    if read(path).encode('utf-8')!=data:
+                        raise ValueError('Legacy configuration changed while planning: '+name)
+                    candidate[path]=factory.read_bytes()
+    for path, data in reads.items():
+        if path in (managed, material) or path.name not in DESTINATIONS or path.parent != directory or path.suffix!='.cfg':
+            continue
+        factory_file = root/'config/stock'/path.name
+        if factory_file.exists() and data == factory_file.read_bytes():
+            continue
+        local_stock = config_factory.parser('')
+        for section in stock.sections():
+            local_stock.add_section(section)
+            for key, value in stock.items(section):
+                local_stock.set(section, key, value)
+        if factory_file.exists():
+            own = config_factory.parser(factory_file.read_text(encoding='utf-8'))
+            for section in own.sections():
+                if local_stock.has_section(section):
+                    local_stock.remove_section(section)
+                local_stock.add_section(section)
+                for key, value in own.items(section):
+                    local_stock.set(section, key, value)
+        restored = config_factory.restore_behavior(data.decode('utf-8'), local_stock, legacy,
+                                                   material_only=material_only).encode('utf-8')
+        if restored != data:
+            if path.is_symlink():
+                raise ValueError('Refuse linked writable configuration: ' + str(path))
+            candidate[path] = restored
+            original_parser=config_factory.parser(data.decode('utf-8'))
+            original_sections=set(original_parser.sections())
+            remaining_sections=set(config_factory.parser(restored.decode('utf-8')).sections())
+            for section in original_sections-remaining_sections:
+                if not section.startswith(('gcode_macro ','delayed_gcode ')):
+                    continue
+                if original_parser.has_option(section,'rename_existing'):
+                    # Removing a wrapper exposes the builtin command again;
+                    # its private renamed alias is what disappears.
+                    legacy_removed.add('gcode_macro '+original_parser.get(section,'rename_existing').strip())
+                else:
+                    legacy_removed.add(section)
     kept_definitions, removable_definitions = set(), {}
     helpers = {'wm_material', 'wmp_recovery', 'wmp_case_light'}
+    provenance=generated_ownership(reads[managed].decode('utf-8')) if managed in reads else None
+    provenance=provenance or {}
+    factory_variants=json.loads((root/config_factory.CATALOG).read_text(encoding='utf-8')).get('factory_sections',{})
+    def known_body(section,key,value):
+        canonical=bundle.config_contract_value(section,key,value)
+        return ((expected.has_option(section,key)
+                 and canonical==bundle.config_contract_value(section,key,expected.get(section,key)))
+                or option_hash(canonical) in legacy.get(section,{}).get(key,[])
+                or provenance.get(section,{}).get(key)==option_hash(value))
     def transform(path, remove_helpers=False):
-        text = reads[path].decode('utf-8')
+        text = (reads[path] if path == managed else candidate.get(path, reads[path])).decode('utf-8')
         chunks = re.split(r'(?m)(?=^[ \t]*\[[^\]\r\n]+\][ \t]*(?:[#;].*)?$)', text)
         output = []
         for chunk in chunks:
@@ -338,15 +406,12 @@ def removal_plan(root, directory, material_only=False):
             remove = False
             if section in helpers:
                 remove = remove_helpers and (not material_only or section == 'wm_material')
-            elif section and not material_only and path == managed and expected.has_section(section):
-                previous = configparser.RawConfigParser(strict=False)
-                previous.read_string(chunk)
+            elif section and not material_only and path == managed and (expected.has_section(section) or section in legacy or section in provenance):
+                previous = config_factory.parser(chunk)
                 options = dict(previous.items(section))
                 remove = bool(owned_options(section)) and all(
-                    expected.has_option(section, key)
-                    and bundle.config_contract_value(section, key, value)
-                        == bundle.config_contract_value(section, key, expected.get(section, key))
-                    for key, value in options.items())
+                    known_body(section,key,value)
+                    for key, value in options.items() if key in owned_options(section))
                 if remove and section.startswith(('gcode_macro ', 'delayed_gcode ')):
                     removable_definitions[section] = section.split(' ', 1)[1]
                 if section in kept_definitions:
@@ -364,7 +429,7 @@ def removal_plan(root, directory, material_only=False):
         candidate[managed] = transform(managed)
     def proposed(path):
         path = Path(path).absolute()
-        return candidate[path].decode('utf-8') if path in candidate else read(path)
+        return (candidate[path].decode('utf-8') if candidate[path] is not None else '') if path in candidate else read(path)
     active = bundle.read_active_config(main, read_file=proposed)
     dependencies = []
     if removable_definitions:
@@ -395,7 +460,7 @@ def removal_plan(root, directory, material_only=False):
                         needed.add(definition)
                 stock_text = '\n'.join(value for key, value in stock.items(section)
                     if key == 'gcode' or key.endswith('_gcode')) if stock.has_section(section) else None
-                if text == stock_text:
+                if text == stock_text or option_hash(bundle.config_contract_value(section,'gcode',text)) in factory_variants.get(section,{}).get('gcode',[]):
                     continue
                 for line in commands.splitlines():
                     command = line.strip()
@@ -424,22 +489,62 @@ def removal_plan(root, directory, material_only=False):
         for path in (managed, material):
             if path in reads:
                 candidate[path] = transform(path, remove_helpers=True)
+                if path == managed and not material_only:
+                    candidate[path] = candidate[path].replace(b'[include wm_material*.cfg]\n', b'')
     # Keep the include if custom executable sections remain. A comment-only file
     # can stay on disk as evidence but need not remain in the active include tree.
     if managed in candidate:
         parsed = configparser.RawConfigParser(strict=False)
         parsed.read_string(candidate[managed].decode('utf-8'))
         if not parsed.sections():
-            candidate[main] = reads[main].replace(BLOCK.encode(), b'')
+            candidate[main] = candidate.get(main, reads[main]).replace(BLOCK.encode(), b'')
+            candidate[managed] = None
+    # A private material file with only the removed loader is an installed
+    # artifact, not a factory file. Its settings remain in the durable receipt.
+    if not material_only and material in candidate:
+        parsed=configparser.RawConfigParser(strict=False)
+        parsed.read_string(candidate[material].decode('utf-8'))
+        if not parsed.sections():
+            # Only remove a direct include where this transaction can remove
+            # the caller too; otherwise retain the inert file for that caller.
+            callers=[path for path,data in reads.items() if path!=material
+                     and re.search(r'(?m)^\s*\[include wm_material\.cfg\]\s*$',data.decode('utf-8'))]
+            if all(path.parent==directory and path.name in DESTINATIONS for path in callers):
+                for path in callers:
+                    content=candidate.get(path,reads[path])
+                    if content is not None:
+                        candidate[path]=re.sub(rb'(?m)^\s*\[include wm_material\.cfg\][ \t]*\r?\n?',b'',content)
+                candidate[material]=None
     # Helper sections in another user/legacy include also need their modules.
     final_active = bundle.read_active_config(main, read_file=proposed)
     dependencies.extend(section for section in helpers if final_active.has_section(section))
+    # Package commands need not have a WMP_ prefix. Do not silently leave a
+    # retained user macro calling a legacy definition removed from another file.
+    legacy_conflicts=[]
+    final_names={section.casefold() for section in final_active.sections()}
+    final_names.update(('gcode_macro '+final_active.get(section,'rename_existing').strip()).casefold()
+                       for section in final_active.sections() if section.startswith('gcode_macro ')
+                       and final_active.has_option(section,'rename_existing'))
+    for definition in legacy_removed:
+        if definition.casefold() in final_names:
+            continue
+        name=definition.split(' ',1)[1]
+        target=re.escape(name)
+        for section in final_active.sections():
+            text='\n'.join(value for key,value in final_active.items(section) if key=='gcode' or key.endswith('_gcode'))
+            call=re.search(r'^\s*'+target+r'(?:\s|$)',text,re.IGNORECASE|re.MULTILINE)
+            reference=re.search(r'(?:\b(?:MACRO|ID)\s*=\s*|gcode_macro\s+)'+target+r'(?![A-Za-z0-9_])',text,re.IGNORECASE)
+            if call or reference:
+                legacy_conflicts.append(section+' requires removed legacy command '+name)
+    dependencies.extend(legacy_conflicts)
     changes = [{'file': path.name, 'before': reads[path], 'after': data}
                for path, data in candidate.items() if reads[path] != data]
+    changes.sort(key=lambda change:change['after'] is None)
     return {'changes': changes, 'include_matches': matches,
             'read_targets': {str(path.relative_to(directory)): value for path, value in targets.items()},
             'read_hashes': {str(path.relative_to(directory)): hashlib.sha256(value).hexdigest() for path, value in reads.items()},
             'managed_sections': [], 'retained_sections': sorted(set(retained)),
+            'legacy_conflicts': sorted(set(legacy_conflicts)),
             'retained_dependencies': sorted(set(dependencies))}
 
 
@@ -472,6 +577,8 @@ def publish(directory, planned, backup=None):
     concurrent edit. An ambiguous successful rename is handled by byte readback.
     """
     directory = Path(directory).absolute()
+    if planned.get('legacy_conflicts'):
+        raise ValueError('Unresolved legacy command dependencies: '+', '.join(planned['legacy_conflicts']))
 
     def current(path):
         if path.is_symlink() or os.path.commonpath((str(path.resolve()), str(directory.resolve()))) != str(directory.resolve()):
@@ -491,9 +598,13 @@ def publish(directory, planned, backup=None):
         data = path.read_bytes() if path.exists() else None
         if data is None or hashlib.sha256(data).hexdigest() != digest:
             raise ValueError('Configuration changed since review: ' + name)
+    seen=set()
     for change in planned['changes']:
-        if change['file'] not in ('printer.cfg', FILENAME, 'wm_material.cfg'):
+        if change['file'] not in DESTINATIONS:
             raise ValueError('Unexpected configuration destination')
+        if change['file'] in seen:
+            raise ValueError('Duplicate configuration destination')
+        seen.add(change['file'])
         if current(directory/change['file']) != change['before']:
             raise ValueError('Configuration destination changed since review: ' + change['file'])
     if not planned['changes']:
@@ -511,9 +622,10 @@ def publish(directory, planned, backup=None):
             _atomic(backup/(change['file']+'.before'), change['before'])
         # Retain the reviewed candidate too: a restarted process must not need
         # to reconstruct an interrupted transaction from newer source files.
-        _atomic(backup/(change['file']+'.after'), change['after'])
+        if change['after'] is not None:
+            _atomic(backup/(change['file']+'.after'), change['after'])
         journal['files'].append({'file': change['file'], 'before': None if change['before'] is None else hashlib.sha256(change['before']).hexdigest(),
-                                 'after': hashlib.sha256(change['after']).hexdigest()})
+                                 'after': None if change['after'] is None else hashlib.sha256(change['after']).hexdigest()})
     _atomic(backup/'journal.json', json.dumps(journal, indent=2).encode())
     attempted = []
     try:
@@ -522,7 +634,13 @@ def publish(directory, planned, backup=None):
             if current(path) != change['before']:
                 raise ValueError('Configuration destination changed during publication: ' + change['file'])
             attempted.append(change)
-            _atomic(path, change['after'])
+            if change['after'] is None:
+                path.unlink()
+                parent=os.open(directory,os.O_RDONLY)
+                try:os.fsync(parent)
+                finally:os.close(parent)
+            else:
+                _atomic(path, change['after'])
             if current(path) != change['after']:
                 raise ValueError('Configuration publication readback failed: ' + change['file'])
         journal['state'] = 'published'
@@ -575,7 +693,7 @@ def recover_interrupted(directory, backup):
     if journal.get('state') not in ('prepared', 'restoring', 'rollback-unconfirmed'):
         raise ValueError('Configuration transaction is not interrupted')
     entries = journal.get('files')
-    if not isinstance(entries, list) or not entries or len(entries) > 3:
+    if not isinstance(entries, list) or not entries or len(entries) > len(DESTINATIONS):
         raise ValueError('Invalid configuration transaction entries')
     changes = []
     names = set()
@@ -583,13 +701,13 @@ def recover_interrupted(directory, backup):
         if not isinstance(entry, dict) or set(entry) != {'file', 'before', 'after'}:
             raise ValueError('Invalid configuration transaction entry')
         name = entry['file']
-        if name not in ('printer.cfg', FILENAME, 'wm_material.cfg') or name in names:
+        if name not in DESTINATIONS or name in names:
             raise ValueError('Unexpected configuration destination')
         names.add(name)
         change = {'file': name}
         for stage in ('before', 'after'):
             digest = entry[stage]
-            if stage == 'before' and digest is None:
+            if digest is None:
                 change[stage] = None
                 continue
             saved = backup/(name+'.'+stage)
@@ -627,12 +745,12 @@ def restore(directory, planned, backup):
     names = set()
     for change in planned['changes']:
         name = change['file']
-        if name not in ('printer.cfg', FILENAME, 'wm_material.cfg') or name in names:
+        if name not in DESTINATIONS or name in names:
             raise ValueError('Unexpected configuration destination')
         names.add(name)
         expected.append({'file': name,
                          'before': None if change['before'] is None else hashlib.sha256(change['before']).hexdigest(),
-                         'after': hashlib.sha256(change['after']).hexdigest()})
+                         'after': None if change['after'] is None else hashlib.sha256(change['after']).hexdigest()})
         if change['before'] is not None:
             saved = backup/(name+'.before')
             if saved.is_symlink() or saved.read_bytes() != change['before']:
@@ -693,7 +811,7 @@ def remote_script(root, directory, reviewed=None, *, action='publish', backup=No
             or (action == 'recover' and (reviewed is not None or backup is None))):
         raise ValueError('Invalid configuration transaction action')
     sources = {name: (root / 'tools' / (name + '.py')).read_text(encoding='utf-8')
-               for name in ('preload_bundle', 'reconcile_screen_config')}
+               for name in ('preload_bundle', 'config_factory', 'reconcile_screen_config')}
     script = '''import json, pathlib, sys, tempfile, types
 for name, source in %r.items():
     module = types.ModuleType(name)
@@ -732,8 +850,9 @@ except Exception as error:
 ''' % (str(backup) if backup is not None else None)
     baselines = {name: (root / name).read_text(encoding='utf-8') for name in bundle.CONFIG_BASELINES}
     if action in ('remove-plan', 'material-remove-plan'):
+        baselines[config_factory.CATALOG] = (root/config_factory.CATALOG).read_text(encoding='utf-8')
         baselines.update({str(path.relative_to(root)): path.read_text(encoding='utf-8')
-                          for path in (root/'config/stock').glob('*.cfg')})
+                          for path in (root/'config/stock').glob('*') if path.suffix in ('.cfg','.conf')})
     return script + '''with tempfile.TemporaryDirectory(prefix='wmp-config-plan-') as temporary:
     root = pathlib.Path(temporary)
     for name, text in %r.items():
@@ -744,7 +863,10 @@ except Exception as error:
 texts = {name: (directory / name).read_text(encoding='utf-8') for name in planned['read_hashes']
          if name not in planned.get('provenance_files', [])}
 for change in planned['changes']:
-    texts[change['file']] = change['after'].decode('utf-8')
+    if change['after'] is None:
+        texts.pop(change['file'],None)
+    else:
+        texts[change['file']] = change['after'].decode('utf-8')
     for key in ('before', 'after'):
         if change[key] is not None:
             change[key] = change[key].hex()

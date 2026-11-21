@@ -44,12 +44,14 @@ def test_concurrent_edit_refuses_before_any_restore(published,index):
 @pytest.mark.parametrize('kind',['backup','destination-link','backup-link','legacy-journal'])
 def test_untrusted_restore_inputs_preserve_published_files(published,tmp_path,kind):
     stage,old,new,drop=published
+    row=next(row for row in json.loads((stage/'publication.json').read_text()) if row['target']==str(old))
+    saved=stage/row['backup']
     if kind=='backup':
-        (stage/'previous-0').write_bytes(b'damaged')
+        saved.write_bytes(b'damaged')
     elif kind=='legacy-journal':
         (stage/'publication.json').write_text(json.dumps([{'target':str(old),'backup':'previous-0'}]))
     else:
-        path=old if kind=='destination-link' else stage/'previous-0'
+        path=old if kind=='destination-link' else saved
         other=tmp_path/'outside'; other.write_bytes(path.read_bytes()); path.unlink(); path.symlink_to(other)
     before={p:p.read_bytes() for p in (old,new,drop)}
     with pytest.raises(ValueError):

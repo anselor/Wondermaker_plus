@@ -1,0 +1,137 @@
+{
+  "version": 1,
+  "firmware": "WonderMaker 1.1.13",
+  "normalization": "CRLF to LF",
+  "files": {
+    "toolhead.py": "542c2605708daad855e6f55c00d84828ae8ffccd2faeaceb9c1325c44c4d09be",
+    "gcode.py": "b39873ee5788cf34d0d1d62052fa4630ce5b8407e4887f959ff41d1e8b533284",
+    "stepper.py": "9f9932a3188fc8da9926ddc79759924ea02f55230f389d2317fe83e5031fcb2e",
+    "mcu.py": "7ab6d56dd93037462297c520de7920bc3615b5ea2ed9a6ca31ac04a8a955d537",
+    "kinematics/cartesian.py": "45c76b783c26004fbb1f5e7bc0b91fe69768f59b50462611fbf659b56fa30a45",
+    "kinematics/corexy.py": "778bf1e9b31f9682ad1340ea3d6896795697dc32f094f6db2276dc2029afdeb5",
+    "kinematics/extruder.py": "11cde4e286482b942e5f3af111e79e262a560c432f653d7a1d94e4e93fa0ae42",
+    "extras/__init__.py": "eae347ebaaf733905470e1b9cd4f40cdcf770f7d8e25d7db92b1b1945e26b8e3",
+    "extras/gcode_move.py": "c65edf115d2170182959fa3f06fb554e6d05fba7875409fd9fec7f52d20873ff",
+    "extras/homing.py": "5595b30d8359fd6ef5fe59bf8c225f640e65046eee5ab593569c51b5ad85553d",
+    "extras/force_move.py": "92f0acb76600414396bf0d15e26a73e239a8cd8ddc3fc015917b00efe574d4ee",
+    "extras/input_shaper.py": "e77bb456152765245368767c31c315c1b709e39d94f679473edef6e83f84be25",
+    "mathutil.py": "1f25d3e6e2940999418f488ff3c8655358a826aef276cc5f461ee40602dc56c2",
+    "chelper/__init__.py": "9278b8d783e657c20691663259bf8f4550eb20e531636d6f04d783b2f9cac7f4",
+    "chelper/kin_shaper.c": "c13515af5b5bcc6d63180cc729e21788c551058d1d0842fe0b6b1031523ca595",
+    "chelper/kin_extruder.c": "4a352a7a287b782a47d813e94b85e33bfd662cdd8877f8507e2f60d847cd9538",
+    "chelper/itersolve.c": "473e01a2ea248681bde7e7dcedbc9b0415bb2308c5cc16335b92140693762aba",
+    "chelper/trapq.c": "156e73502d2ce86a384d145e78946df215b542efb32274b9940d3625faca8f2f",
+    "chelper/stepcompress.c": "85567d18fca65ab96134b5631b79840099d64536b8fd2c91bd4a08ff099175b7",
+    "chelper/serialqueue.c": "8a5e6164058450b2fb43f6e98068f8ef1127222d849332ba82386adeb856f781",
+    "extras/resonance_tester.py": "46f5560f409acdf4e71e8c38729f1521ae138d22e375f40601d821195f48f1c1",
+    "extras/shaper_calibrate.py": "30f8d96d0654c77c8783b32ef2bdb89adddddd760ec4fef0ba270a72972d9353",
+    "extras/shaper_defs.py": "59f04ab16a4fb28bd35851e42cb2e408b349df1e7142fafde3bd10da85092e8c"
+  },
+  "stock_client_sha256": "b60c96c5caf980a127a3d284e5ac98e799dfd79691cb1a52aafd06fd818c4715",
+  "source": "Retained WonderMaker 1.1.13 firmware payload; motion source and stock client only",
+  "behavior": {
+    "homing_override": {
+      "gcode": [
+        "19e4728f251f31f4c0aa5276fe051e88ccf536925124e4237c2055d04ae232e4"
+      ],
+      "axes": [
+        "3608bca1e44ea6c4d268eb6db02260269892c0b42b86bbf1e77a6fa16c3c9282"
+      ]
+    },
+    "gcode_macro START_PRINT": {
+      "gcode": [
+        "19a87325b98dada19795668e3949c19e748e940e9fcba8dfbdc0fa2c9abd5890"
+      ]
+    },
+    "gcode_macro PRINT_END": {
+      "gcode": [
+        "eabf1f11c6e0f1c9885d9f2f34ec11ec083b864178b7e76ce9cd4485f6fb5fc7"
+      ]
+    },
+    "gcode_macro CANCEL_PRINT": {
+      "gcode": [
+        "1dab97ccd002583cdcaa458ba5c62c8e57446df502249ca21657d890397e4770",
+        "d1744624fc7ecb6688361fb3376f2d371511f0e5840aadb2e5ccdacb96823f83"
+      ],
+      "rename_existing": [
+        "9d0b3513ad040946ddbeeb3a561a30bd794813f5215bb370679e4e9bba88eb0e",
+        "b2b5df3811be5aa1d7b894447fd72dbacf6af3e604d2117860e78aa64916b5d7"
+      ]
+    },
+    "gcode_macro PAUSE": {
+      "gcode": [
+        "7c9a043c2c20b3cc14e6030977af89ad6c25bc6b3ecd18ec0e29202a2f071d89",
+        "caa4f50bbd391c0442ab9040ba34c11664c4263d93d9a982403a9c18a44fbba8"
+      ],
+      "rename_existing": [
+        "39a0bcfdef8237ed5891e17c7963ee5d59b38bca89667ae4e1ea429a019f9fea",
+        "d6d219dc6409de8db2005d9f7700b23ed8b666116e04d7da07fad80e6d1d1ad0"
+      ]
+    },
+    "gcode_macro RESUME": {
+      "gcode": [
+        "39dd6471df2409318b3c0bfcf30820641cb57976b110a8977a059c557b6bc9f2",
+        "a7d5494ea91bcc879f9a5f1927e1d71b06164532ce09394284e8f18c47c6f59c"
+      ],
+      "rename_existing": [
+        "75c2d293875c2c3e995e905b004c23f009969b838be59cf1292981347de01dad",
+        "f26fdf499adf9a7fb1af6cba521f83c81906c83abaf7c2c67ab8022068b5be20"
+      ]
+    },
+    "gcode_macro Z_HOMING": {
+      "gcode": [
+        "b2bfacb0d0a245c91988215ec5303d70a1370ffe7e1fe678a98c757dfd452bae"
+      ]
+    },
+    "gcode_macro _CHANGE_TOOL": {
+      "gcode": [
+        "cf5ddb5967165753bca3f8d7f1d0630dfc433350e931ec8978c56c12ebe4e8f3"
+      ]
+    },
+    "gcode_macro _LOCK_TOOL": {
+      "gcode": [
+        "821e7191d993aa859e91b3ae6ab85972f2c9f6b52a9c44d6e553bfc4c3e881f0"
+      ]
+    },
+    "gcode_macro _UNLOCK_TOOL": {
+      "gcode": [
+        "51888a70159e636a82a42444d9f59b36f0c90434baf50720b30b43014a188382"
+      ]
+    },
+    "gcode_macro WIPE_NOZZLE": {
+      "gcode": [
+        "3af20d91ca4b286282a0f70275280bdd3f403b8037ca93a52fa72dcc9172c513"
+      ]
+    },
+    "gcode_macro LOCK": {
+      "gcode": [
+        "86e099d6ab9d658e87811724519059573df7760e6679e362f4c43b90b70d09ed"
+      ]
+    },
+    "gcode_macro UNLOCK": {
+      "gcode": [
+        "94a8bbe6fabf94cc810fa8b90a331c853ecf680b2164cfbeff9615df964a14f4"
+      ]
+    },
+    "gcode_macro T0": {
+      "gcode": [
+        "438d149a7b84b62f410869a54993a22bb2128ddc3a6a69b99075573426bb19c6"
+      ]
+    },
+    "gcode_macro T1": {
+      "gcode": [
+        "939dcaa68be2e5e1b16ffd08c206d64a2415ce92ecf317b53d3d78ca0b21040b"
+      ]
+    },
+    "gcode_macro T2": {
+      "gcode": [
+        "f0047962846ce7dc138fa33b9cd53744fd34b1e1e6bfb6958ed60dc068669bd2"
+      ]
+    },
+    "gcode_macro T3": {
+      "gcode": [
+        "0242e4840b97367b7db50cd3f80dab8b8507bfbb18867621f3ab5469bee19f7b"
+      ]
+    }
+  }
+}

@@ -46,7 +46,10 @@ def printer(tmp_path):
 def apply_plan(directory, planned):
     # Test publication only, on disposable files. Production planner never writes.
     for change in planned['changes']:
-        (directory / change['file']).write_bytes(change['after'])
+        if change['after'] is None:
+            (directory / change['file']).unlink()
+        else:
+            (directory / change['file']).write_bytes(change['after'])
 
 
 @pytest.fixture
@@ -505,7 +508,7 @@ def test_unified_installer_rejects_bulk_update_options(monkeypatch, config_only,
     import preflight
     monkeypatch.setattr(bundle, 'bundle_relative', lambda root: bundle.CURRENT_BUNDLE)
     ctx = SimpleNamespace(config_only=config_only, files=files, DeployError=deploy.DeployError)
-    with pytest.raises(deploy.DeployError, match='preserves configuration through SSH'):
+    with pytest.raises(deploy.DeployError, match='updates managed behavior through SSH'):
         preflight.config_plan(ctx)
 
 
@@ -718,7 +721,7 @@ def test_config_install_and_rollback_with_real_helper_publication(printer, tmp_p
         return
     receipt = config.install(ctx)
     assert {Path(row[0]).name for row in receipt['helpers']} == set(MATERIAL_HELPERS) | {
-        'wmp_identification.py', 'wmp_recovery.py', 'wmp_case_light.py'}
+        'wmp_identification.py', 'wmp_recovery.py', 'wmp_case_light.py', '.wmp-helper-ownership.json'}
     assert (directory/reconcile.FILENAME).is_file()
     for name in MATERIAL_HELPERS + ('wmp_identification.py', 'wmp_recovery.py', 'wmp_case_light.py'):
         assert sftp.path(extra).with_name(name).read_bytes() == (ROOT/'klipper_extras'/name).read_bytes()
@@ -845,7 +848,7 @@ def test_standalone_plan_preserves_disabled_manager(printer, owner):
 def test_exported_plan_roundtrips_utf8_on_ascii_host(printer, tmp_path, monkeypatch):
     # Simulate a Windows/non-UTF8 host when exporting both Python and config.
     exported = tmp_path / 'exported'
-    for name in ('tools/preload_bundle.py', 'tools/reconcile_screen_config.py', *bundle.CONFIG_BASELINES):
+    for name in ('tools/preload_bundle.py', 'tools/config_factory.py', 'tools/reconcile_screen_config.py', *bundle.CONFIG_BASELINES):
         target = exported / name
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes((ROOT / name).read_bytes() + '\n# café 日本\n'.encode('utf-8'))
@@ -928,7 +931,7 @@ def test_removal_remote_plan_roundtrips_utf8(printer):
 
 
 @pytest.mark.parametrize('component', ['config', 'material'])
-def test_uninstall_entrypoint_disables_config_before_deleting_helpers(printer, monkeypatch, component):
+def test_uninstall_entrypoint_disables_config_before_deleting_helpers(printer, tmp_path, monkeypatch, component):
     from components import config, material
     import preflight
     apply_plan(printer, reconcile.plan(ROOT, printer))
@@ -944,15 +947,17 @@ def test_uninstall_entrypoint_disables_config_before_deleting_helpers(printer, m
                                 capture_output=True, check=True)
         return result.stdout
     monkeypatch.setattr(preflight, 'remote', remote)
-    class SFTP:
-        def open(self, path, mode):
-            import io
-            return io.BytesIO(b'installed helper')
-        def remove(self, path):
-            active = bundle.read_active_config(printer/'printer.cfg')
-            assert not set(active.sections()) & {'wm_material','wmp_recovery','wmp_case_light'}
-            calls.append(path)
-    ctx = SimpleNamespace(user='printer', sftp=lambda: SFTP(), DeployError=RuntimeError)
+    from test_material_install import setup
+    ctx,sftp,_,_=setup(tmp_path/'helpers',existing=False)
+    material.install(ctx,include_recovery=component=='config',install_config=False,owner=component)
+    remove=sftp.remove
+    def checked_remove(path):
+        active = bundle.read_active_config(printer/'printer.cfg')
+        assert not set(active.sections()) & {'wm_material','wmp_recovery','wmp_case_light'}
+        calls.append(path)
+        remove(path)
+    monkeypatch.setattr(sftp,'remove',checked_remove)
+    ctx.DeployError=RuntimeError
     (config if component == 'config' else material).uninstall(ctx)
     assert calls
     assert all(path.endswith('.py') for path in calls)
@@ -970,7 +975,8 @@ def test_material_uninstall_retains_helpers_for_remaining_user_macro(printer, mo
     monkeypatch.setattr(preflight, 'remote', lambda ctx, script, **kw:
         subprocess.run([sys.executable,'-'], input=script, text=True, capture_output=True, check=True).stdout)
     ctx = SimpleNamespace(user='printer', sftp=lambda: pytest.fail('must retain referenced helpers'), DeployError=RuntimeError)
-    material.uninstall(ctx)
+    with pytest.raises(RuntimeError,match='Uninstall incomplete'):
+        material.uninstall(ctx)
     assert bundle.read_active_config(printer/'printer.cfg').has_section('wm_material')
 
 

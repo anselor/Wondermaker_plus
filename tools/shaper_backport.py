@@ -383,13 +383,38 @@ def cmd_status(printer, args):
     return 0 if overall in ('installed', 'stock') else 1
 
 
-def restore(printer, manifest):
+def validate_stock_manifest(manifest):
+    if (not isinstance(manifest,dict) or set(manifest)!={'files','klipper_base'}
+            or manifest['klipper_base']!='v0.12.0-276-gca815f52c'
+            or not isinstance(manifest['files'],dict) or set(manifest['files'])!=set(FILES)):
+        raise BackportError('Stock manifest does not match the supported vendor baseline')
+    for rel,entry in manifest['files'].items():
+        if (not isinstance(entry,dict) or set(entry)!={'backup','sha256'}
+                or not isinstance(entry['sha256'],str) or len(entry['sha256'])!=64
+                or any(c not in '0123456789abcdef' for c in entry['sha256'])
+                or entry['backup']!=rel.replace('/','__')+'.'+entry['sha256'][:12]):
+            raise BackportError('Invalid stock provenance for '+rel)
+    return manifest
+
+
+def stock_originals(printer, manifest):
+    validate_stock_manifest(manifest)
+    originals={}
     for rel, entry in sorted(manifest['files'].items()):
         data = printer.read(printer.state(entry['backup']))
-        if data is None or sha256(data) != entry['sha256']:
+        if (data is None or sha256(data) != entry['sha256']
+                or sha256(normalize(data))!=STOCK_SHA256[rel]):
             raise BackportError('Stock copy of %s is missing or altered; '
                                 'restore it from the vendor firmware package.'
                                 % rel)
+        originals[rel]=data
+    return originals
+
+
+def restore(printer, manifest):
+    originals=stock_originals(printer,manifest)
+    # Validate the complete factory set before replacing its first file.
+    for rel,data in originals.items():
         printer.write(printer.klippy(rel), data)
     # Force a rebuild: the restored source is older than the compiled helper.
     rc, out, err = printer.run('touch ' + printer.klippy(C_SOURCE))
@@ -422,6 +447,8 @@ def check(printer):
 def record_stock(printer, current, states):
     """Keep the stock files on the printer. Returns the manifest."""
     old = printer.read(printer.state('manifest.json'))
+    if old:
+        stock_originals(printer,json.loads(old.decode()))
     manifest = json.loads(old.decode()) if old else {'files': {}}
     printer.run('mkdir -p ' + printer.state())
     for rel in FILES:

@@ -4,6 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from test_deploy import deploy  # Tools module path, also when run alone.
 
 spec = importlib.util.spec_from_file_location(
     'material_install', Path(__file__).resolve().parents[1] / 'tools/components/material.py')
@@ -28,6 +29,19 @@ class SFTP:
 
     def remove(self, path):
         self.path(path).unlink()
+
+    def stat(self,path):
+        return self.path(path).stat()
+
+    def lstat(self,path):
+        return self.path(path).lstat()
+
+    def chmod(self,path,mode):
+        self.path(path).chmod(mode)
+
+    def chown(self,path,uid,gid):
+        import os
+        os.chown(self.path(path),uid,gid)
 
     def posix_rename(self, source, destination):
         if '.wmp-upload-' in source:
@@ -64,7 +78,7 @@ def test_upgrade_preserves_custom_settings_and_filament_data(tmp_path):
     assert snapshot(sftp.path(cfg).parent) == before
     for name in material.HELPERS:
         assert sftp.path(extra).with_name(name).read_bytes() == (Path(material.SRC) / name).read_bytes()
-        assert list(sftp.path(extra).parent.glob(name + '.wmp-backup-*'))
+        assert not list(sftp.path(extra).parent.glob(name + '.wmp-backup-*'))
     first = snapshot(tmp_path)
     material.install(ctx)
     assert snapshot(tmp_path) == first
@@ -136,7 +150,7 @@ def test_helper_receipt_supports_config_failure_rollback(tmp_path):
     recovery.write_bytes(b'previous recovery')
     before = snapshot(tmp_path)
     changes = material.install(ctx, include_recovery=True, install_config=False)
-    assert len(changes) == len(material.HELPERS) + 3
+    assert len(changes) == len(material.HELPERS) + 4  # Includes durable ownership.
     material.rollback(ctx, changes)
     assert snapshot(tmp_path) == before
 
@@ -154,7 +168,7 @@ def test_rollback_refuses_concurrent_edit_before_restoring_any_helpers(tmp_path)
 
 @pytest.mark.parametrize('existing',[False,True])
 @pytest.mark.parametrize('after_rename',[False,True])
-@pytest.mark.parametrize('publication_index',range(1, len(material.HELPERS) + 1))
+@pytest.mark.parametrize('publication_index',range(1, len(material.HELPERS) + 2))
 def test_process_loss_uses_prepublication_journal(tmp_path,monkeypatch,existing,after_rename,publication_index):
     from test_deploy import deploy
     from install_journal import Journal
@@ -176,7 +190,7 @@ def test_process_loss_uses_prepublication_journal(tmp_path,monkeypatch,existing,
     with pytest.raises(SystemExit):material.install(ctx)
     saved=Journal(journal.path).load('printer','printer')
     assert saved.value['inflight']=='material'
-    assert len(saved.recovery_receipts()[0][1])==(len(material.HELPERS) + (not existing))
+    assert len(saved.recovery_receipts()[0][1])==(len(material.HELPERS) + (not existing) + 1)
     monkeypatch.setattr(sftp,'posix_rename',rename)
     monkeypatch.setattr(deploy.REGISTRY['material'],'rollback',material.rollback)
     deploy.recover_installation(ctx,journal.path)
@@ -201,7 +215,11 @@ def test_undo_checkpoint_failure_prevents_helper_publication(tmp_path,monkeypatc
 def test_corrupt_backup_blocks_entire_helper_restore(tmp_path):
     ctx,sftp,_,_=setup(tmp_path)
     changes=material.install(ctx)
-    sftp.path(changes[0][2]).write_bytes(b'corrupted backup')
+    changed = next(change for change in changes if change[3] is not None)
+    # Receipts from older releases still support and validate disk backups.
+    backup=changed[0]+'.wmp-backup-legacy'
+    sftp.path(backup).write_bytes(b'corrupted backup')
+    changes[changes.index(changed)]=(changed[0],changed[1],backup,changed[3],changed[4])
     before=snapshot(tmp_path)
     with pytest.raises(RuntimeError,match='Backup mismatch'):
         material.rollback(ctx,changes)
@@ -314,7 +332,7 @@ def test_remote_paths_do_not_use_host_path_separator(tmp_path, monkeypatch):
     monkeypatch.setattr(material, '__package__', 'components')
     monkeypatch.setattr(config, 'remove_configuration', lambda ctx, **kw: {'retained_dependencies': []})
     material.uninstall(ctx)
-    assert not sftp.path(extra).exists()
+    assert sftp.path(extra).read_text() == 'previous wm_material.py'
 
 
 @pytest.mark.parametrize('package_import', [False, True])

@@ -6,6 +6,11 @@ do that, for example after a lost connection.
 
 Run recovery only while the printer is idle.
 
+Recovery rolls back one installation; it is not a factory uninstall. Released r4 at `8519032` can retain legacy WM+ macros and dependencies. The
+revised branch uses the [installation lifecycle](installation-lifecycle.md). See the
+[installation lifecycle audit](installation-lifecycle-audit.md) for confirmed gaps
+and the proposed factory-restoration contract.
+
 ## Restore from the installer journal
 
 Each installation writes a journal under `.wmp-install-journals/` in the

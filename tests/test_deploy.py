@@ -104,6 +104,7 @@ def test_install_order_restart_and_push_failure(monkeypatch, config_only):
 
 
 def test_http_update_refused_during_print(monkeypatch):
+    historical_package(monkeypatch)
     monkeypatch.setattr(sys, 'argv', ['deploy.py', 'install', 'config', '--config-only'])
     monkeypatch.setattr(deploy.Context, 'printing_now', lambda self: True)
     monkeypatch.setattr(config, '_sync', lambda *args: pytest.fail('uploaded during print'))
@@ -133,7 +134,8 @@ def components_for_test(monkeypatch, events, fail_preflight=None, fail_install=N
             events.append(('install', name))
             if name == fail_install:
                 raise deploy.DeployError('upload failed')
-        return SimpleNamespace(NAME=name, preflight=preflight, install=install, RESTART_AFTER=None)
+        return SimpleNamespace(NAME=name, preflight=preflight, install=install, RESTART_AFTER=None,
+                               verify_guard=lambda ctx: None)
     names = ['config', 'touchscreen', 'moonraker', 'preload']
     monkeypatch.setattr(deploy, 'ORDER', names)
     monkeypatch.setattr(deploy, 'REGISTRY', {n: component(n) for n in names})
@@ -447,8 +449,8 @@ def test_preload_install_adds_moonraker_dependency_before_activation(monkeypatch
     components_for_test(monkeypatch, events)
     monkeypatch.setattr(sys, 'argv', ['deploy.py', 'install', 'preload'])
     assert deploy.main() == 0
-    assert events == [('check', 'moonraker'), ('check', 'preload'),
-                      ('install', 'moonraker'), ('install', 'preload')]
+    assert events == [('check', 'config'), ('check', 'moonraker'), ('check', 'preload'),
+                      ('install', 'config'), ('install', 'moonraker'), ('install', 'preload')]
 
 
 def test_recover_all_reaches_receipt_recovery_without_http_precheck(tmp_path, monkeypatch):
@@ -631,7 +633,7 @@ def test_uninstall_orders_consumers_before_configuration_and_helpers(monkeypatch
     monkeypatch.setattr(deploy.Context, 'printing_now', lambda ctx: False)
     monkeypatch.setattr(sys, 'argv', ['deploy.py', 'uninstall', 'all'])
     assert deploy.main() == 0
-    assert events == ['touchscreen', 'shaper', 'preload', 'config', 'material', 'moonraker']
+    assert events == ['touchscreen', 'shaper', 'config', 'material', 'preload', 'moonraker']
 
 
 def test_uninstall_failure_retains_later_dependencies(monkeypatch):

@@ -12,13 +12,13 @@ Examples (run on your computer):
     uv run python tools/deploy.py status config --diff
     uv run --with paramiko --with jinja2 python tools/deploy.py install all --preflight-only
     uv run --with paramiko --with jinja2 python tools/deploy.py install config preload
-    uv run --with jinja2 python tools/deploy.py install config --config-only
     uv run --with paramiko python tools/deploy.py uninstall touchscreen
 
 Set WMP_PRINTER, WMP_USER, and WMP_PASS in .env or your environment.
 Full installation uses SSH; touchscreen, preload and shaper also need sudo.
-Config-only updates use HTTP and require the matching recovery/light helpers
-to be installed already. Config/material validation requires jinja2 locally.
+The current unified package uses SSH and component-scoped config updates.
+Legacy packages alone support HTTP --config-only and file-scoped --files.
+Config/material validation requires jinja2 locally.
 See config/README.md.
 
 Installation checks all selected components first. A running or paused
@@ -406,14 +406,14 @@ def main():
     ap.add_argument("components", nargs="*",
                     help="components to act on, or all; status defaults to all")
     ap.add_argument("--no-restart", action="store_true", help="defer only the final Klipper restart; preload and moonraker component service restarts still run")
-    ap.add_argument("--files", nargs="*", default=[], help="install config: upload only the named configuration files")
+    ap.add_argument("--files", nargs="*", default=[], help="legacy packages only: upload named configuration files; unified r4 uses 'install config'")
     ap.add_argument("--config-only", action="store_true",
-                    help="install config via Moonraker HTTP only; requires the matching "
+                    help="legacy packages only: install config via Moonraker HTTP; requires matching "
                          "recovery/light helpers to be installed already")
     ap.add_argument("--diff", action="store_true",
                     help="status config: show changed lines as well as filenames")
     ap.add_argument("--preflight-only", action="store_true",
-                    help="check installation requirements without installing or restarting services")
+                    help="check install/uninstall requirements without changing files or restarting services")
     ap.add_argument('--qualify-unreleased-screen', action='store_true',
                     help='development qualification only: allow the source-bound current packaging-control-only screen on its exact client; does not promote a release')
     args = ap.parse_args()
@@ -438,17 +438,21 @@ def main():
             ap.error('Recovery cannot be combined with installation or diff options')
     elif args.journal and args.action != 'rebind-journal':
         ap.error('--journal is only valid with recovery')
-    if args.preflight_only and args.action != "install":
-        ap.error("--preflight-only is only valid with install")
+    if args.preflight_only and args.action not in ("install","uninstall"):
+        ap.error("--preflight-only is only valid with install/uninstall")
     if args.config_only and (args.action != "install" or args.components != ["config"]):
         ap.error("--config-only is only valid with 'install config'")
+    if args.action=='install' and (args.config_only or args.files):
+        import preload_bundle
+        if preload_bundle.bundle_relative(Path(__file__).resolve().parents[1])==preload_bundle.CURRENT_BUNDLE:
+            ap.error("Unified r4 uses SSH and component updates. Use 'install config' without --files/--config-only; tuning is preserved.")
 
     if args.action == "list":
         for n in ORDER:
             m = REGISTRY[n]
             need = "SSH + sudo" if m.NEEDS_SUDO else ("SSH" if m.NEEDS_SSH else "Moonraker HTTP (stock printer)")
             if n == "config":
-                need = "SSH; --config-only: HTTP"
+                need = "SSH (unified); legacy --config-only: HTTP"
             print("%-12s %-30s %s" % (n, need, m.DESCRIPTION))
         return 0
     if args.action in ("install", "uninstall") and not args.components:
@@ -459,16 +463,24 @@ def main():
     comps = resolve(args.components)
     if args.action == 'uninstall':
         # Remove screen consumers first, then configuration before its helpers.
-        removal_order = ('touchscreen', 'shaper', 'preload', 'config', 'material', 'moonraker')
+        removal_order = ('touchscreen', 'shaper', 'config', 'material', 'preload', 'moonraker')
         comps.sort(key=lambda component: removal_order.index(component.NAME))
     if ctx.qualify_unreleased_screen:
         print('Development qualification: unreleased screen, exact client and source checks required; service restart remains mandatory.')
     ctx.moonraker_implicit = 'moonraker' not in args.components
-    if args.action == 'install' and any(c.NAME == 'preload' for c in comps):
-        if not any(c.NAME == 'moonraker' for c in comps):
+    if args.action == 'install':
+        import preload_bundle
+        unified=preload_bundle.bundle_relative(Path(__file__).resolve().parents[1]) == preload_bundle.CURRENT_BUNDLE
+        if unified and any(c.NAME in ('config','material','preload') for c in comps):
+            for name in ('config', 'material', 'preload'):
+                if name in REGISTRY and not any(c.NAME == name for c in comps):
+                    comps.append(REGISTRY[name])
+                    print('Including required unified screen dependency: ' + name)
+        if any(c.NAME=='preload' for c in comps) and not any(c.NAME == 'moonraker' for c in comps):
             comps.append(REGISTRY['moonraker'])
-            comps.sort(key=lambda c: ORDER.index(c.NAME))
+        comps.sort(key=lambda c: ORDER.index(c.NAME))
     ctx.installing_components = {component.NAME for component in comps} if args.action == 'install' else set()
+    ctx.removing_components = {component.NAME for component in comps} if args.action == 'uninstall' else set()
     rc = 0
     try:
         try:
@@ -517,11 +529,23 @@ def main():
             except Exception as error:
                 print('Cannot save installation recovery journal: '+str(error), file=sys.stderr)
                 return 1
+        if args.action=='uninstall':
+            for component in comps:
+                check=getattr(component,'preflight_uninstall',None)
+                if check is not None:
+                    try:
+                        check(ctx)
+                    except Exception as error:
+                        print('Removal checks failed before any component was removed: '+str(error),file=sys.stderr)
+                        return 1
+            if args.preflight_only:
+                print('Removal checks passed; no components removed or services restarted.')
+                return 0
         need_restart = False
         for m in comps:
             print("=== %s: %s" % (m.NAME, args.action))
             try:
-                if args.action == "install" and ctx.printing_now():
+                if args.action in ("install","uninstall") and ctx.printing_now():
                     raise DeployError("A print started or paused after the checks. Finish or cancel it before retrying installation. "
                                       + getattr(ctx, "print_admission_reason", "print_stats.state is printing or paused"))
                 journal = ctx.rollback_backend.journal
@@ -547,11 +571,21 @@ def main():
                     print('Installation stopped. Check component status before printing; non-backend changes may remain.', file=sys.stderr)
                     return rc
             except Exception as exc:
+                if args.action=='uninstall':
+                    print('!! '+m.NAME+': '+str(exc),file=sys.stderr)
+                    print('Removal stopped with an unconfirmed outcome; later dependencies were retained.',file=sys.stderr)
+                    return 1
                 if args.action != 'install':
                     raise
                 print('!! %s: %s' % (m.NAME, exc), file=sys.stderr)
                 recover_backend(ctx)
                 print('Installation stopped. Check component status before printing; non-backend changes may remain.', file=sys.stderr)
+                return 1
+        if args.action=='uninstall' and getattr(ctx,'restored_config_services',None):
+            try:
+                REGISTRY['config'].activate_restored_services(ctx)
+            except Exception as error:
+                print('Restored service activation failed: '+str(error),file=sys.stderr)
                 return 1
         if need_restart and not ctx.no_restart:
             if 'preload' in ctx.installing_components:

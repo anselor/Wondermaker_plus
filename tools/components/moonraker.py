@@ -224,6 +224,20 @@ print(json.dumps({'source':result}))
 """ % (entry['before'] == 'original', entry['before'] == 'previous'), sudo=True, patch=entry['patch'])
 
 
+def preflight_uninstall(ctx):
+    for patch in PATCHES:
+        _remote(ctx,"""
+if (state/'receipt.json').exists():
+    tx.load_record(target,state)
+    if tx.source_state(target,state)=='changed':
+        raise ValueError('Managed Moonraker source changed outside installer')
+    operation=lifecycle.read_operation(state)
+    if operation and operation['phase'] not in ('complete','recovered'):
+        raise ValueError('Interrupted Moonraker service operation requires recovery')
+print(json.dumps({'state':'checked'}))
+""",sudo=True,patch=patch)
+
+
 def uninstall(ctx):
     entries = []
     for patch in PATCHES:

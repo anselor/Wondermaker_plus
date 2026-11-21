@@ -525,3 +525,31 @@ def test_staging_unavailable_http_requires_positive_stopped_service(printer, mon
         with pytest.raises(tool.BackportError,match='not confirmed stopped'):tool.prepare(printer)
         assert printer.builds==0
     assert klippy_files(printer)==before and printer.restarts==0
+
+
+def test_uninstall_rejects_foreign_manifest_destination_before_any_write(printer):
+    tool.cmd_install(printer,ARGS)
+    path=printer.state('manifest.json')
+    import json
+    manifest=json.loads(printer.read(path))
+    manifest['files']['../../outside.py']=manifest['files'].pop(tool.FILES[-1])
+    printer.write(path,json.dumps(manifest).encode())
+    before=klippy_files(printer)
+    with pytest.raises(tool.BackportError,match='supported vendor baseline'):
+        tool.cmd_uninstall(printer,ARGS)
+    assert klippy_files(printer)==before
+
+
+def test_self_consistent_nonfactory_backup_cannot_be_restored(printer):
+    import json
+    tool.cmd_install(printer,ARGS)
+    path=printer.state('manifest.json');manifest=json.loads(printer.read(path))
+    rel=tool.FILES[-1];data=b'nonfactory python code\n';digest=hashlib.sha256(data).hexdigest()
+    backup=rel.replace('/','__')+'.'+digest[:12]
+    printer.write(printer.state(backup),data)
+    manifest['files'][rel]={'backup':backup,'sha256':digest}
+    printer.write(path,json.dumps(manifest).encode())
+    before=klippy_files(printer)
+    with pytest.raises(tool.BackportError,match='missing or altered'):
+        tool.cmd_uninstall(printer,ARGS)
+    assert klippy_files(printer)==before

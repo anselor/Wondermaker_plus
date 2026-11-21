@@ -126,7 +126,7 @@ def config_plan(ctx):
     import preload_bundle
     if preload_bundle.bundle_relative(ROOT) == preload_bundle.CURRENT_BUNDLE:
         if ctx.config_only or ctx.files:
-            raise ctx.DeployError('The unified screen installer preserves configuration through SSH; --config-only and --files are not supported for this package.')
+            raise ctx.DeployError("Unified r4 updates managed behavior through SSH. Use 'tools/deploy.py install config' without --files/--config-only; hardware and tuning are preserved. Those options apply only to legacy packages.")
         preload_bundle.verify_source_binding(ROOT)
         standalone_owner(ctx)
         import reconcile_screen_config

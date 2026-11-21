@@ -7,6 +7,9 @@ import os
 import posixpath
 import errno
 import uuid
+import json
+import stat
+import file_ownership
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 SRC = os.path.join(ROOT, "klipper_extras")
@@ -102,6 +105,10 @@ def preflight(ctx):
 
 def _read(sftp, path):
     try:
+        if hasattr(sftp,'lstat'):
+            info=sftp.lstat(path)
+            if not stat.S_ISREG(info.st_mode):
+                raise ValueError('Refuse non-regular helper resource: '+path)
         with sftp.open(path, "rb") as stream:
             return stream.read()
     except IOError as error:
@@ -114,13 +121,13 @@ def rollback(ctx, changes):
     """Restore only our published bytes; never overwrite a later operator edit."""
     sftp = ctx.sftp()
     def check(change):
-        destination, _, backup, previous, content = change
+        destination, _, backup, previous, content = change[:5]
         current = _read(sftp, destination)
         if current == previous:
             return False
         if current != content:
             raise RuntimeError('Concurrent edit at ' + destination)
-        if previous is not None and _read(sftp, backup) != previous:
+        if previous is not None and backup is not None and _read(sftp, backup) != previous:
             raise RuntimeError('Backup mismatch at ' + backup)
         return True
 
@@ -131,13 +138,32 @@ def rollback(ctx, changes):
         for change in changes:
             check(change)
         for change in reversed(changes):
-            destination, _, backup, previous, _ = change
+            destination, _, backup, previous, _ = change[:5]
+            metadata=change[5] if len(change)>5 else None
             if not check(change):
                 continue
             if previous is None:
                 sftp.remove(destination)
             else:
-                sftp.posix_rename(backup, destination)
+                if backup is not None:
+                    sftp.posix_rename(backup, destination)
+                else:
+                    # The protected installer receipt already contains the
+                    # previous bytes; no per-update backup needs to litter the
+                    # printer. The factory inventory is a different baseline.
+                    temporary=destination+'.wmp-restore-'+uuid.uuid4().hex
+                    with sftp.open(temporary,'wb') as stream:
+                        stream.write(previous)
+                    if _read(sftp,temporary)!=previous:
+                        raise RuntimeError('Rollback upload readback mismatch')
+                    try:
+                        if metadata is not None:
+                            sftp.chmod(temporary,metadata['mode'])
+                            sftp.chown(temporary,metadata['uid'],metadata['gid'])
+                        sftp.posix_rename(temporary,destination)
+                    finally:
+                        if _read(sftp,temporary)==previous:
+                            sftp.remove(temporary)
             if _read(sftp, destination) != previous:
                 raise RuntimeError('Rollback readback mismatch at ' + destination)
     except Exception as error:
@@ -145,7 +171,7 @@ def rollback(ctx, changes):
         raise RuntimeError('Helper rollback needs inspection: ' + str(error)) from error
 
 
-def install(ctx, include_recovery=False, install_config=True, prepare=None):
+def install(ctx, include_recovery=False, install_config=True, prepare=None, owner='material'):
     sftp = ctx.sftp()
     extra, cfg = _paths(ctx)
     token = uuid.uuid4().hex
@@ -153,6 +179,12 @@ def install(ctx, include_recovery=False, install_config=True, prepare=None):
     published = []
     temporary = []
     try:
+        inventory_path = posixpath.join(posixpath.dirname(extra), file_ownership.FILENAME)
+        inventory_before = _read(sftp, inventory_path)
+        with open(os.path.join(ROOT, 'config/provenance/legacy-behavior.json'), encoding='utf-8') as stream:
+            catalog = json.load(stream)['helpers']
+        allowed = set(catalog) | set(HELPERS) | {'wmp_identification.py', 'wmp_recovery.py', 'wmp_case_light.py'}
+        inventory = file_ownership.load(inventory_before, allowed)
         # Read every destination before publishing anything. Existing user
         # configuration is authoritative; defaults are only for first install.
         destinations = [(name, posixpath.join(posixpath.dirname(extra), name))
@@ -165,23 +197,42 @@ def install(ctx, include_recovery=False, install_config=True, prepare=None):
             destinations.append(("wm_material.cfg", cfg))
         for name, destination in destinations:
             previous = _read(sftp, destination)
+            metadata=None
+            if previous is not None and hasattr(sftp,'stat'):
+                info=sftp.stat(destination)
+                metadata={'mode':info.st_mode & 0o777,'uid':info.st_uid,'gid':info.st_gid}
             with open(os.path.join(SRC, name), "rb") as stream:
                 content = stream.read()
+            if name.endswith('.py'):
+                file_ownership.install(inventory, name, previous, content, owner, catalog, metadata)
             if previous == content:
                 continue
             staged = destination + ".wmp-upload-" + token
             temporary.append(staged)
             with sftp.open(staged, "wb") as stream:
                 stream.write(content)
+            if metadata is not None:
+                sftp.chmod(staged,metadata['mode'])
+                sftp.chown(staged,metadata['uid'],metadata['gid'])
             if _read(sftp, staged) != content:
                 raise RuntimeError('Upload readback mismatch: ' + destination)
-            backup = destination + ".wmp-backup-" + token
-            if previous is not None:
-                with sftp.open(backup, "wb") as stream:
-                    stream.write(previous)
-                if _read(sftp, backup) != previous:
-                    raise RuntimeError('Backup readback mismatch: ' + destination)
-            changes.append((destination, staged, backup, previous, content))
+            backup = None
+            changes.append((destination, staged, backup, previous, content, metadata))
+        inventory_content = file_ownership.encode(inventory)
+        if inventory_before != inventory_content:
+            staged = inventory_path + '.wmp-upload-' + token
+            temporary.append(staged)
+            with sftp.open(staged, 'wb') as stream:
+                stream.write(inventory_content)
+            if hasattr(sftp,'chmod'):
+                sftp.chmod(staged,0o600)
+            if _read(sftp, staged) != inventory_content:
+                raise RuntimeError('Helper inventory upload readback mismatch')
+            backup = None
+            # Immutable originals must be durable before the first helper write.
+            info=sftp.stat(inventory_path) if inventory_before is not None and hasattr(sftp,'stat') else None
+            metadata={'mode':info.st_mode & 0o777,'uid':info.st_uid,'gid':info.st_gid} if info else None
+            changes.insert(0, (inventory_path, staged, backup, inventory_before, inventory_content, metadata))
         # The top-level installer can recover a lost process using this complete
         # undo plan, even if a rename committed without returning a response.
         journal = getattr(getattr(ctx, 'rollback_backend', None), 'journal', None)
@@ -190,7 +241,7 @@ def install(ctx, include_recovery=False, install_config=True, prepare=None):
         elif journal is not None and journal.value['inflight'] == NAME:
             journal.prepare_component(NAME, changes)
         for change in changes:
-            destination, staged, _, previous, content = change
+            destination, staged, _, previous, content = change[:5]
             if _read(sftp, destination) != previous:
                 raise RuntimeError('Destination changed during installation: ' + destination)
             # Record before rename: the server may commit and lose the reply.
@@ -224,15 +275,87 @@ def uninstall(ctx):
     from . import config
     planned = config.remove_configuration(ctx, material_only=True)
     if planned['retained_dependencies']:
-        return
+        raise ctx.DeployError('Material uninstall incomplete: remaining configuration requires its helpers; remove config first')
+    release_helpers(ctx, 'material')
+    # Keep the commented configuration and filament data for future reinstall.
+
+
+def release_helpers(ctx, owner, dry_run=False):
+    """Release a component's implicit and explicit helpers, retaining consumers.
+
+    All conflicts are checked before the first restore. The inventory is updated
+    last, so an interrupted removal can repeat original restorations safely.
+    """
     sftp = ctx.sftp()
     extra, _ = _paths(ctx)
-    for name in reversed(HELPERS):
-        path = posixpath.join(posixpath.dirname(extra), name)
-        if _read(sftp, path) is not None:
+    directory = posixpath.dirname(extra)
+    inventory_path = posixpath.join(directory, file_ownership.FILENAME)
+    raw = _read(sftp, inventory_path)
+    with open(os.path.join(ROOT, 'config/provenance/legacy-behavior.json'), encoding='utf-8') as stream:
+        known = json.load(stream)['helpers']
+    allowed = set(known) | set(HELPERS) | {'wmp_identification.py', 'wmp_recovery.py', 'wmp_case_light.py'}
+    current = lambda name: _read(sftp, posixpath.join(directory, name))
+    inventory = file_ownership.load(raw, allowed)
+    if raw is None:
+        # Older installations have no inventory. Only exact published helper
+        # bytes establish ownership; unknown originals require explicit review.
+        names = allowed if owner == 'material' else {'wmp_identification.py', 'wmp_recovery.py', 'wmp_case_light.py'}
+        for name in names:
+            data = current(name)
+            if data is None:
+                continue
+            if file_ownership.digest(data) not in known.get(name, []):
+                raise ctx.DeployError('Cannot establish original helper provenance: ' + name)
+            file_ownership.install(inventory, name, data, data, owner, known)
+    updated, changes = file_ownership.removal(inventory, owner, current)
+    if dry_run:
+        return updated, changes
+    # Validate all resources again immediately before each mutation.
+    expected = {name: current(name) for name in changes}
+    for name, content in changes.items():
+        path = posixpath.join(directory, name)
+        if current(name) != expected[name]:
+            raise ctx.DeployError('Concurrent helper edit before removal: ' + name)
+        if content is None:
             sftp.remove(path)
-            print('removed ' + path)
-    # Keep the commented configuration and filament data for future reinstall.
+        else:
+            temporary = path + '.wmp-upload-' + uuid.uuid4().hex
+            with sftp.open(temporary, 'wb') as stream:
+                stream.write(content)
+            metadata=updated['files'][name]['metadata']
+            if metadata is not None:
+                sftp.chmod(temporary,metadata['mode'])
+                sftp.chown(temporary,metadata['uid'],metadata['gid'])
+            sftp.posix_rename(temporary, path)
+        if current(name) != content:
+            raise ctx.DeployError('Helper removal readback mismatch: ' + name)
+        print('Restored original helper state: ' + path)
+    if _read(sftp, inventory_path) != raw:
+        raise ctx.DeployError('Helper ownership changed during removal')
+    if any(current(name) != content for name, content in changes.items()):
+        raise ctx.DeployError('Helpers changed during removal')
+    if raw is not None or inventory['files']:
+        temporary = inventory_path + '.wmp-upload-' + uuid.uuid4().hex
+        with sftp.open(temporary, 'wb') as stream:
+            stream.write(file_ownership.encode(updated))
+        if hasattr(sftp,'chmod'):
+            sftp.chmod(temporary,0o600)
+        sftp.posix_rename(temporary, inventory_path)
+        if _read(sftp,inventory_path)!=file_ownership.encode(updated):
+            raise ctx.DeployError('Helper ownership publication readback mismatch')
+
+
+def preflight_uninstall(ctx):
+    ctx.ssh()
+    if 'config' not in getattr(ctx,'removing_components',set()):
+        import preflight as checks
+        import reconcile_screen_config
+        directory='/home/'+ctx.user+'/printer_data/config'
+        planned=json.loads(checks.remote(ctx,reconcile_screen_config.remote_script(
+            ROOT,directory,action='material-remove-plan'),quiet=True))['plan']
+        if planned['retained_dependencies']:
+            raise ctx.DeployError('Remove the dependent config component before removing material helpers')
+    release_helpers(ctx,'material',dry_run=True)
 
 
 def status(ctx):

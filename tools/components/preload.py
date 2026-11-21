@@ -530,15 +530,22 @@ def finish_recovery(ctx):
     _restart(ctx,ctx.ssh(),expected_guard=None)
 
 
+def preflight_uninstall(ctx):
+    c=ctx.ssh()
+    defaults={'helper':_home(ctx)+'/factory_defaults.py','dropin':DEFAULTS_DROPIN}
+    _helper(ctx,c,"lib=Path(%r);drop=Path(%r);defaults=%r\nif _preload_inventory_path(lib).exists():\n    restore_preload_factory(lib,drop,defaults,dry_run=True)\nelse:\n    legacy_preload_resources(lib,drop,defaults)" % (
+        _home(ctx)+'/lib',DROPIN,defaults),sudo=True)
+
+
 def uninstall(ctx):
     c = ctx.ssh()
-    for name, _ in sources():
-        # Fresh publication creates lib/ as root; removal needs the same access.
-        _checked(ctx, c, "rm -f -- " + shq(_home(ctx) + "/lib/libwmp_%s.so" % name), sudo=True)
-    _checked(ctx, c, "rm -f -- " + shq(DROPIN), sudo=True)
-    _checked(ctx, c, "rm -f -- " + shq(DEFAULTS_DROPIN) + " " + shq(_home(ctx) + "/factory_defaults.py"), sudo=True)
+    defaults={'helper':_home(ctx)+'/factory_defaults.py','dropin':DEFAULTS_DROPIN}
+    # The service is stopped before unlinking/replacing mapped libraries.
+    _checked(ctx,c,'systemctl stop '+SERVICE,sudo=True)
+    _helper(ctx,c,'adopt_legacy_preload(%r,%r,%r)\nrestore_preload_factory(%r,%r,%r)' % (
+        _home(ctx)+'/lib',DROPIN,defaults,_home(ctx)+'/lib',DROPIN,defaults),sudo=True)
     _restart(ctx, c, expected_guard=False)
-    print("Removed the WM+ screen service override and patch libraries; restarted the screen.")
+    print("Restored original screen resources; restarted and verified the stock screen.")
 
 
 def status(ctx):

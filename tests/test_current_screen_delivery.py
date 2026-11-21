@@ -176,7 +176,9 @@ def test_installer_backend_mismatch_preserves_previous_install(package, tmp_path
     monkeypatch.setattr(preload, '_home', lambda ctx: str(wmp))
     monkeypatch.setattr(preload, 'DROPIN', str(dropin))
     monkeypatch.setattr(preload, 'DEFAULTS_DROPIN', str(tmp_path / 'backend-defaults.conf'))
-    monkeypatch.setattr(preload, 'sources', lambda: [('openace-compat', str(root / 'client-preload/openace-compat/wmp_openace_compat.c'))])
+    monkeypatch.setattr(preload, 'sources', lambda: [
+        ('openace-compat', str(root / 'client-preload/openace-compat/wmp_openace_compat.c')),
+        ('head-config-guard', str(root / 'client-preload/head-config-guard/wmp_head_config_guard.c'))])
     def checked(ctx, client, command, **kwargs):
         if command == 'systemctl stop '+preload.SERVICE:
             assert failure == 'runtime'

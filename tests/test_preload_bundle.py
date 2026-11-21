@@ -118,7 +118,8 @@ def test_publication_has_one_compat_library_and_preserves_other_entries(tmp_path
     (stage/'outputs.json').write_text(json.dumps({'libwmp_openace-compat.so':dict(file='screen.so',sha256=pb.digest(stage/'screen.so'))}))
     libs=pb.publish_stage(stage,lib,drop)
     assert len([p for p in libs if 'openace' in p])==1
-    assert 'libwmp_wifi-fix.so' in drop.read_text()
+    assert 'libwmp_wifi-fix.so' not in drop.read_text()
+    assert (lib/'libwmp_wifi-fix.so').read_bytes()==b'wifi'
     pb.restore_publication(stage)
     assert (lib/'libwmp_openace-compat.so').read_bytes()==b'old' and not drop.exists()
 
@@ -139,13 +140,16 @@ def test_managed_screen_boot_dependency_is_transactional(tmp_path, managed):
     assert drop.read_text()==previous
 
 
-def test_duplicate_compat_candidate_refuses_without_replacing_anything(tmp_path):
+def test_duplicate_compat_candidate_is_retired_without_loading_it(tmp_path):
     import preload_bundle as pb
     stage=tmp_path/'stage';stage.mkdir();lib=tmp_path/'lib';lib.mkdir();drop=tmp_path/'override';drop.write_text('old')
     (lib/'libwmp_openace-compat.so').write_bytes(b'old');(lib/'libwmp_openace_screen_candidate.so').write_bytes(b'duplicate')
     (stage/'screen.so').write_bytes(b'new');(stage/'outputs.json').write_text(json.dumps({'libwmp_openace-compat.so':dict(file='screen.so',sha256=pb.digest(stage/'screen.so'))}))
-    with pytest.raises(ValueError,match='duplicate'):pb.publish_stage(stage,lib,drop)
-    assert (lib/'libwmp_openace-compat.so').read_bytes()==b'old' and drop.read_text()=='old'
+    pb.publish_stage(stage,lib,drop)
+    assert 'openace_screen_candidate' not in drop.read_text()
+    pb.restore_preload_factory(lib,drop)
+    assert not (lib/'libwmp_openace_screen_candidate.so').exists()
+    assert drop.read_text()=='old'
 
 
 def test_ldd_relocation_check_never_runs_candidate_constructors(tmp_path):

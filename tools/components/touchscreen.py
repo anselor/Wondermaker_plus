@@ -1,7 +1,8 @@
 """Component: touchscreen add-on (camera snapshot service, nginx page,
 timelapse-camera fixer). Needs SSH and sudo. Uploads device/ and scripts/
 to a unique staging directory. Installation uses a journaled file/service/camera
-transaction; explicit uninstall retains the legacy removal script.
+transaction. Explicit uninstall restores the original factory resource record,
+including camera/service state, with a checked migration for older installs.
 """
 import os
 import posixpath
@@ -187,12 +188,21 @@ def rollback(ctx, receipt):
         raise ctx.DeployError('Touchscreen restoration unconfirmed; inspect '+receipt['journal'])
 
 
+def preflight_uninstall(ctx):
+    import preflight as checks
+    result=transaction_result(checks.remote(ctx,transaction_code('check-uninstall',None,
+        '/opt/wondermaker_plus-transactions/uninstall.json'),sudo=True,quiet=True))
+    if result.get('state')!='checked':
+        raise ctx.DeployError('Touchscreen removal checks are unconfirmed')
+
+
 def uninstall(ctx):
-    c = ctx.ssh()
-    stage = upload(c)
-    _, _, rc = run(c, "%s/scripts/uninstall.sh" % stage, sudo=True)
-    if rc != 0:
-        raise ctx.DeployError("touchscreen uninstall.sh exited %d" % rc)
+    import preflight as checks
+    journal = '/opt/wondermaker_plus-transactions/uninstall.json'
+    result = transaction_result(checks.remote(ctx, transaction_code('uninstall', None, journal), sudo=True, quiet=True))
+    if result.get('state') != 'restored':
+        raise ctx.DeployError('Touchscreen factory restoration is unconfirmed')
+    print('Restored original touchscreen files, services and camera settings')
 
 
 def status(ctx):

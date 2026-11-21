@@ -75,7 +75,7 @@ def install(ctx):
             if journal is not None:
                 journal.prepare_component(NAME, {'kind': 'config-helpers', 'helpers': changes})
         helpers = material.install(ctx, include_recovery=True, install_config=False,
-                                   prepare=prepare_helpers)
+                                   prepare=prepare_helpers, owner='config')
         directory = '/home/' + ctx.user + '/printer_data/config'
         backup = directory + '/.wmp-config-backup-' + uuid.uuid4().hex
         receipt = {'kind': 'preserved-screen-config',
@@ -137,10 +137,15 @@ def remove_configuration(ctx, material_only=False):
     """Plan against current files and disable only attributable package output."""
     import preflight as checks
     import reconcile_screen_config
+    if not ctx.user:
+        ctx.ssh()
     directory = '/home/' + ctx.user + '/printer_data/config'
     result = json.loads(checks.remote(ctx, reconcile_screen_config.remote_script(
         ROOT, directory, action='material-remove-plan' if material_only else 'remove-plan'), quiet=True))
     planned = result['plan']
+    if planned['retained_dependencies']:
+        raise ctx.DeployError('Uninstall incomplete; edited or unproven configuration still requires WM+ helpers: '
+                              + ', '.join(planned['retained_dependencies']))
     for change in planned['changes']:
         print('Disable owned configuration in ' + change['file'] + '; preserve other settings')
     if planned['changes']:
@@ -153,6 +158,9 @@ def remove_configuration(ctx, material_only=False):
             raise ctx.DeployError('Configuration removal unconfirmed; helper modules retained: '
                                   + outcome.get('error', 'unknown publication result'))
         print('Configuration removal backup: ' + str(outcome.get('backup')))
+        services={'crowsnest.conf':'crowsnest','moonraker.conf':'moonraker'}
+        ctx.restored_config_services=getattr(ctx,'restored_config_services',set()) | {
+            services[change['file']] for change in planned['changes'] if change['file'] in services}
     dependencies = planned.get('retained_dependencies', [])
     if dependencies:
         print('Retained helper modules required by current configuration: ' + ', '.join(dependencies))
@@ -161,17 +169,61 @@ def remove_configuration(ctx, material_only=False):
     return planned
 
 
+def activate_restored_services(ctx):
+    """Activate restored legacy daemon settings only after component removal."""
+    from .touchscreen import run
+    import time
+    for name in sorted(getattr(ctx,'restored_config_services',set())):
+        # Names come from the fixed map above, never a receipt or remote config.
+        if name not in ('crowsnest','moonraker'):
+            raise ctx.DeployError('Unexpected restored configuration service')
+        _,error,rc=run(ctx.ssh(),'systemctl restart '+name+'.service',sudo=True,stream=False)
+        if rc:
+            raise ctx.DeployError('Restored '+name+' settings; restart unconfirmed: '+error)
+        _,error,rc=run(ctx.ssh(),'systemctl is-active '+name+'.service',stream=False)
+        if rc:
+            raise ctx.DeployError('Restored '+name+' service is not active: '+error)
+        if name=='moonraker':
+            deadline=time.monotonic()+20
+            while True:
+                try:
+                    if 'result' in json.loads(ctx.moonraker('/server/info')):
+                        break
+                except (OSError,ValueError):
+                    pass
+                if time.monotonic()>=deadline:
+                    raise ctx.DeployError('Moonraker restart acknowledged but API recovery is unconfirmed')
+                time.sleep(.25)
+        print('Restored '+name+' configuration is active')
+
+
+def preflight_uninstall(ctx):
+    """Refuse incomplete legacy removal before other components are removed."""
+    import preflight as checks
+    import reconcile_screen_config
+    ctx.ssh()
+    directory='/home/'+ctx.user+'/printer_data/config'
+    planned=json.loads(checks.remote(ctx,reconcile_screen_config.remote_script(
+        ROOT,directory,action='remove-plan'),quiet=True))['plan']
+    if planned['retained_dependencies']:
+        raise ctx.DeployError('Configuration removal has unresolved WM+ dependencies: '
+                              + ', '.join(planned['retained_dependencies']))
+    if 'preload' not in getattr(ctx,'removing_components',set()):
+        from .material import _read
+        path='/etc/systemd/system/makerbase-client.service.d/wmp-preload.conf'
+        override=_read(ctx.sftp(),path)
+        if override and b'libwmp_openace-compat.so' in override:
+            raise ctx.DeployError("The installed WM+ screen requires this configuration. Include preload in the uninstall selection.")
+    from .material import release_helpers
+    release_helpers(ctx,'config',dry_run=True)
+
+
 def uninstall(ctx):
     planned = remove_configuration(ctx)
     if planned['retained_dependencies']:
-        return
-    sftp = ctx.sftp()
-    from .material import _read
-    for name in ('wmp_recovery.py', 'wmp_identification.py', 'wmp_case_light.py'):
-        path = '/home/%s/klipper/klippy/extras/%s' % (ctx.user, name)
-        if _read(sftp, path) is not None:
-            sftp.remove(path)
-            print('removed ' + path)
+        raise ctx.DeployError('Uninstall incomplete: active configuration still requires WM+ helpers')
+    from .material import release_helpers
+    release_helpers(ctx, 'config')
 
 
 def status(ctx):
