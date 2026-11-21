@@ -49,6 +49,8 @@ Live verification:
   retained calibration data and does not count as executable WM+ configuration.
 - The finishing/verifier changes passed 231 targeted tests. Shared-owner removal
   preflight and inventory no-op checks passed all 243 material/ownership tests.
+- The full relevant suite after those live fixes passed all 1,539 tests in
+  70.25 seconds, with no skips. The sealed package check passed.
 
 The attended PA comparison has started on Head 3 using the unchanged 7m22s file
 at 220°C/55°C. No physical timing outcome is claimed yet. These checks do not
