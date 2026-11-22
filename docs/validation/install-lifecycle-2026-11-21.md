@@ -52,7 +52,11 @@ Live verification:
 - The full relevant suite after those live fixes passed all 1,539 tests in
   70.25 seconds, with no skips. The sealed package check passed.
 
-The attended PA comparison has started on Head 3 using the unchanged 7m22s file
-at 220°C/55°C. No physical timing outcome is claimed yet. These checks do not
-claim every operating-system file is factory content. See
+The first attended PA run used Head 3 and the unchanged 7m22s file at 220°C/55°C.
+The user subsequently reported clean completion of PA, Vehicles, and another
+PA print. The extrusion defect was not reproduced in that factory sequence;
+staged reintroduction of shaper, matched backend/screen, and camera bridge also
+printed cleanly, including full-setup PA → completed Vehicles → red PA without
+a Klipper process restart. The original fault is not reproduced and its cause
+remains unidentified. These checks do not claim every operating-system file is factory content. See
 [the comparison protocol](factory-timing-comparison.md).
