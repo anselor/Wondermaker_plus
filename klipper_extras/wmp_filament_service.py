@@ -379,6 +379,12 @@ class FilamentService:
                 and all(self.material.printer.lookup_object(owner, None) is captured
                         for owner, captured in scope['owners']))
 
+    def wait_owner(self):
+        scope = getattr(self, '_boundary_scope', None)
+        return (self if scope is not None and scope['actor'] is scope['current_actor']()
+                and self._scope_owned(scope) and self.filament_operation.get('state') == 'running'
+                else None)
+
     def _cleanup_scope_owned(self, scope):
         if scope is None or self._scope_owned(scope):
             return True

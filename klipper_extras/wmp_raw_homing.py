@@ -72,8 +72,20 @@ class RawHoming:
             raise gcmd.error('Wait for the current operation to finish before standalone homing')
         material = printer.lookup_object('wm_material', None)
         active = getattr(material, '_material_operation_active', None)
-        if callable(active) and any(active(name) for name in ('filament_operation', 'toolhead_operation')):
-            raise gcmd.error('Wait for the current physical service before standalone homing')
+        services = ([getattr(material, storage, None)
+                     for name, storage in (('filament_operation', '_filament_service_component'),
+                                           ('toolhead_operation', '_toolhead_service'))
+                     if active(name)] if callable(active) else [])
+        if services:
+            # Deferred service callbacks have no outer G-code dispatcher frame.
+            # Their G28 is still owned by that same immutable service/greenlet;
+            # a different actor or stale service must retain the refusal.
+            if any(service is None or not callable(getattr(service, 'wait_owner', None))
+                   or service.wait_owner() is not service for service in services):
+                raise gcmd.error('Wait for the current physical service before standalone homing')
+            for service in services:
+                service.check_operation_boundary('before service homing')
+            return self.original(gcmd)
         parameters = gcmd.get_command_parameters()
         axes = '/'.join(axis for axis in 'XYZ' if axis in parameters) or 'X/Y/Z'
         binding = dict(HEX=b'G28'.hex(), SESSION=calibration.session,

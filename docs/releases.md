@@ -72,6 +72,18 @@ git pull --ff-only origin fw-1.1.13/r4
 uv run --with paramiko --with jinja2 python tools/deploy.py install all
 ```
 
+### Follow-up: deferred filament-service homing
+
+Fixes Load/Unload or tool service rejecting its own X/Y homing after the
+admitting command has returned. This was exposed by filament loading with
+unhomed axes after a completed print. Homing keeps the executing service's
+validated actor/session/generation ownership instead of acquiring a competing
+standalone Home attempt. Stale, unrelated and cancelled service contexts retain
+their checks. The original homing commands and native screen binary are unchanged.
+
+[Regression and installation evidence](validation/service-owned-homing-2026-11-24.md)
+records the deferred callback tests and affected material/motion checks.
+
 ## fw-1.1.12-r1 — touchscreen rendering fix
 
 This release fixes a blank interactive touchscreen when JPEG snapshots and touch

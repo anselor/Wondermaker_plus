@@ -151,3 +151,59 @@ def test_raw_home_fault_flag_is_not_relabelled_as_cancel(raw_home):
     outcome=runner.attempt_status()
     assert 'cancel_phase' not in outcome and outcome['cancel_cleanup']['state']=='incomplete'
     assert outcome['cancel_cleanup']['park']=='unconfirmed' and p.fail==-3 and len(calls)==1
+
+
+@pytest.fixture(params=['filament', 'toolhead'])
+def deferred_service(raw_home, request):
+    from wmp_filament_service import FilamentService
+    from wmp_toolhead_service import ToolheadService
+    p, runner, dispatch, original, calls, events, stock = raw_home
+    material = SimpleNamespace(printer=p, session_id='service-session', _command_generation=1, _print_cancel_active=lambda:False)
+    kind = request.param
+    name = kind + '_operation'
+    operation = dict(id='service-1', session=material.session_id, head='h2', action='load' if kind=='filament' else 'mount', state='running')
+    setattr(material, name, operation)
+    material._material_operation_active=lambda key: getattr(material,key,{}).get('state') in ('pending','running')
+    service=(FilamentService if kind=='filament' else ToolheadService)(material)
+    setattr(service,name,operation)
+    setattr(material,'_filament_service_component' if kind=='filament' else '_toolhead_service',service)
+    actor=object();current=[actor]
+    service._current_actor=lambda:current[0]
+    service._boundary_scope=dict(operation=operation,id=operation['id'],head=operation['head'],action=operation['action'],
+        session=material.session_id,generation=1,owners=(('openace',None),('AFC',None)),actor=actor,current_actor=service._current_actor)
+    p.objects['wm_material']=material
+    return raw_home,material,service,operation,current
+
+
+@pytest.mark.parametrize('print_state',['standby','complete'])
+def test_deferred_service_homing_keeps_owner_without_outer_dispatch(deferred_service,print_state):
+    raw,material,service,operation,current=deferred_service
+    p,runner,dispatch,original,calls,events,stock=raw;p.state=print_state
+    # Same shape as the reactor callback after WMP_FILAMENT_SEQUENCE returned:
+    # no outer WMP/macro dispatcher frame remains on this stack.
+    dispatch.run_script_from_command('G28 X Y')
+    assert len(calls)==1 and calls[0].get_command_parameters()=={'G':'28','X':'','Y':''}
+    assert not runner.attempt_result and runner._ticket_counter==0 and operation['state']=='running'
+
+
+@pytest.mark.parametrize('change',['actor','session','generation','operation','external_owner','pending'])
+def test_deferred_service_does_not_authorize_another_or_stale_owner(deferred_service,change):
+    raw,material,service,operation,current=deferred_service
+    p,runner,dispatch,original,calls,events,stock=raw
+    if change=='actor':current[0]=object()
+    elif change=='session':material.session_id='replacement'
+    elif change=='generation':material._command_generation+=1
+    elif change=='operation':setattr(service,'filament_operation' if hasattr(service,'filament_operation') else 'toolhead_operation',dict(operation))
+    elif change=='external_owner':service._boundary_scope['owners']=(('openace',object()),('AFC',None))
+    elif change=='pending':operation['state']='pending'
+    with pytest.raises(stock.CommandError,match='current physical service'):
+        dispatch.run_script_from_command('G28 X Y')
+    assert not calls and not runner.attempt_result and runner._ticket_counter==0
+
+
+def test_deferred_service_cancel_is_seen_before_homing(deferred_service):
+    raw,material,service,operation,current=deferred_service
+    p,runner,dispatch,original,calls,events,stock=raw;operation['cancel_requested']=True
+    with pytest.raises(stock.CommandError,match='cancelled'):
+        dispatch.run_script_from_command('G28 X Y')
+    assert not calls and not runner.attempt_result
