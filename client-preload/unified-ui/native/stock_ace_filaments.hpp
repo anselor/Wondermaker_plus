@@ -3,6 +3,7 @@
 #include "button_caption.hpp"
 #include "profile1113.hpp"
 #include "stock_palette.hpp"
+#include "filament_appearance.hpp"
 #include "stock_dialog_backdrop.hpp"
 #include "ace_unit_preview.hpp"
 #include "ace_adoption.hpp"
@@ -37,7 +38,7 @@ class StockAceFilaments {
  };
  std::list<Binding>bindings_;void*pane_=nullptr;std::uint64_t generation_=0;
  AceAdoption adoption_;bool adoption_visible_=false;
- Json source_editor_,source_context_,profile_draft_;std::string profile_name_;std::vector<Json>profile_options_;std::string source_brand_;bool identity_busy_=false;std::vector<std::string>brand_options_,material_options_;std::string source_colour_,source_notice_,source_material_;void*choice_armed_=nullptr;bool colour_save_ready_=false;
+ Json source_editor_,source_context_,profile_draft_;std::string profile_name_;std::vector<Json>profile_options_;std::string source_appearance_;std::string source_brand_;bool identity_busy_=false;std::vector<std::string>brand_options_,material_options_;std::string source_colour_,source_notice_,source_material_;void*choice_armed_=nullptr;bool colour_save_ready_=false;
  AceUnitPreview unit_preview_;Json snapshot_;std::string selected_head_;
  int overview_scroll_=0,detail_scroll_=0,pending_scroll_=-1;
  bool remove_confirm_=false,quick_assign_=false,material_preview_=false;
@@ -56,7 +57,7 @@ public:
   if(!dryer_unit_.empty()){dryer_unit_.clear();pending_scroll_=overview_scroll_;layout_.clear();}
   if(!slot_menu_.empty()){slot_menu_.clear();layout_.clear();}
   if(!source_editor_.is_object()&&!unit_preview_.active()&&!adoption_visible_)return;
-  source_editor_=Json();source_context_=Json();profile_draft_=Json();profile_name_.clear();source_colour_.clear();source_brand_.clear();source_material_.clear();source_notice_.clear();
+  source_editor_=Json();source_context_=Json();profile_draft_=Json();profile_name_.clear();source_colour_.clear();source_brand_.clear();source_material_.clear();source_appearance_.clear();source_notice_.clear();
   colour_save_ready_=false;source_origin_head_=-1;material_preview_=false;
   unit_preview_.clear();quick_assign_=false;remove_confirm_=false;adoption_visible_=false;
   pending_scroll_=overview_scroll_;layout_.clear();
@@ -94,7 +95,7 @@ public:
  bool rename_draft(const std::string&name){if(!unit_preview_.rename(snapshot_,name))return false;layout_.clear();return true;}
  const Json&selected_source()const{return source_editor_;}
  const Json&selected_source_context()const{return source_context_;}
- Json draft_identity()const{auto identity=source_editor_.value("identity",Json::object());if(profile_draft_.is_object()){for(const auto*key:{"nozzle_temp","nozzle_temp_min","nozzle_temp_max","bed_temp"})identity.erase(key);for(auto it=profile_draft_.begin();it!=profile_draft_.end();++it)identity[it.key()]=it.value();}if(!source_brand_.empty())identity["brand"]=source_brand_;if(!source_colour_.empty())identity["color"]=source_colour_;if(!source_material_.empty()){if(identity.value("material","")!=source_material_)for(const auto*key:{"nozzle_temp","nozzle_temp_min","nozzle_temp_max","bed_temp"})identity.erase(key);identity["material"]=source_material_;}return identity;}
+ Json draft_identity()const{auto identity=source_editor_.value("identity",Json::object());if(profile_draft_.is_object()){for(const auto*key:{"nozzle_temp","nozzle_temp_min","nozzle_temp_max","bed_temp"})identity.erase(key);for(auto it=profile_draft_.begin();it!=profile_draft_.end();++it)identity[it.key()]=it.value();}if(!source_brand_.empty())identity["brand"]=source_brand_;if(!source_colour_.empty())identity["color"]=source_colour_;if(!source_material_.empty()){if(identity.value("material","")!=source_material_)for(const auto*key:{"nozzle_temp","nozzle_temp_min","nozzle_temp_max","bed_temp"})identity.erase(key);identity["material"]=source_material_;}if(!source_appearance_.empty())identity["appearance"]=source_appearance_;return identity;}
  void identity_pending(bool value){identity_busy_=value;layout_.clear();}
  std::string unit_draft_reason(const Json&data)const{auto why=unit_preview_.invalid_reason(data);if(!why.empty())return why;return "Unit editing requires idle or complete job; current="+rejection_value(data.value("job",Json::object()).value("state",""))+".";}
  std::string identity_reason()const{
@@ -108,11 +109,11 @@ public:
   if(!colour_save_ready_)return "Filament colour save is not ready.";
   return "Filament identity has no pending edits.";
  }
- bool identity_ready()const{return load_position_ready()&&(!loading_||(draft_identity().value("material","")!="Unknown"&&!draft_identity().value("material","").empty()))&&!identity_busy_&&source_editor_valid()&&colour_save_ready_&&(loading_||profile_draft_.is_object()||!source_brand_.empty()||!source_colour_.empty()||!source_material_.empty());}
+ bool identity_ready()const{return load_position_ready()&&(!loading_||(draft_identity().value("material","")!="Unknown"&&!draft_identity().value("material","").empty()))&&!identity_busy_&&source_editor_valid()&&colour_save_ready_&&(loading_||profile_draft_.is_object()||!source_brand_.empty()||!source_colour_.empty()||!source_material_.empty()||!source_appearance_.empty());}
  const std::string&draft_colour()const{return source_colour_;}
  void colour_draft(const std::string&id,const std::string&colour){if(source_editor_.is_object()&&source_editor_.value("id","")==id){colour_save_ready_=true;source_colour_=colour;source_notice_="Unsaved changes";layout_.clear();}}
  void colour_result(const std::string&id,const std::string&message){if(source_editor_.is_object()&&source_editor_.value("id","")==id){colour_save_ready_=false;source_notice_=message;layout_.clear();}}
- void colour_saved(const Json&data,const Json&source){if(source_editor_.is_object()&&source_editor_.value("id","")==source.value("id","")){identity_busy_=false;if(data.value("owner","")=="standalone"&&!loading_){brand_picker_=false;material_preview_=false;activate("source-back");return;}source_editor_=source;source_context_=data;profile_draft_=Json();profile_name_.clear();source_colour_.clear();source_brand_.clear();source_material_.clear();source_notice_="Filament settings saved.";layout_.clear();}}
+ void colour_saved(const Json&data,const Json&source){if(source_editor_.is_object()&&source_editor_.value("id","")==source.value("id","")){identity_busy_=false;if(data.value("owner","")=="standalone"&&!loading_){brand_picker_=false;material_preview_=false;activate("source-back");return;}source_editor_=source;source_context_=data;profile_draft_=Json();profile_name_.clear();source_colour_.clear();source_brand_.clear();source_material_.clear();source_appearance_.clear();source_notice_="Filament settings saved.";layout_.clear();}}
  std::function<void(unsigned)>focus_head;
  std::function<void(const std::string&)>action;
  std::function<Receipt(const Json&,const Json&)>adopt;
@@ -122,7 +123,7 @@ public:
  void mount(void*content){
   if(valid(pane_)&&fn<void*(*)(void*)>(lv_obj_get_parent)(pane_)==content)return;
   if(valid(pane_))fn<void(*)(void*,unsigned)>(lv_obj_add_flag)(pane_,1);
-  widgets_.clear();view_.clear();pane_=nullptr;slot_menu_object_=nullptr;slot_menu_.clear();dryer_unit_.clear();layout_.clear();brand_picker_=false;material_preview_=false;source_origin_head_=-1;adoption_visible_=false;unit_preview_.clear();source_editor_=Json();source_context_=Json();profile_draft_=Json();profile_name_.clear();source_colour_.clear();source_brand_.clear();source_material_.clear();source_notice_.clear();remove_confirm_=false;quick_assign_=false;overview_scroll_=detail_scroll_=0;pending_scroll_=-1;++generation_;
+  widgets_.clear();view_.clear();pane_=nullptr;slot_menu_object_=nullptr;slot_menu_.clear();dryer_unit_.clear();layout_.clear();brand_picker_=false;material_preview_=false;source_origin_head_=-1;adoption_visible_=false;unit_preview_.clear();source_editor_=Json();source_context_=Json();profile_draft_=Json();profile_name_.clear();source_colour_.clear();source_brand_.clear();source_material_.clear();source_appearance_.clear();source_notice_.clear();remove_confirm_=false;quick_assign_=false;overview_scroll_=detail_scroll_=0;pending_scroll_=-1;++generation_;
   if(!valid(content))return;
   pane_=fn<void*(*)(void*)>(lv_obj_create)(content);
   if(!pane_)return;
@@ -154,7 +155,7 @@ public:
   auto units=data.value("units",Json::array()),sources=data.value("sources",Json::array()),candidates=data.value("candidates",Json::array());
   if(picker_&&data.value("owner","")!="openace")units=Json::array();
   Json presence=Json::object();for(const auto&h:data.value("heads",Json::array()))presence[h.value("id","")]=h.value("loaded",Json::object());
-  const auto key=Json{{"details_ready",filament_details_ready(data)},{"load_temperature",load_temperature_notice()},{"presence",presence},{"dryer_unit",dryer_unit_},{"slot_menu",slot_menu_},{"picker_row",data.value("picker_row","")},{"picker_revision",data.value("revision","")},{"picker_session",data.value("session","")},{"picker",picker_},{"picker_choices",data.value("picker_choices",Json::object())},{"picker_route_source",data.value("picker_route_source","")},{"units",units},{"sources",sources},{"routes",data.value("routes",Json::array())},{"candidates",candidates},{"head",head},{"fresh",fresh_},{"adoption_visible",adoption_visible_},{"adoption",adoption_.candidate()},{"adoption_operation",adoption_.operation()},{"adoptable",adoption_.can_confirm(data)},{"colour_save_ready",colour_save_ready_},{"catalogue",data.value("filament_catalogue",Json::array())},{"profile_draft",profile_draft_},{"source_colour",source_colour_},{"brand_picker",brand_picker_},{"brand_page",brand_page_},{"source_brand",source_brand_},{"source_material",source_material_},{"brands",data.value("brands",Json::array())},{"filament_position",data.value("filament_position",Json::object())},{"source_notice",source_notice_},{"source_editor",source_editor_},{"source_valid",source_editor_valid()},{"unit",unit_preview_.draft()},{"draft",unit_preview_.assignments()},{"slot",unit_preview_.slot()},{"remove",remove_confirm_},{"quick_assign",quick_assign_},{"draft_valid",unit_preview_.valid(data)},{"idle",AceUnitPreview::idle(data)}}.dump();
+  const auto key=Json{{"details_ready",filament_details_ready(data)},{"load_temperature",load_temperature_notice()},{"presence",presence},{"dryer_unit",dryer_unit_},{"slot_menu",slot_menu_},{"picker_row",data.value("picker_row","")},{"picker_revision",data.value("revision","")},{"picker_session",data.value("session","")},{"picker",picker_},{"picker_choices",data.value("picker_choices",Json::object())},{"picker_route_source",data.value("picker_route_source","")},{"units",units},{"sources",sources},{"routes",data.value("routes",Json::array())},{"candidates",candidates},{"head",head},{"fresh",fresh_},{"adoption_visible",adoption_visible_},{"adoption",adoption_.candidate()},{"adoption_operation",adoption_.operation()},{"adoptable",adoption_.can_confirm(data)},{"colour_save_ready",colour_save_ready_},{"catalogue",data.value("filament_catalogue",Json::array())},{"profile_draft",profile_draft_},{"source_colour",source_colour_},{"brand_picker",brand_picker_},{"brand_page",brand_page_},{"source_brand",source_brand_},{"source_material",source_material_},{"source_appearance",source_appearance_},{"brands",data.value("brands",Json::array())},{"filament_position",data.value("filament_position",Json::object())},{"source_notice",source_notice_},{"source_editor",source_editor_},{"source_valid",source_editor_valid()},{"unit",unit_preview_.draft()},{"draft",unit_preview_.assignments()},{"slot",unit_preview_.slot()},{"remove",remove_confirm_},{"quick_assign",quick_assign_},{"draft_valid",unit_preview_.valid(data)},{"idle",AceUnitPreview::idle(data)}}.dump();
   if(layout_==key&&width_==width&&height_==height)return;
   const int scroll=pending_scroll_>=0?pending_scroll_:fn<int(*)(void*)>(lv_obj_get_scroll_y)(pane_);pending_scroll_=-1;
   const auto view=source_editor_.is_object()?(brand_picker_?"brands:":"source:")+source_editor_.value("id",""):
@@ -237,7 +238,7 @@ private:
   const int left=bounds[0]+4,top=bounds[1]+38,right=bounds[2]-4,bottom=bounds[3]-4;
   if(right<=left||bottom<=top)return;
   for(const auto&binding:bindings_){
-   if(binding.action!="material-dropdown"&&binding.action!="profile-dropdown"&&binding.action.compare(0,14,"slot-dropdown:")!=0)continue;
+   if(binding.action!="appearance-dropdown"&&binding.action!="material-dropdown"&&binding.action!="profile-dropdown"&&binding.action.compare(0,14,"slot-dropdown:")!=0)continue;
    auto*object=binding.object;if(!valid(object)||!fn<bool(*)(void*)>(lv_dropdown_is_open)(object))continue;
    auto*list=fn<void*(*)(void*)>(lv_dropdown_get_list)(object);if(!valid(list)||list==object)continue;
    fn<void(*)(void*)>(lv_obj_update_layout)(list);
@@ -298,6 +299,22 @@ private:
   fn<void(*)(void*,int)>(lv_label_set_long_mode)(object,1);
  }
  void*button(void*parent,const std::string&id,const std::string&t,int x,int y,int w,int h,bool enabled=true){auto*p=widget(parent,lv_btn_create,id+":"+position_key(x,y));if(!p)throw std::runtime_error("ACE button allocation failed");style(p,0x463c8e8);style(p,0x463c8f8,0x20);rect(p,x,y,w,h);label(p,t,6,4,w-12,h-8);center_button_caption(p,fn<void*(*)(void*,int)>(lv_obj_get_child)(p,0),t);bind(p,id);StockAceFilaments::enabled(p,!((!fresh_&&id!="unit-back"&&id!="slot-cancel"&&id!="remove-cancel"&&id!="adopt-cancel"&&id!="adopt-status"&&id!="source-back"&&id!="picker-close"&&id!="picker-back")||!enabled));return p;}
+ void appearance_tiles(void*parent,const Json&identity,int width,int height,bool circular=false,int inset=0){
+  if(identity_display_text(identity,"appearance","standard")!="translucent")return;
+  if(circular){
+   auto*mask=panel(parent,inset,inset,width-2*inset,height-2*inset,"appearance-mask");
+   stock_dialog_backdrop(mask);fn<void(*)(void*,unsigned)>(lv_obj_clear_flag)(mask,2);
+   clip_appearance(mask,32767);parent=mask;width-=2*inset;height-=2*inset;
+  }else clip_appearance(parent);
+  for(const auto&t:translucent_tiles(identity,width,height)){
+   auto*tile=panel(parent,t.x,t.y,t.w,t.h);
+   fn<void(*)(void*,std::uint32_t,unsigned)>(lv_obj_set_style_bg_color)(tile,t.colour,0);
+   fn<void(*)(void*,int,unsigned)>(lv_obj_set_style_bg_opa)(tile,255,0);
+   fn<void(*)(void*,int,unsigned)>(lv_obj_set_style_radius)(tile,0,0);
+   fn<void(*)(void*,int,unsigned)>(lv_obj_set_style_border_width)(tile,0,0);
+   fn<void(*)(void*,unsigned)>(lv_obj_clear_flag)(tile,2);
+  }
+ }
  void source_card(void*card,const Json&s,const std::string&head,int width,int height,const std::string&title){
   auto identity=s.value("identity",Json::object());bool empty=false,loaded=false;
   for(const auto&h:snapshot_.value("heads",Json::array()))if(h.value("id","")==s.value("head","")){const auto state=h.value("loaded",Json::object());loaded=state.value("state","")=="loaded"&&state.value("source","")==s.value("id","");}
@@ -324,6 +341,8 @@ private:
    fn<void(*)(void*,std::uint32_t,unsigned)>(lv_obj_set_style_img_recolor)(colour,rgb,0);
    fn<void(*)(void*,unsigned char,unsigned)>(lv_obj_set_style_img_recolor_opa)(colour,255,0);
    fn<void(*)(void*,unsigned)>(lv_obj_clear_flag)(colour,2);
+   // Verified stock asset: 83x83, nonzero alpha at [6,6]..[76,76].
+   appearance_tiles(colour,identity,83,83,true,6);
   }else{
    auto*circle=panel(card,(width-64)/2,32,64,64);
    // The outline is decoration, just like the image swatch above. Let taps
@@ -495,13 +514,28 @@ private:
   fn<void(*)(void*,int,unsigned)>(lv_obj_set_style_bg_opa)(swatch,255,0);
   fn<void(*)(void*,unsigned)>(lv_obj_add_flag)(swatch,2);
   bind(swatch,"source-colour");
+  appearance_tiles(swatch,identity,88,48);
   enabled(swatch,editable);
+  const bool appearance_supported=snapshot_.value("owner","")=="standalone";
+  if(appearance_supported){
+   label(pane_,"Appearance",12,224,136,28);
+   auto*appearance=widget(pane_,lv_dropdown_create,"appearance");
+   style(appearance,0x463c8e8);rect(appearance,156,212,width-168,46);
+   fn<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(appearance,reinterpret_cast<void*>(MyriadPro_Regular_20),0);
+   fn<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(appearance,reinterpret_cast<void*>(lv_font_montserrat_14),0x20000);
+   fn<void(*)(void*,int,unsigned)>(lv_obj_set_style_pad_top)(appearance,10,0);
+   fn<void(*)(void*,std::uint32_t,unsigned)>(lv_obj_set_style_text_color)(appearance,0xffeeeeeeU,0);
+   const auto a=identity_display_text(identity,"appearance","standard");
+   dropdown(appearance,"Standard\nTranslucent\nGradient\nCo-extrusion",a=="translucent"?1:a=="gradient"?2:a=="co-extrusion"?3:0);
+   bind(appearance,"appearance-dropdown");enabled(appearance,editable);
+  }
+  const int appearance_offset=appearance_supported?56:0;
   profile_options_.clear();
   if(snapshot_.value("owner","")=="standalone")for(const auto&profile:snapshot_.value("filament_catalogue",Json::array()))if(profile.is_object()&&profile.contains("identity"))profile_options_.push_back(profile);
   if(!profile_options_.empty()){
-   label(pane_,"Profile",12,224,136,28);
+   label(pane_,"Profile",12,224+appearance_offset,136,28);
    auto*profiles=widget(pane_,lv_dropdown_create,"profile");if(!profiles)throw std::runtime_error("Profile selector allocation failed");
-   style(profiles,0x463c8e8);rect(profiles,156,212,width-168,46);
+   style(profiles,0x463c8e8);rect(profiles,156,212+appearance_offset,width-168,46);
    fn<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(profiles,reinterpret_cast<void*>(MyriadPro_Regular_20),0);
    fn<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(profiles,reinterpret_cast<void*>(lv_font_montserrat_14),0x20000);
    fn<void(*)(void*,int,unsigned)>(lv_obj_set_style_pad_top)(profiles,10,0);
@@ -521,7 +555,7 @@ private:
    if(!notice.empty())notice+="\n";
    notice+="Back discards unsaved changes.";
   }
-  const int notice_y=profile_options_.empty()?220:264;
+  const int notice_y=(profile_options_.empty()?220:264)+appearance_offset;
   auto*notice_label=label(pane_,notice,12,notice_y,width-24,std::max(20,fn<int(*)(void*)>(lv_obj_get_content_height)(pane_)-notice_y-8));
   fn<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(notice_label,reinterpret_cast<void*>(lv_font_montserrat_14),0);
   fn<void(*)(void*,int)>(lv_label_set_long_mode)(notice_label,0);
@@ -667,12 +701,12 @@ private:
    if(source_id!=slot_menu_&&!direct_load)return;
    slot_menu_.clear();layout_.clear();if(action)action(id);return;
   }
-  if(id=="source-back"){if(brand_picker_){brand_picker_=false;pending_scroll_=0;layout_.clear();return;}loading_=false;if(material_preview_){material_preview_=false;pending_scroll_=0;layout_.clear();return;}const int origin=source_origin_head_;source_origin_head_=-1;source_editor_=Json();source_context_=Json();profile_draft_=Json();profile_name_.clear();source_colour_.clear();source_brand_.clear();source_material_.clear();source_notice_.clear();pending_scroll_=overview_scroll_;layout_.clear();if(origin>=0&&fresh_&&action)action("toolhead:"+std::to_string(origin));return;}
+  if(id=="source-back"){if(brand_picker_){brand_picker_=false;pending_scroll_=0;layout_.clear();return;}loading_=false;if(material_preview_){material_preview_=false;pending_scroll_=0;layout_.clear();return;}const int origin=source_origin_head_;source_origin_head_=-1;source_editor_=Json();source_context_=Json();profile_draft_=Json();profile_name_.clear();source_colour_.clear();source_brand_.clear();source_material_.clear();source_appearance_.clear();source_notice_.clear();pending_scroll_=overview_scroll_;layout_.clear();if(origin>=0&&fresh_&&action)action("toolhead:"+std::to_string(origin));return;}
   if(id.compare(0,5,"edit:")==0){
    const auto source_id=id.substr(5);Json selected;
    for(const auto&s:snapshot_.value("sources",Json::array()))if(s.value("id","")==source_id){if(selected.is_object())return;selected=s;}
    if(!selected.is_object())return;
-   loading_=false;brand_picker_=false;slot_menu_.clear();material_preview_=false;source_editor_=selected;source_context_=snapshot_;profile_draft_=Json();profile_name_.clear();source_colour_.clear();source_brand_.clear();source_material_.clear();source_notice_.clear();overview_scroll_=fn<int(*)(void*)>(lv_obj_get_scroll_y)(pane_);pending_scroll_=0;layout_.clear();return;
+   loading_=false;brand_picker_=false;slot_menu_.clear();material_preview_=false;source_editor_=selected;source_context_=snapshot_;profile_draft_=Json();profile_name_.clear();source_colour_.clear();source_brand_.clear();source_material_.clear();source_appearance_.clear();source_notice_.clear();overview_scroll_=fn<int(*)(void*)>(lv_obj_get_scroll_y)(pane_);pending_scroll_=0;layout_.clear();return;
   }
   if(id=="material-preview-choice")return; // Disabled even for queued/programmatic clicks.
   if(id.compare(0,7,"source-")==0&&!source_editor_valid())return;
@@ -760,16 +794,19 @@ private:
   if(code==7&&fn<void*(*)(void*)>(lv_event_get_target)(e)!=b->object)return;
   if(code==0){b->pressed=true;b->pressed_action=b->action;b->pressed_context=o->interaction_context();}
   if(code==7&&b->pressed){b->pressed=false;if(b->pressed_action!=b->action||b->pressed_context!=o->interaction_context())return;}
-  if((b->action=="material-dropdown"||b->action=="profile-dropdown"||b->action.compare(0,14,"slot-dropdown:")==0)&&(code==31||code==28)){
+  if((b->action=="appearance-dropdown"||b->action=="material-dropdown"||b->action=="profile-dropdown"||b->action.compare(0,14,"slot-dropdown:")==0)&&(code==31||code==28)){
    if(b->generation!=o->generation_||!valid(o->pane_)||o->blocked_||!o->fresh_)return;
    for(auto*p=o->pane_;p;p=fn<void*(*)(void*)>(lv_obj_get_parent)(p))if(fn<bool(*)(void*,unsigned)>(lv_obj_has_flag)(p,1))return;
-   const bool profile=b->action=="profile-dropdown";const bool material=b->action=="material-dropdown"||profile;
+   const bool appearance=b->action=="appearance-dropdown";const bool profile=b->action=="profile-dropdown";const bool material=b->action=="material-dropdown"||profile||appearance;
    if(material?(!o->source_editor_valid()||o->identity_busy_):!o->unit_preview_.valid(o->snapshot_))return;
    if(code==31){o->choice_armed_=b->object;style_list(b->object);return;}
    if(o->choice_armed_!=b->object)return;
    o->choice_armed_=nullptr;
    const auto selected=fn<unsigned(*)(void*)>(lv_dropdown_get_selected)(b->object);
-   if(profile){
+   if(appearance){
+    if(o->snapshot_.value("owner","")!="standalone"||selected>3)return;
+    o->source_appearance_=std::vector<std::string>{"standard","translucent","gradient","co-extrusion"}[selected];o->colour_save_ready_=true;
+   }else if(profile){
     if(selected>0&&selected<=o->profile_options_.size()){o->profile_draft_=o->profile_options_[selected-1].at("identity");o->profile_name_=o->profile_options_[selected-1].value("name","");o->source_brand_.clear();o->source_material_.clear();o->source_colour_.clear();o->colour_save_ready_=true;}
     else {o->profile_draft_=Json();o->profile_name_.clear();}
    }else if(material){

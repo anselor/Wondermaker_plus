@@ -607,16 +607,19 @@ class PrintCancellation:
             self.material._recovery_release_paused_worker(cancelled=True)
         attempt("clearing_pause", clear_pause)
         # Lower only an actual cancelled job after its queued motion drained.
-        # The shared helper skips unhomed Z and clamps to remaining bottom travel.
-        # Do not home, retract, wipe or move the carriage from Cancel.
+        # The shared helper clamps physical Z, then parks only with homed axes,
+        # actual clearance and confirmed attachment. No home, pickup, E or wipe.
+        mesh_cleared = False
         if drained and cancelled[0] and not idle_resolution:
             try:
-                run("_WMP_PRINT_LOWER_BED")
+                run("BED_MESH_CLEAR")
+                mesh_cleared = True
+                run("_WMP_PRINT_LOWER_BED PARK=1")
                 run("M400")
             except Exception as error:
-                warnings.append("bed lowering: " + str(error))
+                warnings.append("bed lowering/parking: " + str(error))
         # These independent actions restore stock non-motion housekeeping.
-        housekeeping = ["M107", "BED_MESH_CLEAR", "M220 S100",
+        housekeeping = ["M107"] + ([] if mesh_cleared else ["BED_MESH_CLEAR"]) + ["M220 S100",
             "SET_GCODE_VARIABLE MACRO=START_PRINT VARIABLE=adaptive_mesh VALUE=0",
             "RESET_FLOW_EXTRUDER"]
         # Keep the selected tool mapping and physical Z reference. A cancelled

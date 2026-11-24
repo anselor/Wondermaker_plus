@@ -9,6 +9,7 @@ import configparser
 import glob
 import hashlib
 import json
+import math
 import os
 import re
 from pathlib import Path
@@ -225,21 +226,33 @@ def plan(root, directory):
                 ownership.get(section, {}).pop(option, None)
                 warnings.append('Preserved user or unproven managed setting: ' + section + ' / ' + option)
 
-    # Migrate WM+'s former 50 mm finish default, including when it lives in
-    # the underlying legacy config. Retain other operator-selected distances.
-    section, option = 'gcode_macro PRINT_END', 'variable_bed_drop'
-    source = output if output.has_option(section, option) else base
-    if source.has_option(section, option):
+    # Replace the fixed finish drop with a target Z and minimum clearance.
+    # New explicit settings take precedence. Known package defaults migrate;
+    # other legacy distances retain their old fixed-drop/disabled semantics.
+    section, legacy = 'gcode_macro PRINT_END', 'variable_bed_drop'
+    minimum, target = 'variable_bed_drop_minimum', 'variable_bed_drop_target_z'
+    if not any(actual.has_option(section, name) for name in (minimum, target)) and actual.has_option(section, legacy):
         try:
-            old_default = float(source.get(section, option)) == 50.0
-        except ValueError:
-            old_default = False
-        if old_default:
-            if not output.has_section(section):
-                output.add_section(section)
-            value = expected.get(section, option)
-            output.set(section, option, value)
-            ownership.setdefault(section, {})[option] = option_hash(value)
+            distance = float(actual.get(section, legacy))
+            if not math.isfinite(distance):
+                raise ValueError('not finite')
+        except ValueError as error:
+            raise ValueError('Cannot migrate PRINT_END variable_bed_drop; review its nonnumeric or nonfinite value') from error
+        values = ((expected.get(section, minimum), expected.get(section, target))
+                  if distance in (50.0, 150.0) else (str(max(0.0, distance)), '0.0'))
+        if not output.has_section(section):
+            output.add_section(section)
+        for name, value in zip((minimum, target), values):
+            output.set(section, name, value)
+            if value == expected.get(section, name):
+                ownership.setdefault(section, {})[name] = option_hash(value)
+            else:
+                ownership.get(section, {}).pop(name, None)
+        warnings.append('Migrated PRINT_END bed_drop to bed_drop_minimum / bed_drop_target_z; custom fixed distances remain fixed')
+    # Retire the generated legacy variable. Underlying user files stay intact.
+    if output.has_option(section, legacy):
+        output.remove_option(section, legacy)
+        ownership.get(section, {}).pop(legacy, None)
 
     # A shared hot-path rate replaces the former per-return variable. An
     # explicitly configured shared value wins; otherwise carry a non-default

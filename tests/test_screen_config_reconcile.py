@@ -1179,14 +1179,15 @@ def test_legacy_provenance_is_not_an_active_include(printer):
     assert all('.wmp-config-backup-' not in pattern for pattern in result['plan']['include_matches'])
 
 
-@pytest.mark.parametrize('distance,expected', [('50.0', 150.), ('80.0', 80.), ('0', 0.)])
-def test_finish_bed_drop_upgrade_migrates_old_default_only(printer, distance, expected):
+@pytest.mark.parametrize('distance,minimum,target', [('50.0',50.,125.),('150.0',50.,125.),('80.0',80.,0.),('0',0.,0.),('-5',0.,0.)])
+def test_finish_bed_drop_upgrade_migrates_defaults_and_preserves_custom_drop(printer, distance, minimum, target):
     with (printer / 'custom.cfg').open('a') as stream:
         stream.write('\n[gcode_macro PRINT_END]\nvariable_bed_drop: ' + distance + '\n')
     for _ in range(3):
         apply_plan(printer, reconcile.plan(ROOT, printer))
         current = bundle.read_active_config(printer / 'printer.cfg')
-        assert current.getfloat('gcode_macro PRINT_END', 'variable_bed_drop') == expected
+        assert current.getfloat('gcode_macro PRINT_END', 'variable_bed_drop_minimum') == minimum
+        assert current.getfloat('gcode_macro PRINT_END', 'variable_bed_drop_target_z') == target
 
 
 def test_install_and_upgrade_preserve_all_extruder_rotation_distances(printer):
@@ -1232,3 +1233,14 @@ def test_shared_travel_settings_override_legacy_and_survive_upgrade(printer):
         assert current.getfloat('gcode_macro _WMP_XY_TRAVEL', 'variable_travel_speed') == 225
         assert current.getfloat('gcode_macro _WMP_XY_TRAVEL', 'variable_hot_travel_speed') == 475
         assert (printer / 'custom.cfg').read_bytes() == original
+
+
+@pytest.mark.parametrize('minimum,target',[('50','125'),('20.5','90'),('0','0')])
+def test_finish_position_controls_preserve_user_edits_across_updates(printer,minimum,target):
+    with (printer/'custom.cfg').open('a') as stream:
+        stream.write('\n[gcode_macro PRINT_END]\nvariable_bed_drop: 150\nvariable_bed_drop_minimum: '+minimum+'\nvariable_bed_drop_target_z: '+target+'\n')
+    for _ in range(3):
+        apply_plan(printer,reconcile.plan(ROOT,printer))
+        current=bundle.read_active_config(printer/'printer.cfg')
+        assert current.getfloat('gcode_macro PRINT_END','variable_bed_drop_minimum')==float(minimum)
+        assert current.getfloat('gcode_macro PRINT_END','variable_bed_drop_target_z')==float(target)

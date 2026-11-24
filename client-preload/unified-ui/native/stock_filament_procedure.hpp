@@ -2,6 +2,7 @@
 #pragma once
 #include "button_caption.hpp"
 #include "stock_progress_panel.hpp"
+#include "filament_progress_view.hpp"
 #include "stock_header_action.hpp"
 #include "stock_api.hpp"
 #include "stock_dialog_backdrop.hpp"
@@ -153,8 +154,7 @@ public:
     if(state=="pending"&&!complete&&active>=0&&!steps_.empty()){
      const bool numbered=data.value("owner","")=="standalone";
      if(numbered){
-      progress_view={{"steps",Json::array()}};
-      for(unsigned i=0;i<rows.size();++i)progress_view["steps"].push_back({{"label",rows[i].value("label","")},{"state",int(i)==active?"running":int(i)<active?"complete":"pending"}});
+      progress_view=filament_progress_view(rows,active,tool_recovery(),unloading);
      }else{
       std::string line=rows[active].value("label","");
       if(rows[active].value("phase","")=="heating")

@@ -261,7 +261,7 @@ class MaterialSettings:
     def _filament_recipe(identity):
         """Physical recipe comparison; labels never establish spool changes."""
         return {key: copy.deepcopy(value) for key, value in identity.items()
-                if key not in ("brand", "color")}
+                if key not in ("brand", "color", "appearance")}
 
 
     @classmethod

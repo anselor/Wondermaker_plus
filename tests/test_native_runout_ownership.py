@@ -49,10 +49,22 @@ def test_recovery_entries_share_verified_native_installation():
     entries = re.search(r'navigation_hooks\[\]=\{(.*?)\};', bootstrap, re.S).group(1)
     replacements = re.search(r'const std::uintptr_t replacements\[\]=\{(.*?)\};', bootstrap, re.S).group(1)
     addresses = re.findall(r'\{([^,{}]+),nullptr', entries)
-    addresses = [rows['filament_pause']['address'] if address == 'wmp_ui::native::filament_pause' else address for address in addresses]
-    handlers = re.findall(r'&([a-z_]+)\)', replacements)
+    for symbol in ('filament_pause', 'main_filament_updates'):
+        addresses = [rows[symbol]['address'] if address == 'wmp_ui::native::' + symbol else address for address in addresses]
+    handlers = []
+    for entry in replacements.split(','):
+        entry = entry.strip()
+        handler = re.fullmatch(r'reinterpret_cast<std::uintptr_t>\(&([a-z_]\w*)\)', entry)
+        if handler:
+            handlers.append(handler.group(1))
+        else:
+            # The guarded Home hook jumps past the stock filament-only tail;
+            # it targets a verified continuation, not a replacement function.
+            assert entry == 'wmp_ui::native::main_common_return'
+            handlers.append(entry)
     assert len(addresses) == len(handlers)
     bindings = dict(zip(addresses, handlers))
+    assert bindings[rows['main_filament_updates']['address']] == 'wmp_ui::native::main_common_return'
     for name, address in [('resume_prepare', '0x51a7b4'), ('runout_purge', '0x5328b4'), ('resume_check', '0x61b2c4'), ('draw_pop', '0x5352e0'), ('popup_build', '0x532da8'), ('popup_event', '0x5303e4'), ('warning_callback', '0x54c93c')]:
         assert rows[name]['address'] == address
         assert bindings[address] == 'unified_' + name

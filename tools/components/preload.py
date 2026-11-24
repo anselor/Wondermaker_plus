@@ -19,6 +19,7 @@ import json
 import hashlib
 import time
 import re
+import subprocess
 from pathlib import Path
 import preload_bundle
 
@@ -36,6 +37,31 @@ SRC = os.path.join(ROOT, "client-preload")
 DROPIN = "/etc/systemd/system/makerbase-client.service.d/wmp-preload.conf"
 DEFAULTS_DROPIN = "/etc/systemd/system/klipper.service.d/wmp-defaults.conf"
 SERVICE = "makerbase-client.service"
+
+
+def release_identity(root):
+    """Identity of the installed checkout, separate from the sealed UI artifact."""
+    def git(*args):
+        return subprocess.check_output(['git', '-C', str(root), *args],
+                                       stderr=subprocess.DEVNULL, text=True).strip()
+    try:
+        if Path(git('rev-parse', '--show-toplevel')).resolve() != Path(root).resolve():
+            return ''  # A source archive inside another checkout is not that release.
+        commit = git('rev-parse', '--short=8', 'HEAD')
+        dirty = bool(git('status', '--porcelain', '--untracked-files=no'))
+        try:
+            tag = git('describe', '--tags', '--exact-match', 'HEAD')
+        except subprocess.CalledProcessError:
+            tag = ''
+        if tag and not dirty:
+            return tag
+        try:
+            branch = tag or git('symbolic-ref', '--quiet', '--short', 'HEAD')
+        except subprocess.CalledProcessError:
+            branch = 'detached'
+        return branch + '@' + commit + ('+modified' if dirty else '')
+    except (OSError, subprocess.CalledProcessError):
+        return ''  # Archive installs retain the immutable UI build identity.
 
 
 def sources():
@@ -458,6 +484,9 @@ def install(ctx):
             _helper(ctx,c,"verify_backend_helpers(%r,%r)"%(stage,'/home/'+ctx.user))
             _helper(ctx,c,"verify_backend_config(%r,%r)"%(stage,'/home/'+ctx.user))
         recovery_env = json.loads(_helper(ctx,c,"print(json.dumps(recovery_environment(%r)))" % _printer_home(ctx)))
+        identity = release_identity(ROOT)
+        if identity:
+            recovery_env['WMP_RELEASE_IDENTITY'] = identity
         # Commit the publication intent before sending any installed-file write.
         # A staging receipt therefore proves publication was never dispatched.
         receipt=dict(receipt,phase='publication')

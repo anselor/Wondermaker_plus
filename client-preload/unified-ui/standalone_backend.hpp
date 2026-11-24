@@ -483,12 +483,13 @@ private:
    if(!cosmetic&&!recipe_write&&paused_filament_for(snapshot_,draft.value("head",""))&&args.value("pause_origin",Json())!=snapshot_["paused_filament"]["origin"])return "Paused edit context changed.";
    if(!cosmetic&&!recipe_write&&args.contains("pause_origin")&&!paused_filament_for(snapshot_,draft.value("head","")))return "Paused edit expired.";
 
-   if(identity.size()<3||identity.size()>7)return "Filament identity field count must be 3..7; current="+std::to_string(identity.size())+".";
-   for(auto it=identity.begin();it!=identity.end();++it)if(it.key()!="brand"&&it.key()!="material"&&it.key()!="color"){
+   if(identity.size()<3||identity.size()>8)return "Filament identity field count must be 3..8; current="+std::to_string(identity.size())+".";
+   for(auto it=identity.begin();it!=identity.end();++it)if(it.key()!="brand"&&it.key()!="material"&&it.key()!="color"&&it.key()!="appearance"){
     if((it.key()!="nozzle_temp"&&it.key()!="nozzle_temp_min"&&it.key()!="nozzle_temp_max"&&it.key()!="bed_temp")||!it.value().is_number())return "Invalid filament temperature.";
    }
    for(const auto&field:{"brand","material","color"})if(!identity.contains(field)||!identity[field].is_string())return "Filament identity requires text field "+std::string(field)+".";
    for(const auto&field:{"brand","material"}){auto value=identity[field].get<std::string>();if(value.empty()||value.size()>64)return "Filament "+std::string(field)+" length must be 1..64; current="+std::to_string(value.size())+".";for(unsigned char c:value)if(c<32)return "Filament "+std::string(field)+" contains a control character.";}
+   if(identity.contains("appearance")){const auto a=identity["appearance"];if(!a.is_string()||(a!="standard"&&a!="translucent"&&a!="gradient"&&a!="co-extrusion"))return "Invalid filament appearance.";}
    auto color=identity["color"].get<std::string>();if(color.size()!=7||color[0]!='#'||color.substr(1).find_first_not_of("0123456789abcdefABCDEF")!=std::string::npos)return "Invalid filament color.";
    for(const auto&source:snapshot_.value("sources",Json::array()))if(source.value("id","")==draft.value("id","")&&source.value("kind","")=="external"&&source.value("head","")==draft.value("head",""))return "";
    return "Unknown external filament source.";

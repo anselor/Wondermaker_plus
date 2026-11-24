@@ -57,9 +57,9 @@ public:
   if(!found)return refused("Filament source is no longer available.");
   if(!cosmetic&&!filament_identity_editable(s,draft_.value("head","")))return refused(filament_identity_reason(s,draft_.value("head","")));
   const auto why=backend.unavailable("save_identity");if(!why.empty())return refused(why);
-  if(!fields.is_object()||fields.empty()||fields.size()>(owner_=="standalone"?7u:3u))return refused("Invalid filament fields.");
+  if(!fields.is_object()||fields.empty()||fields.size()>(owner_=="standalone"?8u:3u))return refused("Invalid filament fields.");
   for(auto it=fields.begin();it!=fields.end();++it){
-   const bool text=it.key()=="brand"||it.key()=="material"||it.key()=="color";
+   const bool text=it.key()=="brand"||it.key()=="material"||it.key()=="color"||(owner_=="standalone"&&it.key()=="appearance");
    const bool temperature=owner_=="standalone"&&(it.key()=="nozzle_temp"||it.key()=="nozzle_temp_min"||it.key()=="nozzle_temp_max"||it.key()=="bed_temp");
    if((text&&!it.value().is_string())||(temperature&&!it.value().is_number())||(!text&&!temperature))return refused("Invalid filament fields.");
   }

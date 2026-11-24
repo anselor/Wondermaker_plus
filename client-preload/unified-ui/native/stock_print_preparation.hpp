@@ -10,10 +10,25 @@ inline Json print_preparation_view(const Json&data){
  const auto phase=preparation.value("phase","");bool reached=false;
  Json view={{"title","Preparing print"},{"steps",Json::array()},
   {"instruction",preparation.value("instruction","")},{"note",preparation.value("note","")}};
+ bool chamber=false;
+ for(const auto&step:preparation.value("steps",Json::array()))chamber=chamber||step.value("phase","")=="chamber";
+ std::string previous;
  for(const auto&step:preparation.value("steps",Json::array())){
-  const bool current=step.value("phase","")==phase;
-  view["steps"].push_back({{"label",step.value("label","")},{"state",current?"running":reached?"pending":"complete"}});
+  const auto action=step.value("phase","");
+  const bool current=action==phase;
+  std::string group=action,label=step.value("label","");
+  if(action=="preheat"||action=="homing"){group="prepare";label="Prepare printer";}
+  else if(action=="bed"||action=="chamber"||action=="stabilizing"){
+   group="temperatures";label=chamber?"Heat bed and chamber":"Heat bed";
+  }
+  const std::string state=current?"running":reached?"pending":"complete";
+  auto& rows=view["steps"];
+  if(rows.empty()||previous!=group)rows.push_back({{"label",label},{"state",state}});
+  else {auto& last=rows.back();const auto prior=last.value("state","");
+   last["state"]=prior=="running"||state=="running"?"running":prior=="complete"&&state=="complete"?"complete":"pending";
+  }
   if(current){view["heading"]=step.value("label","");reached=true;}
+  previous=group;
  }
  std::string values;
  auto append=[&](const std::string&label,double actual,double target){if(!values.empty())values+='\n';values+=label+": "+std::to_string(int(actual))+" / "+std::to_string(int(target))+" C";};

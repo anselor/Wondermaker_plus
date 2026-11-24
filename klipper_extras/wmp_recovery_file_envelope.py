@@ -237,8 +237,11 @@ def analyze(stream, execution, context, matrix, fade_target, proof, yield_hook=N
 # Only those exact reviewed bodies qualify; any further change still refuses.
 TRANSFORMS = {'bed_mesh': 'a003072f5b0884fdc94cc53c7cb3a8ee970e66591d8a3dbeb83abad4e1b530f7',
  'gcode_move': 'c65edf115d2170182959fa3f06fb554e6d05fba7875409fd9fec7f52d20873ff'}
-# Shared travel changes feed rate and XY only; its body must also be qualified.
-MACROS = {'_WMP_XY_TRAVEL': 'e2692203ee8cb089b130c601c7dd3795827cb1312c0d66985f3cf40170f6d98a',
+# Shared travel and the drained post-print lowering/park helpers must also
+# be qualified. Parking preserves the frame and adds no extrusion or tool pickup.
+MACROS = {'_WMP_PRINT_STOP_PARK': '21ad74e3d4001c6302a63212cbf7ecd6b16e6e4f8ae92a309a79cf9191731f93',
+ '_WMP_PRINT_LOWER_BED': '66885737ebf0ac446653f11fa92c5d276ac9144b2aa6dd397830088ae4236073',
+ '_WMP_XY_TRAVEL': 'e2692203ee8cb089b130c601c7dd3795827cb1312c0d66985f3cf40170f6d98a',
  'BED_MESH_CALIBRATE': 'a8e427576c00d47d42734ad1b2ee3a3e44174001ae78a3ef9662a5d27efca972',
  'BED_MESH_PROFILE': 'c940b1137b0353060f3d2afd3c91a6ae1087411c9e4087acf47cee9d82023365',
  'E_axis_move': '0ce073e297d0667343180e4d176df4cfa616794107b0f31900ece92383e1483c',
@@ -250,7 +253,7 @@ MACROS = {'_WMP_XY_TRAVEL': 'e2692203ee8cb089b130c601c7dd3795827cb1312c0d66985f3
  'M190': '2085a4d0b675fb982ff7df78959a6d65cf6ee2938792ec54b71a753213503bf9',
  'M221': '5fae08e19a1ff1d5b908033159bd77024a0a5e1304ee49f56ddda740346bde6f',
  'PAUSE': '4b56613f549a1e81e2a57f41c56d67fd7f6bc8d8ce808f50a16fa21171092352',
- 'PRINT_END': '9442cc5eb2b46f5e5de3b6735c217ecab61323124702c6142f49b5cccc8a2998',
+ 'PRINT_END': '9b7d9a7a82e00259930669050c0bbfd43a3fa824cc7857e1d49f278d6a41486b',
  'RESET_FLOW_EXTRUDER': 'de7604820e2d4ac07bda71c721f184539ee6b914ae0fd40b5887e0fc0480e4c5',
  'START_PRINT': 'a460b40474c1a2c93ba7acd25c07947b6500e31fcdac877482ac86f9a70b195b',
  'T0': 'c0d34e22efdbfdbe61b6a8aebbfb11fdb6904da0523a0a362890da0e0c6fd829',
@@ -278,7 +281,7 @@ MACROS = {'_WMP_XY_TRAVEL': 'e2692203ee8cb089b130c601c7dd3795827cb1312c0d66985f3
  '_WMP_CALIBRATION_CLEARANCE': '198fbd7b8a9dc0e1fc1ed3fd429e2fe45430ec28a8d8fe1e8a0b14094193de1c',
  '_WMP_PRINT_CONTEXT_CLEAR': '8767679d745b68ba596910ed93de13aab43176280b1e7ca8b079d07aa9f7c61e',
  '_WMP_PRINT_CONTEXT_COMMIT': '7ffa276bc03a4641ccf857b085607c3738eee290df1ab1852505255a3c8ca8d0',
- '_WMP_PRINT_END_CLEARANCE_AND_WIPE': '69801fa8d42c0b4178f8e2351dd2ba15c07611b6dc5d8ca1e65127bcd48debf9',
+ '_WMP_PRINT_END_CLEARANCE_AND_WIPE': 'cd9f0bbb85cbcf1f6ac0bba566ab869932d7c02c200bdd0063c4921eec7ba9db',
  # Clearance refusal now pauses at a typed, non-extruding stage boundary.
  # Successful stock movement/offset effects are unchanged; explicit retries
  # preserve the original return context and never replay completed wiping.

@@ -512,9 +512,11 @@ def test_recovery_environment_is_published_and_rolled_back(tmp_path):
     (stage/'outputs.json').write_text(json.dumps({'libwmp_recovery-fix.so':
         dict(file='test.so',sha256=pb.digest(stage/'test.so'))}))
     pb.publish_stage(stage,lib,drop,{'WMP_RECOVERY_JOB_PATH':'/home/test/50% profiles/job.json',
-                                   'WMP_RECOVERY_JOB_REQUIRED':'1'})
+                                   'WMP_RECOVERY_JOB_REQUIRED':'1',
+                                   'WMP_RELEASE_IDENTITY':'r4@12345678'})
     assert 'Environment="WMP_RECOVERY_JOB_PATH=/home/test/50%% profiles/job.json"' in drop.read_text()
     assert 'Environment="WMP_RECOVERY_JOB_REQUIRED=1"' in drop.read_text()
+    assert 'Environment="WMP_RELEASE_IDENTITY=r4@12345678"' in drop.read_text()
     pb.restore_publication(stage)
     assert drop.read_text() == 'previous configuration'
 

@@ -162,6 +162,7 @@ class NozzleScrubFlow {
  }
  void mount(unsigned head) {
   head_ = head;
+  progress_phase_ = "unavailable";
   heat_acked_ = reheat_sent_ = false;
   mount_acked_ = !repeat_;
   reheat_command_.clear();
@@ -343,6 +344,14 @@ class NozzleScrubFlow {
    // request the refusal came before anything ran.
    if (refused) hot_ = seen_;
    return;
+  }
+  if (state_ == ScrubState::Mounting) {
+   // The worker forwarded G28, not necessarily completed it. Prefer the
+   // bound backend action once the scrub command actually starts.
+   if (own && on_head && (phase == "mounting" || phase == "positioning" || phase == "heating"))
+    progress_phase_ = phase;
+   else if (head_ == 0 && !repeat_ && (!own || phase == "idle") && for_run(snapshot, "calibration_progress") && text(snapshot["calibration_progress"], "phase") == "homing")
+    progress_phase_ = "homing";
   }
   if (!own) return;  // not yet about this run
   if (state_ == ScrubState::Cancelling) {

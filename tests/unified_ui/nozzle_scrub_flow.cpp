@@ -133,6 +133,19 @@ void offsets_only_run_skips_return_prompt() {
  assert(v.state == ScrubState::Mounting && v.head == 0);
  assert(v.heading == "Mounting head 1...");
  assert(v.cancel_visible && v.confirm_visible && !v.confirm_enabled);
+ s.progress_phase = "homing";
+ flow.observe(s.json(), 1);
+ assert(view(flow).heading == "Homing printer...");
+ assert(nozzle_scrub_current_step(view(flow)) == 0);
+ assert(nozzle_scrub_panel_view(view(flow))["steps"][0]["state"] == "running");
+ assert(nozzle_scrub_panel_view(view(flow))["steps"][1]["state"] == "pending");
+ s.scrub_head = 0; s.scrub_phase = "mounting";
+ flow.observe(s.json(), 2);
+ assert(view(flow).heading == "Mounting head 1...");
+ s.scrub_phase = "positioning";
+ flow.observe(s.json(), 3);
+ assert(view(flow).heading == "Positioning head 1...");
+ assert(nozzle_scrub_current_step(view(flow)) == 1);
  assert(flow.hold());
  assert(drain(flow) == std::vector<std::string>({"_WMP_SCRUB_HEAD T=0"}));
 }

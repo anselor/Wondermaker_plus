@@ -292,6 +292,11 @@
       "bytes": "fd7bbda9fd030091e00f00f9e12f0079e21300b9ff1700f9e02fc079e02b00b9"
     },
     {
+      "name": "lv_obj_set_style_clip_corner",
+      "address": "0x6aeb70",
+      "bytes": "fd7bbda9fd030091e00f00f9e15f0039e21300b9ff1700f9e05f4039e02b00b9"
+    },
+    {
       "name": "lv_obj_set_style_opa",
       "address": "0x6aebb0",
       "bytes": "fd7bbda9fd030091e00f00f9e15f0039e21300b9ff1700f9e05f4039e02b00b9"
@@ -515,6 +520,16 @@
       "name": "lv_label_class",
       "address": "0x363d980",
       "bytes": "286363030000000004ae6d0000000000f0ae6d00000000000000000000000000"
+    },
+    {
+      "name": "main_filament_updates",
+      "address": "0x51df74",
+      "bytes": "4009079000301c91010040b9e09901f000800991000040b93f00006bcb050054"
+    },
+    {
+      "name": "main_common_return",
+      "address": "0x51e168",
+      "bytes": "f30b40f9fd7bc3a8c0035fd6fd7ba6a9fd030091f30b00f920edff97001c0012"
     },
     {
       "name": "warning_callback",

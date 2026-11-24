@@ -18,6 +18,7 @@ RUNTIME_INPUTS = (
     'klipper_extras/wmp_plr_jobs.py',
     'klipper_extras/wmp_print_submission.py',
     'klipper_extras/wmp_print_preparation.py',
+    'klipper_extras/wmp_filament_accounting.py',
     'klipper_extras/wmp_filament_planning.py',
     'klipper_extras/wmp_filament_service.py',
     'klipper_extras/wmp_toolchange_repair.py',

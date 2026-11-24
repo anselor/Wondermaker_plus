@@ -650,6 +650,16 @@ public:
   update_stock_calibration();
  }
  void stock_about_created(void*page){diagnostics_.created(page);diagnostics_.update(stock_snapshot());}
+ void stock_home_refreshed(){
+#if defined(__aarch64__)
+  if(!surface_.verified())return;
+  auto*main=*reinterpret_cast<void*volatile*>(0x386cec0);
+  auto*icon=*reinterpret_cast<void*volatile*>(0x386cfa8);
+  if(stock_object_valid(main)&&!mini_.attached(icon))stock_function<void(*)(void*)>(lv_obj_update_layout)(main);
+  mini_.refresh(main,icon);
+#endif
+ }
+
  void stock_picker_cancel(){
   // ACE colour edits are drafts until Save filament. Closing a reopened
   // picker must not invalidate the earlier draft and leave Save inert.
@@ -1449,7 +1459,7 @@ private:
   if(!filament_source_edit_context_matches(data,context,source)){reject_action("filament SAVE","Filament source or editing context changed since editor entry.");return;}
   if(!stock_identity_.begin_source(data,source.value("id",""),"brand")){reject_action("filament SAVE",stock_identity_.reason());return;}
   backend_.update(raw,data.value("revision",""),data.value("fresh",false));
-  auto fields=view.draft_identity();for(auto it=fields.begin();it!=fields.end();)if(it.key()!="brand"&&it.key()!="material"&&it.key()!="color"&&(data.value("owner","")!="standalone"||(it.key()!="nozzle_temp"&&it.key()!="nozzle_temp_min"&&it.key()!="nozzle_temp_max"&&it.key()!="bed_temp")))it=fields.erase(it);else ++it;
+  auto fields=view.draft_identity();for(auto it=fields.begin();it!=fields.end();)if(it.key()!="brand"&&it.key()!="material"&&it.key()!="color"&&(data.value("owner","")!="standalone"||(it.key()!="appearance"&&it.key()!="nozzle_temp"&&it.key()!="nozzle_temp_min"&&it.key()!="nozzle_temp_max"&&it.key()!="bed_temp")))it=fields.erase(it);else ++it;
   const auto receipt=stock_identity_.choose_fields(data,fields,data.value("owner","")=="standalone"?static_cast<Backend&>(filament_settings_):static_cast<Backend&>(backend_));
   const bool load_after_save=view.loading();
   stock_ace_edit_=true;

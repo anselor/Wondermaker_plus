@@ -153,8 +153,10 @@ static int screen_header_contract(const char*path,const char*scenarios_path){
    if(scene=="recovery"&&variant=="choices")actions={"CLOSE","USE SAVED","DISCARD"};
    if(scene=="discard"&&variant=="reviewed")actions={"CANCEL","DISCARD"};
   }else if(scene=="diagnostics"){
+   auto*list=fake::make(parent);list->w=parent->w;list->h=314;
+   for(int i=0;i<6;++i){auto*row=fake::make(list);row->w=parent->w;row->h=56;row->y=i*57;}
    diagnostics.attach(parent);diagnostics.update({{"fresh",variant!="stale"},{"owner","standalone"}});assert(diagnostics.open());
-   title="WM+ diagnostics";actions={"CLOSE"};
+   title="About WonderMaker+";actions={"CLOSE"};
   }else if(scene=="image-preview"){
    auto*thumbnail=fake::make(parent);thumbnail->image="/tmp/header-preview.png";
    assert(image.show(parent,thumbnail));actions={"CLOSE"};

@@ -39,9 +39,10 @@ available from the console as `LOAD_FILAMENT HEAD=2` and
 - **Pause and resume:** preserve tool-to-head assignments and restore nozzle
   temperatures to the correct heads. Runout and tangle pauses allow manual
   movement and filament service before resuming.
-- **Print end:** lower the bed by up to 50 mm within its remaining travel and
-  wipe the nozzle.
-- **Cancel:** stop queued print work, turn off heaters, and clear the state needed
+- **Print end:** lower toward a configurable bed Z target with a configurable
+  minimum clearance, then wipe and park by the scrubber.
+- **Cancel:** stop queued print work, turn off heaters, then apply the same bed
+  clearance and park a confirmed head by the scrubber. Clear the state needed
   for the next print.
 - **Power Loss Recovery (PLR):** restore the print's bed mesh and tool assignments,
   correct recovery coordinates, and establish Z at the bottom before head pickup.

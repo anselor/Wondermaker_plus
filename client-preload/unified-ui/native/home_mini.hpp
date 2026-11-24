@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
+#include "filament_appearance.hpp"
 #include "lvgl_surface.hpp"
 namespace wmp_ui { namespace native {
 // Covers only the original Home filament button. The root owns navigation so
@@ -8,10 +9,19 @@ class HomeMini {
 public:
  std::function<void()> open_filaments;
  ~HomeMini(){clear();}
- void update(const Json&data,void*main,void*first_stock_icon,bool data_changed=true){
-  if(!valid(main)||!valid(first_stock_icon)||!descendant(first_stock_icon,main)||!shown(main)){clear();return;}
+ // The stock constructor calls its refresh before the page's first paint.
+ // Use the already shared UI projection there; never poll the backend here.
+ bool attached(void*icon)const{return valid(root_)&&valid(icon)&&call<void*(*)(void*)>(lv_obj_get_parent)(icon)==parent_;}
+ void refresh(void*main,void*first_stock_icon){update(cached_,main,first_stock_icon,false,true);}
+ void update(const Json&data,void*main,void*first_stock_icon,bool data_changed=true,bool preparing=false){
+  if(data_changed){
+   cached_=Json::object();for(const auto*key:{"fresh","owner","units","sources","heads","candidates"})if(data.contains(key))cached_[key]=data.at(key);
+  }
+  if(!valid(main)||!valid(first_stock_icon)||!descendant(first_stock_icon,main)){clear();return;}
+  if(!preparing&&!shown(main))return; // Retain ownership while a cached page is hidden.
+
   auto display=call<void*(*)()>(lv_disp_get_default)();auto screen=display?call<void*(*)(void*)>(lv_disp_get_scr_act)(display):nullptr;
-  if(!screen||!descendant(main,screen)){clear();return;}
+  if((!screen||!descendant(main,screen))&&!preparing)return;
   auto parent=call<void*(*)(void*)>(lv_obj_get_parent)(first_stock_icon);
   if(!parent||parent==main){clear();return;}
   Area bounds{},content{};call<void(*)(void*,Area*)>(lv_obj_get_coords)(parent,&bounds);call<void(*)(void*,Area*)>(lv_obj_get_content_coords)(parent,&content);
@@ -26,7 +36,7 @@ public:
   // Temperature/target changes must not delete the touch target mid-gesture.
   Json heads=Json::array();for(const auto&head:data.value("heads",Json::array())){
    const auto loaded=head.value("loaded",Json::object());
-   heads.push_back({{"id",head.value("id","")},{"loaded",{{"state",loaded.value("state","unknown")},{"identity",{{"color",identity_display_text(loaded.value("identity",Json::object()),"color","#888888")}}}}}});
+   heads.push_back({{"id",head.value("id","")},{"loaded",{{"state",loaded.value("state","unknown")},{"identity",{{"color",identity_display_text(loaded.value("identity",Json::object()),"color","#888888")},{"appearance",identity_display_text(loaded.value("identity",Json::object()),"appearance","standard")}}}}}});
   }
   Json signature={{"stale",stale},{"units",units},{"sources",sources},{"heads",heads},{"alert",alert},{"ace",ace},{"width",width},{"height",height}};
   if(root_&&valid(root_)&&parent==parent_&&signature.dump()==signature_)return;
@@ -69,6 +79,11 @@ public:
     const auto shade=identity_display_text(loaded.value("identity",Json::object()),"color","#888888");
     auto circle=box(root_,"head:"+id,5+n*cell+(cell-diameter)/2,(height-diameter)/2,diameter,diameter,parse(shade));
     style(circle,lv_obj_set_style_radius,diameter/2);
+    clip_appearance(circle);
+    if(state=="loaded")for(const auto&t:translucent_tiles(loaded.value("identity",Json::object()),diameter,diameter)){
+     auto*tile=box(circle,"appearance:"+id+":"+std::to_string(t.x)+":"+std::to_string(t.y),t.x,t.y,t.w,t.h,t.colour);
+     style(tile,lv_obj_set_style_radius,0);
+    }
     if(state!="loaded"){
      style(circle,lv_obj_set_style_bg_opa,0);style(circle,lv_obj_set_style_border_width,1);
      color(circle,lv_obj_set_style_border_color,0xff888888);
@@ -81,6 +96,7 @@ public:
  }
  void clear(){restore_originals();if(root_&&valid(root_))call<void(*)(void*)>(lv_obj_del)(root_);root_=nullptr;parent_=nullptr;signature_.clear();decorations_.clear();width_=height_=0;}
 private:
+ Json cached_=Json{{"fresh",false},{"owner","unknown"}};
  struct Original {void*object;bool hidden;};std::vector<Original>originals_;void*originals_parent_=nullptr;int width_=0,height_=0;
  // Covered stock feeder icons can be animated. Keep them hidden, rather than
  // merely painting over them, so their animation cannot keep dirtying our UI.

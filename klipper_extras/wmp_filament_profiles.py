@@ -16,8 +16,10 @@ except ImportError:
 
 
 def validate_identity(identity):
-    if not isinstance(identity, dict) or (not {"brand", "material", "color"}.issubset(identity) or set(identity) - {"brand", "material", "color", "nozzle_temp", "nozzle_temp_min", "nozzle_temp_max", "bed_temp"}):
+    if not isinstance(identity, dict) or (not {"brand", "material", "color"}.issubset(identity) or set(identity) - {"brand", "material", "color", "appearance", "nozzle_temp", "nozzle_temp_min", "nozzle_temp_max", "bed_temp"}):
         raise ValueError("Filament needs brand, material and color")
+    if identity.get("appearance", "standard") not in ("standard", "translucent", "gradient", "co-extrusion"):
+        raise ValueError("Invalid filament appearance")
     for key in ("nozzle_temp", "nozzle_temp_min", "nozzle_temp_max", "bed_temp"):
         if key in identity and (type(identity[key]) not in (int, float) or not math.isfinite(identity[key]) or not 0 <= identity[key] <= (150 if key == "bed_temp" else 350)):
             raise ValueError("Invalid filament temperature")

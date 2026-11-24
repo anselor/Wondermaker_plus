@@ -291,7 +291,7 @@ public:
    if(!terminal&&details.compare(0,generic.size(),generic)==0){
     details.erase(0,generic.size());if(!details.empty()&&details[0]=='\n')details.erase(0,1);
    }
-   progress_.update({{"instruction",details},{"value",temperature_text},{"steps",terminal?Json::array():plr_progress_steps(stages)}});
+   progress_.update({{"heading",!terminal&&!cancel_mode_&&!retiring?plr_progress_detail(stages):std::string()},{"instruction",details},{"value",temperature_text},{"steps",terminal?Json::array():plr_progress_steps(stages)}});
    stock_function<void(*)(void*,unsigned)>(lv_obj_add_flag)(summary_,1);
     return;
   }

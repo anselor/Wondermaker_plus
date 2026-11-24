@@ -102,7 +102,7 @@ def light(tmp_path, monkeypatch):
                'webhooks': NS(register_endpoint=lambda name, cb: endpoints.setdefault(name, cb)),
                'print_stats': NS(get_status=lambda now: state)}
     def lookup(name, default=None):
-        assert name in objects, 'Unexpected hardware dependency: ' + name
+        assert name in objects or name in ('wmp_recovery', 'gcode_button Door_button1', 'gcode_button Door_button2'), 'Unexpected hardware dependency: ' + name
         return objects.get(name, default)
     printer = NS(lookup_object=lookup, get_reactor=lambda: reactor, command_error=ValueError,
                  register_event_handler=lambda name, cb: events.setdefault(name, cb))
@@ -115,7 +115,7 @@ def light(tmp_path, monkeypatch):
     return NS(extra=extra, config=config, gpio=paths['gpio'], backlight=paths['backlight'],
               ini=paths['screen.ini'], state=state, saver=saver, reactor=reactor,
               mux=mux, commands=commands, tick=tick,
-              endpoints=endpoints,
+              endpoints=endpoints, objects=objects,
               value=lambda: int(paths['gpio'].read_text().strip()))
 
 
@@ -554,3 +554,40 @@ def test_request_before_first_load_does_not_change_adopted_preference(light):
     assert light.saver.writes == [('wmp_case_light_enabled', False)]
     assert light.extra.get_status(light.reactor.now)['attention_active'] is True
     assert light.value() == 1  # the pattern starts once the preference is loaded
+
+
+@pytest.mark.parametrize('active,manual', [(True, False), (False, True)])
+def test_calibration_forces_light_without_changing_saved_preference(light, active, manual):
+    light.saver.variables['wmp_case_light_enabled'] = False
+    light.backlight.write_text('0')
+    calibration = NS(active=active, probe_editor=NS(busy=lambda: manual))
+    light.objects['wmp_recovery'] = NS(calibration=calibration)
+    light.tick()
+    assert light.value() == 1
+    assert light.saver.variables['wmp_case_light_enabled'] is False
+    assert not light.saver.writes
+    calibration.active = False
+    calibration.probe_editor.busy = lambda: False
+    light.tick()
+    assert light.value() == 0
+    assert not light.saver.writes
+
+
+@pytest.mark.parametrize('door', ['Door_button1', 'Door_button2'])
+def test_open_door_skips_attention_and_closing_does_not_restart(light, door):
+    state = {'state': 'RELEASED'}
+    light.objects['gcode_button ' + door] = NS(get_status=lambda now: state)
+    light.tick()
+    light.extra.request_attention('scrub')
+    assert light.extra.attention_step is None
+    assert light.value() == 1
+    state['state'] = 'PRESSED'
+    light.tick()
+    assert light.extra.attention_step is None
+    assert light.value() == 1
+    light.extra.request_attention('next-prompt')
+    assert light.extra.attention_step is not None
+    state['state'] = 'RELEASED'
+    light.tick()
+    assert light.extra.attention_step is None
+    assert light.value() == 1

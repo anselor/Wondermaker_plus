@@ -24,7 +24,7 @@ bool scrub_clickable(const fake::Node*n){for(const auto&cb:n->callbacks)if(cb.co
 // Views as nozzle_scrub_view produces them, with the head and head count given.
 ScrubView scrub_view(ScrubState state,unsigned head=3,unsigned heads=4,const std::string&calibrate="height"){
  const auto n=std::to_string(head+1),m=std::to_string(heads);
- ScrubView v{state,head,heads,true,true,true,true,false,"","","",0,0,{"",""},{"",""},true,{},{}};
+ ScrubView v{state,head,heads,true,true,true,true,false,"","","",0,0,{"",""},{"",""},true,{},{},false};
  switch(state){
   case ScrubState::Prepare:v.heading="How will the nozzles be cleaned?";
    v.option_title[0]="Wire brush";v.option_detail[0]="Scrub each heated nozzle by hand. Have a wire brush ready.";

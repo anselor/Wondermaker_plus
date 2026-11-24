@@ -194,6 +194,15 @@ Firmware 1.1.13's collision monitor remains enabled around tool-alignment probin
 
 ### Filament loading and unloading
 
+Standalone filament settings include an **Appearance** selector: Standard,
+Translucent, Gradient and Co-extrusion. Existing profiles default to Standard.
+Translucent uses a subtle checkerboard swatch. In R4, Gradient and Co-extrusion
+save the classification but still display the primary solid colour; additional
+colours and blended/radial rendering are deferred. Appearance is cosmetic: it
+does not change material, temperatures, physical load state or recipe admission.
+The primary `color: #RRGGBB` stays compatible with Orca. Optional profile key
+`appearance` accepts `standard`, `translucent`, `gradient` or `co-extrusion`.
+
 Use **Load** on the screen to feed inserted filament. The insertion sensor reports
 that filament is present rather than starting a second automatic load/purge cycle.
 
@@ -276,6 +285,12 @@ Without `REPORT_ID`, the recipe emits no phase reports. The report helper update
 only the macro's in-memory status; it adds no movement or recovery action.
 
 ### Case light preference, screen sleep, and printing
+
+Calibration temporarily forces the chamber light on, including manual probe
+adjustment, even when the saved preference is off. It does not change that
+preference; the normal light policy resumes when calibration ends or is cancelled.
+An already-open door suppresses attention blinking. Opening a door also
+acknowledges an active signal; closing it does not restart that old notification.
 
 The saved preference uses Klipper's `SAVE_VARIABLE` mechanism, under
 `wmp_case_light_enabled` in the existing managed variables file. There are no
@@ -420,13 +435,42 @@ The startup purge runs on the plate's left edge at X0, Y100–150. The previous
 front-edge position could strike the front panel. The earlier Y2 workaround is
 superseded by this left-edge route.
 
-At print end or cancellation, `PRINT_END.variable_bed_drop` defaults to lowering
-the bed by up to 150 mm, limited by the bottom endstop. Both paths use the shared
-`_WMP_PRINT_LOWER_BED` helper, which accounts for G-code offsets and skips the
-move when Z is unhomed or no downward travel remains. Completion also wipes while
-X, Y, and Z remain homed, then leaves the head over the left brush. Cancellation
-lowers the bed after queued motion stops, without homing or moving X/Y. `PRINT_END` leaves its SD reader to
-reach EOF; cancellation resets the file and explicitly clears native pause flags.
+After Finish or Cancel, the bed moves to the configured physical Z target,
+with at least the configured downward clearance, capped at the bottom endstop.
+It never raises the bed as part of print cleanup. The defaults are target
+**Z125 mm** and minimum drop **50 mm**: Z2 finishes at Z125, Z100 at Z150,
+and Z275 at Z300.
+
+Add these variables to your own included configuration file, or edit your
+existing user overrides. Do not edit the generated `wmp-screen-runtime.cfg`:
+
+```ini
+[gcode_macro PRINT_END]
+variable_bed_drop_target_z: 125.0
+variable_bed_drop_minimum: 50.0
+```
+
+Updates preserve explicit user values. For an immediate, nonpersistent change
+from the console (no restart):
+
+```gcode
+SET_GCODE_VARIABLE MACRO=PRINT_END VARIABLE=bed_drop_target_z VALUE=125
+SET_GCODE_VARIABLE MACRO=PRINT_END VARIABLE=bed_drop_minimum VALUE=50
+```
+
+Both settings must be finite, nonnegative millimetres. Setting both to zero
+turns automatic lowering/parking off. Old package defaults migrate to the new
+pair; a custom legacy fixed drop retains that behavior with target zero.
+
+Both paths clear the old mesh before calculating physical clearance. After
+lowering has drained, a homed, confirmed attached head parks beside the left
+scrubber using the shared hot travel rate. Finish retains its wipe; managed
+Cancel performs no wipe, extrusion, pickup or homing. Unreferenced axes,
+unconfirmed attachment, active coupling/fault flags or no available downward
+clearance skip parking. Z-only clearance remains available when X/Y are unhomed.
+`PRINT_END` leaves its SD reader to reach EOF; cancellation resets the file and
+clears native pause flags. Cancelling before an actual SD print dispatches
+performs no cleanup movement.
 
 Final cooldowns in `NOZZLE_PREPARE` and `POP` wait only until temperature falls
 below their upper limits (102.5°C and 104.5°C). An undershoot does not require

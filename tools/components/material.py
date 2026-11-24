@@ -46,6 +46,7 @@ HELPERS = (
     'wmp_plr_jobs.py',
     'wmp_print_submission.py',
     'wmp_print_preparation.py',
+    'wmp_filament_accounting.py',
     'wmp_filament_planning.py',
     'wmp_filament_service.py',
     'wmp_toolchange_repair.py',

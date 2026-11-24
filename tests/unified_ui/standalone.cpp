@@ -399,7 +399,7 @@ int main(){
   StandaloneBackend settings;Http wire;settings.observe(current);
   native::StockIdentityEdit editor;assert(editor.begin(current,"h2","material"));
   assert(wire.posts==0);
-  auto result=editor.choose_fields(current,{{"material","ASA"},{"nozzle_temp",245}},settings);
+  auto result=editor.choose_fields(current,{{"material","ASA"},{"nozzle_temp",245},{"appearance","translucent"}},settings);
   assert(result.state==(mode==0?"pending":"refused"));settings.deliver(wire);assert(wire.posts==(mode==0?1:0));
   if(mode==0){assert(wire.script.find("WMP_SET_FILAMENT HEAD=2")!=std::string::npos);assert(wire.script.find(" PAUSE=")==std::string::npos);}
   // A once-permitted draft cannot retain permission after current evidence changes.
@@ -414,6 +414,7 @@ int main(){
   auto current=ms;current["job"]["state"]=job;current["filament_operation"]={{"state","running"}};
   current["identification"]={{"state",identifying?"running":"idle"}};
   auto updated=current["sources"][0];updated["identity"]["color"]="#123456";updated["identity"]["brand"]="New brand";
+  updated["identity"]["appearance"]="translucent";
   if(recipe_change)updated["identity"]["nozzle_temp"]=245;
   StandaloneBackend settings;Http wire;settings.observe(current);
   auto result=settings.submit({"save_identity",current.at("revision"),"standalone",{{"draft",updated}}});

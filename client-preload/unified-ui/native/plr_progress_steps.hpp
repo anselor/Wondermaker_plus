@@ -5,16 +5,34 @@
 namespace wmp_ui { namespace native {
 // Group reported PLR work for presentation. Missing stages are never invented,
 // and later work cannot turn an earlier failed/pending stage into completion.
+inline std::string plr_progress_detail(const Json& stages){
+ const std::map<std::string,std::string>actions={
+  {"bottom_z","Homing bed at bottom..."},{"home_xy","Homing X/Y..."},
+  {"machine_frame","Restoring printer coordinates..."},{"select_head","Selecting print head..."},
+  {"restore_mesh","Restoring bed mesh..."},{"heater_targets","Setting heater targets..."},
+  {"fan_targets","Restoring cooling fans..."},{"purge_position","Positioning nozzle for priming..."},
+  {"prime","Priming nozzle..."},{"wipe","Wiping nozzle..."},
+  {"return_xy","Returning head to print..."},{"return_z","Restoring print height..."},
+  {"return_mesh","Restoring mesh compensation..."},{"restore_parser","Restoring print settings..."},
+  {"select_file","Opening saved print..."},{"restore_deposition","Restoring extrusion state..."},
+  {"restore_routes","Restoring tool mapping..."},{"accounting","Restoring print totals..."},
+  {"start_file","Continuing saved file..."}};
+ if(stages.is_array())for(const auto& stage:stages)if(stage.value("state","")=="running"){
+  const auto found=actions.find(stage.value("name",""));
+  if(found!=actions.end())return found->second;
+ }
+ return "";
+}
 inline Json plr_progress_steps(const Json&stages){
  const std::map<std::string,int>groups={
   {"review",0},{"review_blocked",0},{"await_preparation",1},{"context",1},
-  {"bottom_z",2},{"home_xy",3},{"machine_frame",3},{"select_head",4},
-  {"restore_mesh",5},{"heater_targets",6},{"fan_targets",6},{"heating",6},
-  {"purge_position",7},{"prime",7},{"wipe",7},{"return_xy",8},{"return_z",8},
-  {"return_mesh",8},{"restore_parser",8},{"select_file",9},{"restore_deposition",9},
-  {"restore_routes",9},{"accounting",9},{"start_file",9}};
- const char*labels[]={"Check saved print","Prepare printer","Home bed at bottom","Home X/Y","Select print head","Restore bed mesh","Heat bed and nozzles","Prime and wipe","Return to print","Continue printing"};
- bool seen[10]={},complete[10]={true,true,true,true,true,true,true,true,true,true},running[10]={},failed[10]={};
+  {"bottom_z",1},{"home_xy",1},{"machine_frame",1},{"select_head",1},
+  {"restore_mesh",1},{"heater_targets",2},{"fan_targets",2},{"heating",2},
+  {"purge_position",3},{"prime",3},{"wipe",3},{"return_xy",4},{"return_z",4},
+  {"return_mesh",4},{"restore_parser",4},{"select_file",5},{"restore_deposition",5},
+  {"restore_routes",5},{"accounting",5},{"start_file",5}};
+ const char*labels[]={"Check saved print","Prepare printer","Heat bed and nozzles","Prime and wipe","Return to print","Continue printing"};
+ bool seen[6]={},complete[6]={true,true,true,true,true,true},running[6]={},failed[6]={};
  if(!stages.is_array())return Json::array();
  for(const auto&stage:stages){
   const auto found=groups.find(stage.value("name",""));const int i=found==groups.end()?1:found->second;
@@ -23,7 +41,7 @@ inline Json plr_progress_steps(const Json&stages){
   failed[i]=failed[i]||state=="failed"||state=="unknown"||state=="stopped";
  }
  auto rows=Json::array();
- for(int i=0;i<10;++i)if(seen[i])rows.push_back({{"label",labels[i]},{"state",failed[i]?"failed":running[i]?"running":complete[i]?"complete":"pending"}});
+ for(int i=0;i<6;++i)if(seen[i])rows.push_back({{"label",labels[i]},{"state",failed[i]?"failed":running[i]?"running":complete[i]?"complete":"pending"}});
  return rows;
 }
 }}

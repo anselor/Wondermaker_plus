@@ -102,6 +102,10 @@ class CaseLight:
         The pattern never starts before the light preference is known: on a
         first installation that preference is adopted from the GPIO level.
         """
+        # An open door acknowledges the request, including one already open
+        # when it arrives. Closing the door must not restart an old signal.
+        if self._door_open(eventtime):
+            self.attention_owners.clear()
         wanted = (bool(self.attention_owners) and self.attention_usable
                   and self.attention_enabled and self.enabled is not None)
         if wanted and self.attention_step is None:
@@ -174,12 +178,24 @@ class CaseLight:
         self.print_active = active
 
     def _desired(self, eventtime, waking=False):
+        recovery = self.printer.lookup_object('wmp_recovery', None)
+        calibration = getattr(recovery, 'calibration', None)
+        if calibration is not None and (calibration.active
+                                       or calibration.probe_editor.busy()):
+            return 1
         if not self.enabled:
             return 0
         if self.print_active or waking or self._screen_on():
             return 1
         return int(self.finished_at is not None
                    and eventtime < self.finished_at + self._screen_delay())
+
+    def _door_open(self, eventtime):
+        for name in ('Door_button1', 'Door_button2'):
+            button = self.printer.lookup_object('gcode_button ' + name, None)
+            if button is not None and button.get_status(eventtime).get('state') == 'RELEASED':
+                return True
+        return False
 
     def _apply(self, eventtime, waking=False):
         value = self._desired(eventtime, waking=waking)

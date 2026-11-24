@@ -20,6 +20,7 @@ struct ScrubView {
  bool first_selected;
  std::vector<unsigned> flagged;                    // Recheck: steps shown failed
  std::vector<ScrubRow> rows;                       // Calibrate, Remeasure and Recheck: one per head
+ bool homing;                                      // Initial homing belongs to Prepare, not Head 1
 };
 // Sentence for a stopped run. The raw calibration failure text names commands
 // and is never shown; a backend scrub sentence is shown as given.
@@ -68,7 +69,7 @@ inline std::string nozzle_scrub_head_names(const std::vector<unsigned>& heads) {
 }
 inline ScrubView nozzle_scrub_view(const ScrubFacts& f) {
  ScrubView v{f.state, f.head, f.heads, f.brush, false, f.confirm_enabled, false, false, "", "", "", 0, 0,
-             {"", ""}, {"", ""}, false, {}, {}};
+             {"", ""}, {"", ""}, false, {}, {}, f.state == ScrubState::Mounting && f.progress_phase == "homing"};
  const auto n = std::to_string(f.head + 1);
  switch (f.state) {
   case ScrubState::Prepare:
@@ -99,7 +100,7 @@ inline ScrubView nozzle_scrub_view(const ScrubFacts& f) {
    v.confirm_visible = v.cancel_visible = true;
    break;
   case ScrubState::Mounting:
-   v.heading = "Mounting head " + n + "...";
+   v.heading = f.progress_phase == "homing" ? "Homing printer..." : f.progress_phase == "positioning" ? "Positioning head " + n + "..." : "Mounting head " + n + "...";
    v.confirm_visible = v.cancel_visible = true;
    break;
   case ScrubState::Heating:
@@ -142,6 +143,7 @@ inline ScrubView nozzle_scrub_view(const ScrubFacts& f) {
 }
 // Index of the current step: Prepare, one per head, Calibrate.
 inline unsigned nozzle_scrub_current_step(const ScrubView& v) {
+ if (v.homing) return 0;
  switch (v.state) {
   case ScrubState::Idle: case ScrubState::Prepare: case ScrubState::StockChecks: return 0;
   case ScrubState::Calibrate: case ScrubState::Recheck: case ScrubState::Remeasure: return v.heads + 1;

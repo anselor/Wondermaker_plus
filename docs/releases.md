@@ -19,6 +19,73 @@ component support and distinguish local tests from printer validation.
 Do not assume the moving `main` branch supports your installed firmware.
 Choose the corresponding tag and keep local connection details in ignored `.env`.
 
+## R4 refinement update — 24 November 2026
+
+This follow-up targets vendor System **1.1.13** on the moving
+`fw-1.1.13/r4` branch, after `ab18e32`. It does not create or move a release tag.
+R4 stays untagged while user feedback is collected. After this update, R4 takes
+critical bug fixes only; other fixes and enhancements move to R5.
+
+- **Finish and Cancel positioning:** lower toward physical **Z125 mm**, with a
+  **50 mm minimum drop**, capped at the bottom endstop. Both values are
+  user-configurable. After confirmed clearance, park a confirmed attached head
+  beside the left scrubber. Finish retains its wipe; Cancel adds no extrusion,
+  wipe, pickup or homing. Cancelling before SD execution adds no cleanup motion.
+  Explicit overrides survive upgrades; custom legacy fixed drops remain fixed.
+- **Filament appearance:** add Standard, Translucent, Gradient and Co-extrusion
+  classifications without changing material recipes, temperatures or load state.
+  Translucent swatches use a smoothly clipped checkerboard. Gradient and
+  Co-extrusion retain the primary solid colour in R4; multiple colours and
+  gradient/radial rendering remain R5 work.
+- **Progress:** group small actions under major phases, showing homing,
+  positioning, temperatures and probe counts as additional detail. Normal
+  filament service, complete print preparation and recovery use at most six
+  major rows. Scrub preparation shows homing and keeps Prepare active until
+  pickup begins. Stop controls and existing safe cancellation boundaries remain.
+- **Filament-used accounting:** sample the outgoing extruder and rebase the
+  incoming E coordinate at tool activation. This fixes the retained stock
+  counter jumping backward across physical heads; unsupported dispatchers are
+  left unchanged. It does not change motor scheduling, pressure advance or input
+  shaping.
+- **Native UI and lighting:** attach the Home filament panel before its first
+  paint and skip the stock filament-only refresh work. Put WonderMaker+ first
+  in About, showing the installed tag or branch/commit. Force the chamber light
+  on during calibration without changing its saved preference; an open door
+  acknowledges attention blinking.
+- **Compatibility:** preserve the reviewed recovery contract for the revised
+  finish helpers, alongside configuration/tuning preservation on upgrade.
+
+For persistent and temporary bed-position overrides, see the
+[configuration guide](../config/README.md#startup-print-end-and-cooling).
+
+### Validation and known limits
+
+The exact reviewed native artifact was installed and verified with Klipper
+Ready and the GUI/status bridge synchronized. User tuning and filament
+identities were preserved. Attended checks covered bed clearance/parking,
+filament progress and native Stop before retraction, scrub preparation and
+cancellation before offset measurement, and a two-head Vehicles first layer.
+At the black-to-red change, E changed from **336.48 mm to 0** while total usage
+stayed **336.48 mm**; subsequent red extrusion increased the total correctly.
+The test was stopped, with heaters off and the head parked at physical Z125.
+
+The candidate's final regression and package checks are recorded in the
+[refinement release validation](validation/r4-refinement-release-2026-11-24.md).
+These checks do not claim that every material, naturally occurring gauge
+fault, first-run setup or legacy-permission installation was tested physically.
+
+**Still under investigation:** intermittent extrusion/Z timing symptoms,
+print stuttering/CPU attribution and the isolated USB-hub disconnect. This
+update does not claim to resolve those causes. The 60 MB Vehicles file spent
+about **92 seconds** in visible file preparation before preheat; showing
+progress does not eliminate that processing cost. PETG unload, uncommon
+calibration/re-check outcomes and the guarded pre-home clearance retain their
+separate acceptance scope.
+
+Existing R4 users can update using the idle-printer commands in the next
+section. The earlier branch-update validation below describes its original
+snapshot; this follow-up adds scrub detail and normal-cancel parking.
+
 ## R4 branch update — 24 November 2026
 
 This update targets vendor System **1.1.13** on the moving

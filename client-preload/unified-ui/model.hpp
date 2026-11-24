@@ -92,7 +92,7 @@ inline bool paused_filament_for(const Json&data,const std::string&head=""){
 inline bool filament_cosmetic_edit(const Json&before,const Json&after){
  if(!before.is_object()||!after.is_object())return false;
  auto previous=before,next=after;
- for(const auto*key:{"brand","color"}){previous.erase(key);next.erase(key);}
+ for(const auto*key:{"brand","color","appearance"}){previous.erase(key);next.erase(key);}
  return previous==next;
 }
 inline std::string filament_recipe_service_reason(const Json&data,const std::string&head){

@@ -4,6 +4,8 @@
 #include "button_caption.hpp"
 #include "stock_preview_widgets.hpp"
 #include "stock_palette.hpp"
+#include "filament_appearance.hpp"
+#include "stock_dialog_backdrop.hpp"
 #include "../model.hpp"
 #include <functional>
 #include <list>
@@ -13,7 +15,7 @@ namespace wmp_ui { namespace native {
 // material/destination captions are created. Surrounding preview stays stock.
 class StockPreviewRows {
  struct Binding{StockPreviewRows*owner;void*object;std::string row;unsigned generation;};
- struct Row{void*left=nullptr,*right=nullptr,*text=nullptr,*button=nullptr,*caption=nullptr;int slot=-1;};
+ struct Row{void*left=nullptr,*right=nullptr,*text=nullptr,*button=nullptr,*caption=nullptr;int slot=-1;std::vector<void*>tiles;void*mask=nullptr;};
  std::map<std::string,Row>rows_;
  std::list<Binding>bindings_;std::vector<void*>owned_;
  StockPreviewWidgets widgets_;void*panel_=nullptr;std::string white_,signature_;unsigned generation_=0;bool fresh_=false;
@@ -70,6 +72,24 @@ public:
    const auto source=row.value("source",Json());const auto route=row.value("route",Json());
    colour(left,identity_display_text(slice,"color","#888888"),8,y+2,view.slot>=0);
    colour(right,source.is_object()?identity_display_text(source.value("identity",Json::object()),"color","#888888"):"#555555",width/2,y+2,false);
+   for(auto*tile:view.tiles)if(stock_object_valid(tile))stock_function<void(*)(void*,unsigned)>(lv_obj_add_flag)(tile,1);
+   // Verified stock preview asset: 50x50, nonzero alpha at [5,5]..[44,44].
+   const auto appearance=translucent_tiles(source.is_object()?source.value("identity",Json::object()):Json::object(),40,40);
+   if(view.mask&&stock_object_valid(view.mask))stock_function<void(*)(void*,unsigned)>(lv_obj_add_flag)(view.mask,1);
+   if(!appearance.empty()){
+    if(!view.mask)view.mask=create(lv_obj_create,right);
+    stock_dialog_backdrop(view.mask);place(view.mask,5,5,40,40);clip_appearance(view.mask,32767);
+    stock_function<void(*)(void*,unsigned)>(lv_obj_clear_flag)(view.mask,1);
+    stock_function<void(*)(void*,unsigned)>(lv_obj_clear_flag)(view.mask,2);
+   }
+   for(unsigned i=0;i<appearance.size();++i){
+    if(i==view.tiles.size())view.tiles.push_back(create(lv_obj_create,view.mask));
+    auto*tile=view.tiles[i];const auto&t=appearance[i];stock_dialog_backdrop(tile);place(tile,t.x,t.y,t.w,t.h);
+    stock_function<void(*)(void*,unsigned)>(lv_obj_clear_flag)(tile,1);
+    stock_function<void(*)(void*,unsigned)>(lv_obj_clear_flag)(tile,2);
+    stock_function<void(*)(void*,std::uint32_t,unsigned)>(lv_obj_set_style_bg_color)(tile,t.colour,0);
+    stock_function<void(*)(void*,int,unsigned)>(lv_obj_set_style_bg_opa)(tile,255,0);
+   }
    auto text="T"+id+": "+slice.value("material","Unknown");const auto brand=identity_display_text(slice,"brand","");if(!brand.empty())text+="\n"+brand;
    const auto usage=filament_usage_text(slice);if(!usage.empty())text+="\n"+usage;
    auto destination=route.is_object()?route.value("label","Choose source"):"Choose source";
@@ -96,6 +116,9 @@ private:
  }
  static void*parent(void*p){return stock_function<void*(*)(void*)>(lv_obj_get_parent)(p);}
  void retire(Row&r){
+  for(auto*tile:r.tiles){if(stock_object_valid(tile))stock_function<void(*)(void*)>(lv_obj_del)(tile);owned_.erase(std::remove(owned_.begin(),owned_.end(),tile),owned_.end());}
+  r.tiles.clear();
+  if(r.mask){if(stock_object_valid(r.mask))stock_function<void(*)(void*)>(lv_obj_del)(r.mask);owned_.erase(std::remove(owned_.begin(),owned_.end(),r.mask),owned_.end());r.mask=nullptr;}
   if(r.slot>=0){for(auto*p:{r.left,r.right})if(stock_object_valid(p))stock_function<void(*)(void*,unsigned)>(lv_obj_add_flag)(p,1);}
   for(auto*p:{r.caption,r.button,r.text,r.slot<0?r.left:nullptr,r.slot<0?r.right:nullptr})if(p){
    if(stock_object_valid(p))stock_function<void(*)(void*)>(lv_obj_del)(p);

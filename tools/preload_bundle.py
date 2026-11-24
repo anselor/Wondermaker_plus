@@ -778,7 +778,7 @@ def publish_stage(stage,libdir,dropin,recovery_env=None,start_backend=False,defa
     libs=sorted(str(t) for t,_ in targets)
     environment = ''
     for key, value in sorted((recovery_env or {}).items()):
-        if key not in ('WMP_RECOVERY_JOB_PATH', 'WMP_RECOVERY_JOB_REQUIRED') or not isinstance(value, str) or any(ord(c) < 32 or ord(c) == 127 for c in value):
+        if key not in ('WMP_RECOVERY_JOB_PATH', 'WMP_RECOVERY_JOB_REQUIRED', 'WMP_RELEASE_IDENTITY') or not isinstance(value, str) or any(ord(c) < 32 or ord(c) == 127 for c in value):
             raise ValueError('invalid recovery service environment')
         escaped = value.replace('\\', '\\\\').replace('"', '\\"').replace('%', '%%')
         environment += 'Environment="%s=%s"\n' % (key, escaped)

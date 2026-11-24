@@ -52,6 +52,7 @@ try:
     from .wmp_stop_points import StopPoints
     from .wmp_component import component_state, component_method, component_accessor
     from .wmp_persistence import atomic_write
+    from . import wmp_filament_accounting
     from . import wmp_filament_profiles
     from .wmp_filament_types import (FilamentCancelled, MATERIALS, GENERIC_NOZZLE_RANGES, SLOTS, DEFAULT_INI, parse_slot_materials, material_name, material_temp, material_temperature_range, material_family, cross_family_purge, transition_temperature)
     from . import wmp_orca_profiles
@@ -87,6 +88,7 @@ except ImportError:
     from wmp_stop_points import StopPoints
     from wmp_component import component_state, component_method, component_accessor
     from wmp_persistence import atomic_write
+    import wmp_filament_accounting
     import wmp_filament_profiles
     from wmp_filament_types import (FilamentCancelled, MATERIALS, GENERIC_NOZZLE_RANGES, SLOTS, DEFAULT_INI, parse_slot_materials, material_name, material_temp, material_temperature_range, material_family, cross_family_purge, transition_temperature)
     import wmp_orca_profiles
@@ -181,6 +183,7 @@ class WMMaterial:
         self.printer.register_event_handler("klippy:shutdown", self._filament_sensors_unavailable)
         self.printer.register_event_handler("klippy:ready", self._refresh)
         self.printer.register_event_handler("klippy:ready", self._saved_variables_ready)
+        self.printer.register_event_handler("klippy:ready", lambda: wmp_filament_accounting.install(self.printer))
         self.printer.register_event_handler("klippy:ready", self._execution_ready)
         self.printer.register_event_handler("klippy:ready", self._cancel_routes_ready)
         self.printer.register_event_handler("klippy:ready", self._config_save_routes_ready)

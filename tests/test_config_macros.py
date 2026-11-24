@@ -303,22 +303,26 @@ def test_vendor_resume_clears_native_pause_state_before_sd_resume():
     assert commands.index('CLEAR_PAUSE') < commands.index('M24')
 
 
-def render_print_finish(model, macro, bed_drop=150.):
-    model.p['gcode_macro PRINT_END'] = {'bed_drop': bed_drop}
+def render_print_finish(model, macro, minimum=75., target=75.):
+    model.p['gcode_macro PRINT_END'] = {'bed_drop_minimum': minimum, 'bed_drop_target_z': target}
     model.p['save_variables']['variables']['current_extruder'] = 0
-    script = model.templates[macro].render(printer=model.p, params={})
-    helper = '_WMP_PRINT_END_CLEARANCE_AND_WIPE'
-    assert script.count(helper) == 1
-    assert script.index(helper) < script.index('BED_MESH_CLEAR')
-    assert script.index(helper) < script.index('M84')
-    script = script.replace(helper, model.templates[helper].render(
-        printer=model.p, params={}))
-    return script.replace("_WMP_PRINT_LOWER_BED", model.templates["_WMP_PRINT_LOWER_BED"].render(printer=model.p, params={}))
+    def expand(script):
+        out=[]
+        for line in script.splitlines():
+            tokens=line.strip().split()
+            if tokens and tokens[0] in ('_WMP_PRINT_END_CLEARANCE_AND_WIPE','_WMP_PRINT_LOWER_BED','_WMP_PRINT_STOP_PARK'):
+                params=dict(token.split('=',1) for token in tokens[1:])
+                nested=model.templates[tokens[0]].render(printer=model.p,params=params,
+                    action_respond_info=lambda message:'')
+                out.append(expand(nested))
+            else:out.append(line)
+        return '\n'.join(out)
+    return expand(model.templates[macro].render(printer=model.p, params={}))
 
 
 @pytest.mark.parametrize('macro', ['PRINT_END', 'CANCEL_PRINT'])
 @pytest.mark.parametrize('physical_z,gcode_z,expected_target', [
-    (20., 19.7, 169.7),
+    (20., 19.7, 94.7),
     (275., 274.7, 299.7),
     (300., 299.7, None),
     (304., 303.7, None),
@@ -346,7 +350,7 @@ def test_print_end_bed_drop_is_clamped_to_bottom_endstop(
         assert z_moves == []
     else:
         assert z_moves == [f'G1 Z{expected_target} F3000']
-    assert 'WIPE_NOZZLE' in script
+    assert ('WIPE_NOZZLE XY_ONLY=1' in script) == (expected_target is not None)
 
 
 @pytest.mark.parametrize('macro', ['PRINT_END', 'CANCEL_PRINT'])
@@ -361,13 +365,13 @@ def test_print_end_skips_wipe_without_all_axes_homed(macro, homed):
     m.p['gcode_move'] = {
         'gcode_position': {'z': 20.}, 'position': {'z': 20.}}
     script = render_print_finish(m, macro)
-    assert ('G1 Z170.0 F3000' in script) == ('z' in homed)
+    assert ('G1 Z95.0 F3000' in script) == ('z' in homed)
     assert 'WIPE_NOZZLE' not in script
 
 
 @pytest.mark.parametrize('macro', ['PRINT_END', 'CANCEL_PRINT'])
-@pytest.mark.parametrize('bed_drop,expected_target', [(12.5, 32.5), (0, None), (-5, None)])
-def test_print_finish_respects_existing_bed_drop_setting(macro, bed_drop, expected_target):
+@pytest.mark.parametrize('minimum,target,expected_target', [(12.5, 0, 32.5), (0, 0, None), (10, 75, 75.)])
+def test_print_finish_respects_minimum_and_target_settings(macro, minimum, target, expected_target):
     m = HeaterModel(ROOT / 'config/live')
     m.p['configfile']['settings'].update({
         'printer': {'max_velocity': 600, 'max_accel': 10000},
@@ -375,7 +379,7 @@ def test_print_finish_respects_existing_bed_drop_setting(macro, bed_drop, expect
     })
     m.p['toolhead'].update({'homed_axes': 'xyz', 'position': {'z': 20.}})
     m.p['gcode_move']['gcode_position'] = {'z': 20.}
-    script = render_print_finish(m, macro, bed_drop)
+    script = render_print_finish(m, macro, minimum, target)
     z_moves = [line.strip() for line in script.splitlines()
                if re.match(r'\s*G1 Z', line)]
     assert z_moves == ([] if expected_target is None else [f'G1 Z{expected_target} F3000'])
@@ -1320,12 +1324,12 @@ def test_normal_toolchange_rechecks_pickup_after_nested_wipe_before_model_return
 
 
 @pytest.mark.parametrize("homed,physical_z,gcode_z,target", [
-    ("xyz", 20., 19.7, 169.7), ("z", 275., 280., 305.),
+    ("xyz", 20., 19.7, 94.7), ("z", 275., 280., 305.),
     ("xyz", 300., 300., None), ("xy", 20., 20., None),
 ])
 def test_cancel_bed_lowering_is_z_only_and_preserves_gcode_state(homed, physical_z, gcode_z, target):
     m = HeaterModel(ROOT / 'config/live')
-    m.p['gcode_macro PRINT_END'] = {'bed_drop': 150.}
+    m.p['gcode_macro PRINT_END'] = {'bed_drop_minimum': 75., 'bed_drop_target_z': 75.}
     m.p['configfile']['settings']['stepper_z'] = {'position_endstop': 300}
     m.p['toolhead'].update(homed_axes=homed, position={'z': physical_z})
     m.p['gcode_move']['gcode_position'] = {'z': gcode_z}
@@ -1336,9 +1340,10 @@ def test_cancel_bed_lowering_is_z_only_and_preserves_gcode_state(homed, physical
     if 'z' in homed:
         assert 'RESTORE_GCODE_STATE NAME=wmp_print_lower_bed MOVE=0' in script
 
-def test_default_finish_bed_drop_is_150_mm():
+def test_default_finish_drop_controls_are_user_target_and_minimum():
     source = (ROOT / 'config/live/macros.cfg').read_text()
-    assert 'variable_bed_drop: 150.0' in source
+    assert 'variable_bed_drop_minimum: 50.0' in source
+    assert 'variable_bed_drop_target_z: 125.0' in source
 
 
 @pytest.mark.parametrize('chamber,hold', [('0',None),('45',None),('45','90'),('45','0')])

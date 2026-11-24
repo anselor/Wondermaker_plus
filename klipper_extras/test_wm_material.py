@@ -6956,8 +6956,8 @@ def test_managed_cancel_cleanup_preserves_evidence_and_lowers_bed(managed_cancel
     assert phases == [('stopping', 'complete')] + [(name, state) for name in material._CANCEL_STAGES[1:] for state in ('running', 'complete')]
     assert cleanup[:5] == ['M400', 'TURN_OFF_HEATERS', '_WMP_PRINT_CONTEXT_CLEAR',
                        'SET_GCODE_VARIABLE MACRO=START_PRINT VARIABLE=print_body_ready VALUE=False', 'CLEAR_PAUSE']
-    assert cleanup.index('_WMP_PRINT_LOWER_BED') < cleanup.index('BED_MESH_CLEAR')
-    assert cleanup[cleanup.index('_WMP_PRINT_LOWER_BED') + 1] == 'M400'
+    assert cleanup.index('BED_MESH_CLEAR') < cleanup.index('_WMP_PRINT_LOWER_BED PARK=1')
+    assert cleanup[cleanup.index('_WMP_PRINT_LOWER_BED PARK=1') + 1] == 'M400'
     assert binding['handle'].closed and objects['virtual_sdcard'].current_file is None
     assert objects['print_stats'].state == 'cancelled'
     assert objects['print_stats'].filament_used == 123.
@@ -6991,7 +6991,7 @@ def test_managed_cancel_partial_cleanup_cannot_report_complete(managed_cancel_cl
     if failure == 'drain':
         assert cleanup[:2] == ['M400', 'TURN_OFF_HEATERS']
         assert 'M84' not in cleanup
-        assert '_WMP_PRINT_LOWER_BED' not in cleanup
+        assert not any(command.startswith('_WMP_PRINT_LOWER_BED') for command in cleanup)
     assert (objects['virtual_sdcard'].current_file is binding['handle']) is (failure == 'file')
 
 
@@ -7479,7 +7479,7 @@ def test_cancel_resolution_finishes_idle_heater_and_pause_cleanup(managed_cancel
     assert states['extruder2']['target'] == 0
     assert objects['pause_resume'].get_status(1)['is_paused'] is False
     assert material._print_cancel['state'] == 'complete'
-    assert '_WMP_PRINT_LOWER_BED' not in cleanup
+    assert not any(command.startswith('_WMP_PRINT_LOWER_BED') for command in cleanup)
 
 
 @pytest.mark.parametrize('encoded', ['zz', '00', '5b5d', '7b226964223a5b5d7d'])
@@ -11368,3 +11368,27 @@ def test_filament_cancel_clears_transient_without_feeding(service_material):
     assert material.filament_operation['toolchange_cleanup'] == 'cleared'
     assert variables['changing_tool'] == 0 and heater['target'] == 0
     assert all(not command.startswith(('G1', 'G0')) for command in calls)
+
+
+@pytest.mark.parametrize('appearance',['standard','translucent','gradient','co-extrusion'])
+def test_filament_appearance_persists_as_cosmetic_metadata(material, appearance):
+    identity={'brand':'Generic','material':'PETG','color':'#ab1234','appearance':appearance,'nozzle_temp':250}
+    material.cmd_SET_FILAMENT(profile_command(material,PROFILE=json.dumps(identity).encode().hex()))
+    assert material._profiles()[0]['h2']==identity
+    from wmp_material_settings import MaterialSettings
+    without=dict(identity);without.pop('appearance')
+    assert MaterialSettings._filament_recipe(identity)==MaterialSettings._filament_recipe(without)
+    # Label-only appearance edits are not a physical spool/recipe change.
+    current={'state':'loaded','source':'external:h2','identity':identity}
+    previous=dict(current,identity=without)
+    assert MaterialSettings._loaded_source_matches(current,previous)
+
+
+@pytest.mark.parametrize('appearance',['rainbow','',None,True,{},['standard']])
+def test_filament_appearance_rejects_invalid_values_without_overwriting(material, appearance):
+    material.cmd_SET_FILAMENT(profile_command(material))
+    before=material._profiles()
+    identity=dict(before[0]['h2'],appearance=appearance)
+    with pytest.raises(ValueError,match='appearance'):
+        material.cmd_SET_FILAMENT(profile_command(material,PROFILE=json.dumps(identity).encode().hex()))
+    assert material._profiles()==before

@@ -19,7 +19,7 @@ def test_cosmetic_save_does_not_require_idle_or_empty_head(material, busy):
     if busy == 'paused': material.printer.paused = True
     if busy == 'toolhead': material.toolhead_operation = {'state': 'running'}
     if busy == 'filament': material.filament_operation = {'state': 'running', 'head': 'h2'}
-    save_identity(material, brand='New display brand', color='#123456')
+    save_identity(material, brand='New display brand', color='#123456', appearance='translucent')
     assert material._profile_recipes() == before
     assert material._profiles()[0]['h2']['color'] == '#123456'
     assert not hasattr(material, '_loaded_flags')
@@ -40,7 +40,16 @@ def test_cosmetic_save_preserves_cas_and_identification_exclusion(material):
     with pytest.raises(ValueError, match='identification'): save_identity(material, brand='new')
 
 
-@pytest.mark.parametrize('change,allowed', [({'color':'#112233'}, True), ({'brand':'new'}, True),
+@pytest.mark.parametrize('appearance',['standard','translucent','gradient','co-extrusion'])
+def test_saved_appearance_does_not_block_print_start(print_material, appearance):
+    obj, objects, request, path = print_material
+    save_identity(obj, appearance=appearance)
+    request['profile_revision'] = obj._profiles()[1]
+    obj.cmd_START_PRINT(start_command(request))
+    assert objects['gcode'].scripts[-1] == 'SDCARD_PRINT_FILE FILENAME="part.gcode"'
+
+
+@pytest.mark.parametrize('change,allowed', [({'color':'#112233'}, True), ({'brand':'new'}, True), ({'appearance':'translucent'}, True),
                                            ({'material':'PLA'}, False), ({'nozzle_temp':230}, False)])
 def test_print_submission_pins_recipe_across_staging_yield(print_material, change, allowed):
     obj, objects, request, path = print_material
@@ -63,7 +72,7 @@ def test_print_submission_pins_recipe_across_staging_yield(print_material, chang
     assert modified
 
 
-@pytest.mark.parametrize('change,allowed', [({'color':'#112233'}, True), ({'brand':'new'}, True),
+@pytest.mark.parametrize('change,allowed', [({'color':'#112233'}, True), ({'brand':'new'}, True), ({'appearance':'translucent'}, True),
                                            ({'material':'PLA'}, False), ({'nozzle_temp':230}, False)])
 def test_loaded_source_comparison_preserves_recipe_and_immutable_evidence(material, change, allowed):
     saved = {'source':'external:h2', 'identity':{'brand':'old','color':'#ffffff','material':'PETG'}}
@@ -81,7 +90,7 @@ def test_active_service_plan_keeps_recipe_and_load_evidence(service_material):
     physical = {key: copy.deepcopy(plan[key]) for key in ('target','class','feed_mm','purge_mm','previous_material')}
     flags = copy.deepcopy(obj._filament_state()._load_filament_flags())
     obj.filament_operation = {'state':'running','head':'h2'}
-    save_identity(obj, color='#123456', brand='new')
+    save_identity(obj, color='#123456', brand='new', appearance='translucent')
     assert {key: plan[key] for key in physical} == physical
     assert obj._filament_state()._load_filament_flags() == flags
     assert obj._filament_context_valid(plan, 1)

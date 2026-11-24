@@ -73,7 +73,8 @@ def test_checkpoint_and_whole_job_binding(change):
     with pytest.raises(ValueError):analysis.analyze(io.BytesIO(STAMP),execution,context,[[0.,0.],[0.,0.]],0.,PROOF)
 
 
-@pytest.mark.parametrize('changed', ['START_PRINT', '_WMP_XY_TRAVEL',
+@pytest.mark.parametrize('changed', ['START_PRINT', '_WMP_XY_TRAVEL', 'PRINT_END',
+                                      '_WMP_PRINT_END_CLEARANCE_AND_WIPE', '_WMP_PRINT_LOWER_BED', '_WMP_PRINT_STOP_PARK',
                                       '_CHANGING_TOOL', '_CHECK_CHANGE_TOOL', '_UNLOCK_TOOL', '_LOCK_TOOL',
                                       '_WMP_TOOL_RETURN_BEGIN', '_WMP_TOOL_RETURN_FINISH'])
 def test_contract_matches_delivered_macro_sources_and_rejects_changes(changed):

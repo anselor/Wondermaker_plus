@@ -16,7 +16,7 @@ lv_event_get_user_data lv_event_get_target lv_event_send lv_indev_get_act lv_ind
 lv_disp_get_default lv_disp_get_scr_act lv_disp_get_layer_top lv_disp_get_layer_sys lv_disp_get_inactive_time lv_obj_get_coords lv_obj_get_content_coords
 lv_obj_set_style_img_recolor lv_obj_set_style_img_recolor_opa lv_obj_remove_style lv_obj_set_style_bg_color lv_obj_set_style_bg_opa
 lv_obj_set_style_text_color lv_obj_set_style_text_font lv_obj_set_style_text_align lv_obj_set_style_text_opa
-lv_obj_set_style_radius lv_obj_set_style_border_width lv_obj_set_style_border_color
+lv_obj_set_style_radius lv_obj_set_style_clip_corner lv_obj_set_style_border_width lv_obj_set_style_border_color
 lv_obj_set_style_pad_top lv_obj_set_style_pad_bottom lv_obj_set_style_pad_left lv_obj_set_style_pad_right
 lv_obj_set_style_outline_width lv_obj_set_style_opa lv_obj_update_layout
 '''.split()
@@ -36,6 +36,9 @@ def main():
  for name,address in DATA.items():
   if located.get(name)!=address:raise SystemExit('Data symbol moved: '+name)
  if set(NAMES)!=set(symbols):raise SystemExit('Missing symbols: '+str(set(NAMES)-set(symbols)))
+ # A filament-only tail follows temperature, light and fan updates. The
+ # original epilogue restores the original frame; no middle-of-function ABI.
+ symbols.update({"main_filament_updates":0x51df74,"main_common_return":0x51e168})
  symbols.update({"warning_callback":0x54c93c})
  symbols.update({"popup_build":0x532da8,"popup_event":0x5303e4,"resume_prepare":0x51a7b4,"runout_purge":0x5328b4,"resume_check":0x61b2c4,"filament_pause":0x61ab5c,"draw_pop":0x5352e0})
  symbols.update({"setup_calibration":0x4b6470,"command_sender":0x614338,"pid_tool_sender_call":0x4b7cb4,"maintenance_event":0x4b4768,"nozzle_flow_event":0x529218,"setup_about":0x4b0510,"filament_guide_event":0x50c9bc,"setup_filament_guide":0x50d044,"guide_load_worker":0x50e83c,"guide_retry_worker":0x50ecf0,"text_key_user_data":0x54d890,"draw_text_keyboard":0x54ec48,"create_text_keys":0x54e654,"text_key_event":0x54db20,"schedule_preview_metadata":0x539474,"loading_popup":0x535958,"preview_metadata":0x538c7c,"preview_event":0x536958,"preview_refresh_event":0x5376d0,"draw_colour_picker":0x4f82a8,"draw_number_keyboard":0x52e418,"number_key_event":0x52da0c,"number_text_event":0x52db58,"main_event":0x519a34,"page_to":0x553b6c,"draw_preview":0x537710,"setup_filament":0x4f6dec,"filament_event":0x4f667c,"material_pick":0x4f86b8,"colour_pick":0x4f8020})

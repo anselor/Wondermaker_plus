@@ -30,7 +30,7 @@ int async_success(void(*callback)(void*),void*data){async_data=data;async_callba
 int async_failure(void(*)(void*),void*){return 0;}
 struct Event;
 struct Callback {void(*fn)(void*);int code;void*data;};
-struct Node {std::string text,image,options;unsigned layout_updates=0;bool height_fixed=false;bool pending_layout=false,open=false,is_image=false,is_label=false;unsigned selected=0,state=0,zoom_factor=256,disable_writes=0;int text_alignment=0,label_long_mode=-1;std::uintptr_t font_address=0;std::uint32_t text_color=0,background_color=0;int opacity=255,background_opacity=255,border_width=0;std::vector<std::uintptr_t>styles;std::uint32_t tint[2]={0,0};unsigned tint_opa[2]={0,0};Node*parent=nullptr;std::vector<Node*>children;std::vector<Callback>callbacks;bool live=true;unsigned flags=0;int x=0,y=0,w=800,h=480,scroll=0,dir=0,inset_x=0,inset_y=0;unsigned line_point_count=0;std::uint32_t line_color=0;};
+struct Node {std::string text,image,options;bool clip_corner=false;int radius=0;unsigned layout_updates=0;bool height_fixed=false;bool pending_layout=false,open=false,is_image=false,is_label=false;unsigned selected=0,state=0,zoom_factor=256,disable_writes=0;int text_alignment=0,label_long_mode=-1;std::uintptr_t font_address=0;std::uint32_t text_color=0,background_color=0;int opacity=255,background_opacity=255,border_width=0;std::vector<std::uintptr_t>styles;std::uint32_t tint[2]={0,0};unsigned tint_opa[2]={0,0};Node*parent=nullptr;std::vector<Node*>children;std::vector<Callback>callbacks;bool live=true;unsigned flags=0;int x=0,y=0,w=800,h=480,scroll=0,dir=0,inset_x=0,inset_y=0;unsigned line_point_count=0;std::uint32_t line_color=0;};
 unsigned home_events=0;
 unsigned char menu_selection=255;
 unsigned style_resets=0;
@@ -92,6 +92,8 @@ void*bind(void*p,void(*fn)(void*),int code,void*data){if(fail_binding)return nul
 void*callback_data(void*p,void(*fn)(void*)){for(const auto&cb:static_cast<Node*>(p)->callbacks)if(cb.fn==fn)return cb.data;return nullptr;}
 int code(void*e){return static_cast<Event*>(e)->code;}void*userdata(void*e){return static_cast<Event*>(e)->data;}void*target(void*e){return static_cast<Event*>(e)->node;}
 void*indev(){return reinterpret_cast<void*>(2);}void*scroll_obj(void*){return scrolling;}
+void clip_corner(void*p,bool value,unsigned){static_cast<Node*>(p)->clip_corner=value;}
+void radius(void*p,int value,unsigned){static_cast<Node*>(p)->radius=value;}
 void background_colour(void*p,std::uint32_t v,int){static_cast<Node*>(p)->background_color=v;}
 void text_alignment(void*p,int v,unsigned){static_cast<Node*>(p)->text_alignment=v;}
 void text_colour(void*p,std::uint32_t v,int){static_cast<Node*>(p)->text_color=v;}
@@ -279,7 +281,7 @@ if(a==0x38626e8){static const std::string asset("stock-white-filament.bin");retu
  MAP(lv_obj_align,align);MAP(lv_obj_get_content_width,width);MAP(lv_obj_get_content_height,height);
  MAP(lv_event_send,event_send);
  MAP(lv_event_get_code,code);MAP(lv_event_get_user_data,userdata);MAP(lv_event_get_target,target);MAP(lv_indev_get_act,indev);MAP(lv_indev_get_scroll_obj,scroll_obj);
- MAP(lv_obj_set_style_bg_opa,background_opacity);
+ MAP(lv_obj_set_style_bg_opa,background_opacity);MAP(lv_obj_set_style_clip_corner,clip_corner);MAP(lv_obj_set_style_radius,radius);
  MAP(lv_obj_remove_style,remove_style);MAP(lv_label_set_text,text);MAP(lv_label_set_long_mode,label_mode);MAP(lv_obj_move_to_index,one_int);MAP(lv_obj_add_state,one_int);
  MAP(lv_obj_set_scroll_dir,set_dir);MAP(lv_obj_set_scrollbar_mode,one_int);MAP(lv_obj_get_scroll_y,get_scroll);MAP(lv_obj_scroll_to_y,set_scroll);MAP(lv_obj_update_layout,update);
  MAP(lv_obj_set_style_text_color,text_colour);MAP(lv_obj_set_style_text_align,text_alignment);
@@ -315,6 +317,16 @@ struct Http : wmp_openace::HttpPort {
 int main(int argc,char**argv){
  if(argc==4&&std::string(argv[1])=="--header-fit")return screen_header_contract(argv[2],argv[3]);
  if(argc==3&&std::string(argv[1])=="--progress-fit")return progress_ui_contract(argv[2]);
+ {
+  const Json identity={{"color","#123456"},{"appearance","translucent"}};
+  auto tiles=translucent_tiles(identity,88,48);assert(!tiles.empty());
+  assert(tiles.front().colour!=tiles[1].colour);
+  int area=0;bool first=false,last=false;
+  for(const auto&t:translucent_tiles(identity,71,71)){area+=t.w*t.h;first|=t.x==0&&t.y==0;last|=t.x+t.w==71&&t.y+t.h==71;}
+  assert(area==71*71&&first&&last); // Full cells reach every edge; LVGL masks them.
+  auto*mask=fake::make(nullptr);clip_appearance(mask,32767);assert(mask->clip_corner&&mask->radius==32767);fake::del(mask);
+  assert(translucent_tiles(Json{{"color","#123456"}},88,48).empty());
+ }
  {auto*button=fake::make(nullptr);auto*caption=fake::make(button);button->w=130;button->h=54;button->pending_layout=true;
  wmp_ui::native::center_button_caption(button,caption,"Choose source");
  assert(!button->pending_layout&&caption->w>0&&caption->h==MyriadPro_Bold_20_line_height);
@@ -762,6 +774,16 @@ int main(int argc,char**argv){
  mapping_rows.update(mapping_state,389);bool invalid_mapping_visible=false;
  for(const auto&n:fake::nodes)if(n->live&&n->parent&&n->parent->parent==rows_panel&&n->text.find("Unavailable")!=std::string::npos){invalid_mapping_visible=true;fake::send(n->parent,7);}
  assert(invalid_mapping_visible&&selected_row.empty());
+ mapping_state["rows"][0]["source"]={{"identity",{{"color","#123456"},{"appearance","translucent"}}}};
+ mapping_rows.update(mapping_state,389);fake::Node*preview_mask=nullptr;
+ for(const auto&n:fake::nodes)if(n->live&&n->clip_corner&&n->w==40&&n->h==40){for(auto*p=n->parent;p;p=p->parent)if(p==rows_panel)preview_mask=n.get();}
+ assert(preview_mask&&preview_mask->radius==32767&&preview_mask->x==5&&preview_mask->y==5);
+ int covered=0;for(auto*tile:preview_mask->children)covered+=tile->w*tile->h;assert(covered==1600);
+ const auto clipped_allocations=fake::nodes.size();for(int i=0;i<100;++i)mapping_rows.update(mapping_state,389);
+ assert(fake::nodes.size()==clipped_allocations);
+ mapping_state["rows"][0]["source"]["identity"]["appearance"]="standard";mapping_rows.update(mapping_state,389);
+ assert(preview_mask->flags&1);
+ mapping_state["rows"].erase(mapping_state["rows"].begin());mapping_rows.update(mapping_state,389);assert(!preview_mask->live);
  // Exercise metadata -> native row rendering, retaining sparse sliced IDs.
  // Missing weight must show length rather than an invented gram estimate.
  for(unsigned scenario=0;scenario<3;++scenario){
@@ -1017,8 +1039,28 @@ int main(int argc,char**argv){
  assert(fake::nodes.size()==stale_allocations);
  home_data["fresh"]=true;mini.update(home_data,manual,legacy_icon);
 
+ home_data["heads"][1]["loaded"]["identity"]["appearance"]="translucent";
+ mini.update(home_data,manual,legacy_icon);assert(!manual_root->children[2]->children.empty()&&manual_root->children[2]->clip_corner);
+ const auto checker_allocations=fake::nodes.size();
+ for(int i=0;i<100;++i)mini.update(home_data,manual,legacy_icon);
+ assert(fake::nodes.size()==checker_allocations);
+ home_data["heads"][1]["loaded"]["identity"]["appearance"]="standard";
+ mini.update(home_data,manual,legacy_icon);
+ for(auto*tile:manual_root->children[2]->children)assert(tile->flags&1);
  fake::del(manual);mini.clear();
 
+ // Cached constructor refresh installs the native view before the page is shown.
+ {
+  auto*host=fake::make(fake::screen);host->flags|=1;auto*button=fake::make(host);button->w=126;button->h=57;auto*original=fake::make(button);
+  HomeMini view;int taps=0;view.open_filaments=[&]{++taps;};view.update(home_data,host,original);
+  assert(button->children.size()==1);view.refresh(host,original);
+  auto*owned=button->children.back();assert(owned!=original&&(original->flags&1));
+  fake::send(owned,7);assert(taps==0);fake::unflag(host,1);
+  const auto allocations=fake::nodes.size();for(int i=0;i<100;++i)view.refresh(host,original);
+  assert(fake::nodes.size()==allocations&&button->children.back()==owned);
+  fake::send(owned,7);assert(taps==1);host->flags|=1;view.update(home_data,host,original,false);
+  assert((original->flags&1)&&button->children.back()==owned);fake::del(host);view.clear();
+ }
  // The overlay suppresses covered native animation widgets, owns no original
  // objects, and restores their visibility even when one is deleted first.
  {
@@ -3152,6 +3194,28 @@ int main(int argc,char**argv){
   panel.update(result);assert(!panel.active()); // status does not reopen dismissed views
   assert(panel.open(parent,result));fake::del(parent);assert(!panel.active());panel.close();
  }
+ // Filament actions stay ordered while minor travel/wiping become detail.
+ {
+  Json rows=Json::array();
+  const char* phases[]={"homing","docking","mounting","preparing","heating","inserting","feeding","purging","wiping","return_docking","return_mounting","returning","finishing"};
+  for(const auto* phase:phases)rows.push_back({{"phase",phase},{"label",phase}});
+  for(int active=0;active<13;++active){
+   const auto view=filament_progress_view(rows,active,false);
+   assert(view["steps"].size()==6&&view["heading"]==phases[active]);
+   unsigned running=0;bool reached=false;
+   for(const auto& step:view["steps"]){
+    const auto state=step.value("state","");
+    if(state=="running"){++running;reached=true;}
+    else assert(state==(reached?"pending":"complete"));
+   }
+   assert(running==1);
+  }
+  assert(filament_progress_view(rows,8,false)["steps"][3]["label"]=="Load filament");
+  assert(filament_progress_view(rows,6,false,true)["steps"][3]["label"]=="Unload filament");
+  assert(filament_progress_view(rows,2,true)["steps"].size()==rows.size());
+  // Repeated nonadjacent phases must not reorder or collapse later work.
+  assert(filament_progress_view(Json::array({rows[0],rows[4],rows[2]}),1,false)["steps"].size()==3);
+ }
  // Print preparation shows measurements, not a duplicate step title.
  {
   Json prep={{"phase","mesh"},{"steps",Json::array({{{"phase","mesh"},{"label","Prepare bed mesh"}}})},{"mesh_progress",{{"point",7},{"total",36}}}};
@@ -3159,6 +3223,21 @@ int main(int argc,char**argv){
   assert(view["value"]=="Probing point 7 of 36");
   prep["phase"]="bed";prep["temperatures"]={{"bed",{{"actual",43.5},{"target",60.}}}};
   view=print_preparation_view({{"print_preparation",prep}});assert(view["value"]=="Bed: 43 / 60 C");
+ }
+ // Worst-case print preparation fits six major phases; every live action
+ // remains visible on the right and thermal work never advances mesh early.
+ {
+  const char* phases[]={"file","preheat","homing","bed","chamber","stabilizing","mesh","nozzle","purging"};
+  Json steps=Json::array();for(const auto* phase:phases)steps.push_back({{"phase",phase},{"label",phase}});
+  for(const auto* phase:phases){
+   const auto view=print_preparation_view({{"print_preparation",{{"phase",phase},{"steps",steps}}}});
+   assert(view["steps"].size()==6&&view["heading"]==phase);
+   unsigned running=0;bool reached=false;
+   for(const auto& row:view["steps"]){const auto state=row.value("state","");
+    if(state=="running"){++running;reached=true;}else assert(state==(reached?"pending":"complete"));
+   }
+   assert(running==1);
+  }
  }
  // Stock prefix heating precedes the Resume checks; do not claim they ran.
  {
@@ -3168,8 +3247,11 @@ int main(int argc,char**argv){
  // PLR groups are complete only when every reported constituent completed.
  {
   const auto rows=plr_progress_steps(Json::array({{{"name","review"},{"state","complete"}},{{"name","home_xy"},{"state","failed"}},{{"name","select_head"},{"state","complete"}},{{"name","heating"},{"state","running"}},{{"name","return_xy"},{"state","complete"}},{{"name","return_z"},{"state","pending"}}}));
-  assert(rows.size()==5&&rows[0]["state"]=="complete"&&rows[1]["label"]=="Home X/Y"&&rows[1]["state"]=="failed"&&rows[2]["label"]=="Select print head"&&rows[2]["state"]=="complete"&&rows[3]["state"]=="running"&&rows[4]["state"]=="pending");
+  assert(rows.size()==4&&rows[0]["state"]=="complete"&&rows[1]["label"]=="Prepare printer"&&rows[1]["state"]=="failed"&&rows[2]["state"]=="running"&&rows[3]["state"]=="pending");
   assert(plr_progress_steps(Json::array()).empty());
+  assert(plr_progress_detail(Json::array({{{"name","bottom_z"},{"state","complete"}},{{"name","select_head"},{"state","running"}}}))=="Selecting print head...");
+  assert(plr_progress_detail(Json::array({{{"name","wipe"},{"state","running"}}}))=="Wiping nozzle...");
+  assert(plr_progress_detail(Json::array({{{"name","wipe"},{"state","pending"}}})).empty());
  }
  // Shared progress layout retains decision controls and has no operation state.
  {
@@ -3285,6 +3367,8 @@ int main(int argc,char**argv){
  }
  // Progressive enhancement follows definitive ownership only on the visible page.
  {
+  setenv("WMP_RELEASE_IDENTITY","r4@12345678",1);
+  assert(StockDiagnostics::release_caption()=="r4@12345678");
   StockDiagnostics diagnostics;auto*about=fake::make(fake::screen);about->w=800;about->h=480;
   auto supported_mapping=data;supported_mapping["fresh"]=true;supported_mapping["owner"]="standalone";supported_mapping["print_start_protocol"]=1;supported_mapping["capabilities"].erase("start_print");
   assert(StockDiagnostics::describe(supported_mapping).find("Print mapping: Supported")!=std::string::npos);
@@ -3295,20 +3379,26 @@ int main(int argc,char**argv){
   assert(StockDiagnostics::describe(supported_mapping).find("Print mapping: Supported")!=std::string::npos);
   auto*sidebar_wrapper=fake::make(about);sidebar_wrapper->w=800;sidebar_wrapper->h=480;
   auto*content=fake::make(about);content->w=670;content->h=340;
+  auto*list=fake::make(content);list->w=670;list->h=314;
+  for(int i=0;i<6;++i){auto*row=fake::make(list);row->w=670;row->h=56;row->y=i*57;}
   auto*stock_label=fake::make(content);stock_label->text="Stock firmware information";
   about->pending_layout=sidebar_wrapper->pending_layout=content->pending_layout=true;
   diagnostics.created(about);diagnostics.update(data);
   auto find=[&](const std::string&text){for(const auto&n:fake::nodes)if(n->live&&n->text==text)for(auto*p=n->parent;p;p=p->parent)if(p==content)return n->parent;return static_cast<fake::Node*>(nullptr);};
-  auto*entry=find("WM+");assert(entry&&stock_label->live);
-  fake::send(entry,7);assert(find("WM+ diagnostics")&&find("CLOSE"));
+  auto*entry=find("WonderMaker+");assert(entry&&entry->parent==list&&entry->y==0&&entry->h==56&&stock_label->live);
+  assert(find("r4@12345678")==entry);
+  for(unsigned i=0;i<6;++i)assert(list->children[i]->y==int(i+1)*57);
+  for(auto*child:entry->children)if(child->is_label)assert(child->text_color==0xffffffffU);
+  fake::send(entry,7);assert(find("About WonderMaker+")&&find("CLOSE")&&(stock_label->flags&1)&&(list->flags&1));
   for(const auto&n:fake::nodes)if(n->live&&n->text==StockDiagnostics::describe(data))assert(n->h!=-1);
   const auto size=fake::nodes.size();diagnostics.update(data);assert(fake::nodes.size()==size);
   auto stale=data;stale["fresh"]=false;diagnostics.update(stale);
   assert(find(StockDiagnostics::describe(stale))&&StockDiagnostics::describe(stale).find("Load: Unknown")!=std::string::npos);
   assert(StockDiagnostics::describe(stale).find("Filament owner: Unavailable")!=std::string::npos);
-  fake::send(find("CLOSE"),7);assert(!find("WM+ diagnostics")&&stock_label->live);
-  about->flags|=1;fake::send(entry,7);assert(!find("WM+ diagnostics"));about->flags&=~1U;
-  fake::send(entry,7);assert(find("WM+ diagnostics"));fake::del(about);diagnostics.update(data);assert(!diagnostics.open());
+  fake::send(find("CLOSE"),7);assert(!find("About WonderMaker+")&&stock_label->live&&!(stock_label->flags&1)&&!(list->flags&1));
+  about->flags|=1;fake::send(entry,7);assert(!find("About WonderMaker+"));about->flags&=~1U;
+  fake::send(entry,7);assert(find("About WonderMaker+"));fake::del(about);diagnostics.update(data);assert(!diagnostics.open());
+  unsetenv("WMP_RELEASE_IDENTITY");
  }
  {
   wmp_openace::UiChannel setup_channel;Runtime setup(http,port,setup_channel);
@@ -3780,7 +3870,7 @@ int main(int argc,char**argv){
   dialog.update(running);
   auto step=[&](const std::string&text){for(const auto&n:fake::nodes)if(n->live&&n->text==text&&!(n->flags&1))return n.get();return static_cast<fake::Node*>(nullptr);};
   auto*heat=step("2. Heat nozzle");assert(heat);
-  assert(step("1. Position head"));
+  assert(step("1. Prepare head"));
   assert(step("3. Load filament"));
   const auto heating_writes=fake::text_writes;const auto heating_nodes=fake::nodes.size();
   heat->parent->scroll=60;
@@ -3807,7 +3897,7 @@ int main(int argc,char**argv){
   auto complete=running;complete["filament_operation"]["state"]="complete";dialog.update(complete);
   assert(!step("3. Load filament")&&!step("2. Heat nozzle"));
   auto foreign=running;foreign["filament_operation"]["id"]="foreign";dialog.update(foreign);
-  assert(!step("1. Position head"));dialog.update(running);
+  assert(!step("1. Prepare head"));dialog.update(running);
   parent->flags|=1;fake::send(begin,7);assert(stops==0);parent->flags&=~1U;
   fake::send(begin,7);assert(stops==1&&procedure_backend.calls==1);
   running["filament_operation"]["cancel_requested"]=true;dialog.update(running);
@@ -4017,16 +4107,16 @@ int main(int argc,char**argv){
   snapshot["heads"][0]["actual"]=220;snapshot["filament_operation"]["phase"]="feeding";
   assert(dialog.reopen_result(parent,snapshot));
   assert(find("2. Heat nozzle"));
-  auto*withdraw=find("3. Retract filament");assert(withdraw);assert(withdraw->text_color==0xffff6600U);
-  assert(find("4. Finish and turn heater off"));
+  auto*withdraw=find("3. Unload filament");assert(withdraw);assert(withdraw->text_color==0xffff6600U);
+  assert(find("4. Finish"));
   snapshot["filament_operation"]["state"]="failed";
   snapshot["filament_operation"]["message"]="Withdrawal interrupted; inspect filament.";
   const auto nodes=fake::nodes.size();dialog.update(snapshot);
   dialog.result({{"state","failed"},{"message","Withdrawal interrupted; inspect filament."}});
-  assert(!find("3. Retract filament")&&(withdraw->flags&1)&&fake::nodes.size()==nodes);
+  assert(!find("3. Unload filament")&&(withdraw->flags&1)&&fake::nodes.size()==nodes);
   fake::send(find("CLOSE")->parent,7);assert(dialog.reopen_result(parent,snapshot));
-  assert(!find("3. Retract filament"));
-  assert(!find("4. Finish and turn heater off"));
+  assert(!find("3. Unload filament"));
+  assert(!find("4. Finish"));
   bool failure_visible=false;for(const auto&n:fake::nodes)if(n->live&&n->text.find("Withdrawal interrupted; inspect filament.")!=std::string::npos)failure_visible=true;
   assert(failure_visible);
   auto*stopped=find("STOPPED")->parent;assert(stopped->state&128);fake::send(stopped,7);
@@ -4693,6 +4783,21 @@ fake::send(slot_card,7);assert(ace_action.empty());
   standalone_editor.mount(parent);standalone_editor.update(standalone_data,head,670,340);
   assert(standalone_editor.open_head_identity(head));standalone_editor.source_origin(2);
   standalone_editor.update(standalone_data,head,670,340);assert(standalone_editor.modal_active());
+  auto appearance_choice=[&](){for(const auto&node:fake::nodes)if(node->live&&node->options=="Standard\nTranslucent\nGradient\nCo-extrusion")for(auto*p=node->parent;p;p=p->parent)if(p==parent)return node.get();return static_cast<fake::Node*>(nullptr);};
+  auto*appearance=appearance_choice();assert(appearance&&appearance->selected==0);
+  const auto original_identity=standalone_editor.draft_identity();
+  fake::send(appearance,31);appearance->selected=1;fake::send(appearance,28);
+  standalone_editor.update(standalone_data,head,670,340);
+  assert(standalone_editor.draft_identity()["appearance"]=="translucent"&&standalone_editor.identity_ready());
+  assert(filament_cosmetic_edit(original_identity,standalone_editor.draft_identity()));
+  assert(standalone_editor.draft_identity()["material"]==original_identity["material"]);
+  const auto translucent_allocations=fake::nodes.size();
+  for(int i=0;i<100;++i)standalone_editor.update(standalone_data,head,670,340);
+  assert(fake::nodes.size()==translucent_allocations);
+  appearance=appearance_choice();fake::send(appearance,31);appearance->selected=3;fake::send(appearance,28);
+  standalone_editor.update(standalone_data,head,670,340);
+  assert(standalone_editor.draft_identity()["appearance"]=="co-extrusion");
+  assert(translucent_tiles(standalone_editor.draft_identity(),88,48).empty());
   standalone_editor.colour_saved(standalone_data,saved_source);
   assert(!standalone_editor.modal_active()&&destination=="toolhead:2");
   fake::del(parent);
@@ -4847,7 +4952,7 @@ fake::send(slot_card,7);assert(ace_action.empty());
    {"steps",Json::array({{{"phase","preheat"},{"label","Preheat probe nozzle"}},{{"phase","homing"},{"label","Home printer"}}})}}}};
   auto find_preparation=[&](const std::string&text){for(auto it=fake::nodes.rbegin();it!=fake::nodes.rend();++it){const auto&n=*it;if(n->live&&n->text==text&&!(n->flags&1))return n.get();}return static_cast<fake::Node*>(nullptr);};
   preparation.navigation("main_page");preparation.update(data);
-  auto*step=find_preparation("2. Home printer");assert(step&&step->text_color==0xffff6600U);
+  auto*step=find_preparation("1. Prepare printer");assert(step&&step->text_color==0xffff6600U);
   auto*close=find_preparation("CLOSE");assert(close);
   auto*stop=find_preparation("STOP");assert(stop);
   auto*title=find_preparation("Preparing print");assert(title);
@@ -4859,14 +4964,14 @@ fake::send(slot_card,7);assert(ace_action.empty());
   assert(titles==1);
   preparation.update(data);assert(find_preparation("Preparing print")==title);
   fake::send(close->parent,7);
-  assert(!step->live);preparation.update(data);assert(!find_preparation("2. Home printer"));
-  data["print_preparation"]["id"]="job2";preparation.update(data);assert(find_preparation("2. Home printer"));
+  assert(!step->live);preparation.update(data);assert(!find_preparation("1. Prepare printer"));
+  data["print_preparation"]["id"]="job2";preparation.update(data);assert(find_preparation("1. Prepare printer"));
   fake::send(find_preparation("STOP")->parent,7);assert(preparation_stops==1);
-  preparation.update(data);assert(!find_preparation("2. Home printer"));
+  preparation.update(data);assert(!find_preparation("1. Prepare printer"));
   data["print_preparation"]["id"]="job3";preparation.update(data);
-  preparation.navigation("setting_page");assert(!find_preparation("2. Home printer"));
-  preparation.navigation("main_page");preparation.update(data);assert(find_preparation("2. Home printer"));
-  data["print_preparation"]["active"]=false;preparation.update(data);assert(!find_preparation("2. Home printer"));
+  preparation.navigation("setting_page");assert(!find_preparation("1. Prepare printer"));
+  preparation.navigation("main_page");preparation.update(data);assert(find_preparation("1. Prepare printer"));
+  data["print_preparation"]["active"]=false;preparation.update(data);assert(!find_preparation("1. Prepare printer"));
  }
 
 }
