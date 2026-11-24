@@ -536,6 +536,13 @@ int main(){
  auto encoded=sh.script.substr(prefix.size());for(std::size_t i=0;i<encoded.size();i+=2)payload+=char(std::stoi(encoded.substr(i,2),nullptr,16));auto request=Json::parse(payload);
  assert(request["mapping"]["0"]==2);assert(request["expected_mapping"]==ps["physical_mapping"]);assert(request["id"]==sr.id);
  printing.deliver(sh);assert(sh.posts==1);printing.observe(ps);assert(ps["receipts"][sr.id]["state"]=="pending");
+ ps["print_submission"]={{"id",sr.id},{"session",ps["session"]},{"file","part.gcode"},{"state","pending"}};
+ for(unsigned i=0;i<40;++i){printing.observe(ps);assert(ps["receipts"][sr.id]["state"]=="pending");printing.deliver(sh);}
+ assert(sh.posts==1); // Long, explicitly observed preparation never resubmits.
+ auto unmatched=ps;unmatched["print_submission"]["id"]="other-start";
+ for(unsigned i=0;i<10;++i)printing.observe(unmatched);
+ assert(unmatched["receipts"][sr.id]["state"]=="unknown");
+ printing.observe(ps);assert(ps["receipts"][sr.id]["state"]=="pending"&&sh.posts==1);
  ps["print_submission"]={{"id",sr.id},{"session",ps["session"]},{"file","part.gcode"},{"state","submitted"}};
  ps["job"]={{"id","wrong.gcode"},{"state","printing"}};printing.observe(ps);assert(ps["receipts"][sr.id]["state"]=="pending");
  ps["job"]["id"]="part.gcode";printing.observe(ps);assert(ps["receipts"][sr.id]["state"]=="complete");

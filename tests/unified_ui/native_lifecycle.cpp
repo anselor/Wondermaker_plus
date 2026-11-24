@@ -1118,6 +1118,28 @@ int main(int argc,char**argv){
   fake::send(cancel,7);assert(!native_runtime.active()&&sidebar->live&&!content->live);
   native_runtime.gui_step();assert(!native_runtime.active()&&stock_page->children.size()==1);
   assert(!RuntimeReceiptTest::preview_session(native_runtime));
+  // An accepted local start leaves preview on the next GUI update, before
+  // backend admission completes. Navigation never creates another request.
+  assert(native_runtime.prepare_stock_preview(native_path,false,true,true));
+  native_widgets.content=fake::make(stock_page);content=static_cast<fake::Node*>(native_widgets.content);content->w=670;content->h=400;
+  native_widgets.title=fake::make(content);static_cast<fake::Node*>(native_widgets.title)->text=native_path;
+  panel=fake::make(content);panel->w=389;
+  for(auto&source:native_widgets.sources)source=fake::make(panel);
+  for(auto&destination:native_widgets.destinations)destination=fake::make(panel);
+  for(unsigned i=0;i<3;++i){native_widgets.options[i]=fake::make(content);fake::bind(native_widgets.options[i],reinterpret_cast<void(*)(void*)>(preview_event),7,reinterpret_cast<void*>(i));}
+  start=fake::make(content);cancel=fake::make(content);fake::make(cancel)->text="Cancel";
+  fake::bind(start,reinterpret_cast<void(*)(void*)>(preview_event),7,reinterpret_cast<void*>(4));
+  fake::bind(cancel,reinterpret_cast<void(*)(void*)>(preview_event),7,reinterpret_cast<void*>(3));
+  fake::bind(content,reinterpret_cast<void(*)(void*)>(preview_refresh_event),30,nullptr);
+  assert(native_runtime.stock_preview_created(native_widgets,"stock-white.bin"));
+  unsigned home_handoffs=0;native_runtime.set_stock_navigation([&](const char*name){assert(std::string(name)=="main_page");++home_handoffs;});
+  native_data["owner"]="standalone";
+  RuntimeReceiptTest::adoption_status(native_runtime,native_data,http.ace,port.now);
+  RuntimeReceiptTest::pending_app(native_runtime,native_data);
+  RuntimeReceiptTest::preview_tick(native_runtime);
+  assert(home_handoffs==1&&!content->live&&sidebar->live);
+  assert(RuntimeReceiptTest::app_operation(native_runtime).value("state","")=="pending");
+  RuntimeReceiptTest::preview_tick(native_runtime);assert(home_handoffs==1);
   fake::del(stock_page);
  }
  wmp_openace::UiChannel channel;Runtime runtime(http,port,channel);assert(runtime.initialize());runtime.worker_step(1000);

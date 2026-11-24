@@ -218,3 +218,20 @@ def test_active_scan_fast_lines_and_continuations_do_not_invent_tools(usage_mach
     preparation = obj._print_preparation().get_status(0)
     assert preparation['active'] and preparation['phase'] == 'file'
     assert preparation['file_progress']['bytes'] == path.stat().st_size
+
+
+def test_active_sd_scan_observes_stop_generation_at_cooperative_boundary(usage_machine):
+    obj, objects, cfg, path, stream = usage_machine
+    path.write_bytes(STAMP.replace(b'\nPRINT_END', b'\n' + b'G1 X1 Y1\n' * 10000 + b'PRINT_END'))
+    sd = objects['virtual_sdcard']
+    sd.from_sd = True
+    sd.file_position, sd.next_file_position = 0, 1
+    objects['gcode_macro START_PRINT'] = SimpleNamespace(get_status=lambda now: {'print_body_ready': False})
+    obj._command_generation = 0
+    def pause(when):
+        obj._command_generation += 1
+        return when
+    obj.printer.pause = pause
+    with pytest.raises(ValueError, match='retired during file preparation'):
+        obj._recovery_jobs()._stage_active_sd_recovery()
+    assert obj._material_settings()._recipe_usage_observation is None

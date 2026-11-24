@@ -49,6 +49,33 @@ int main(){
   auto held=base;held["print_cancel"]={{"state","pending"}};w.observe(held,stats,true);assert(!w.select());assert(w.refusal().find("state=pending")!=std::string::npos);
   const auto why=w.refusal();for(int i=0;i<50;++i)w.result();assert(w.refusal()==why);
  }
+ // Pending file processing has its own exact start identity; an old idle
+ // filename is never used as cancellation authority for this new submission.
+ {
+  Http http;PrintCancelWorker worker(http);
+  auto h=base;h["print_start_cancel_protocol"]=1;
+  h["print_submission"]={{"id","print_8"},{"session","session"},{"file","new.gcode"},{"state","pending"}};
+  Json idle={{"state","complete"},{"filename","previous.gcode"}};
+  worker.observe(h,idle,true);assert(worker.select());http.wait();
+  assert(http.selected.at("start")=="print_8"&&http.selected.at("file")=="new.gcode");
+  h["command_generation"]=1;h["print_submission"]["state"]="not_started";h["print_cancel"]=http.receipt("complete");
+  worker.observe(h,idle,true);http.release();done(worker);
+  assert(worker.result().at("state")=="complete"&&http.cancels==1);
+ }
+ for(const auto*change:{"start","generation","file","opened","owner"}){
+  Http http;http.review_block=true;PrintCancelWorker worker(http);
+  auto h=base;h["print_start_cancel_protocol"]=1;
+  h["print_submission"]={{"id","print_8"},{"session","session"},{"file","new.gcode"},{"state","pending"}};
+  Json idle={{"state","complete"},{"filename","previous.gcode"}};
+  worker.observe(h,idle,true);assert(worker.select());http.wait(true);
+  const std::string field=change;
+  if(field=="start")h["print_submission"]["id"]="print_9";
+  if(field=="generation")h["command_generation"]=1;
+  if(field=="file")h["print_submission"]["file"]="other.gcode";
+  if(field=="opened"){idle["state"]="printing";idle["filename"]="new.gcode";}
+  if(field=="owner")h["afc_metadata"]["owner"]="openace";
+  worker.observe(h,idle,true);http.release();done(worker);assert(http.cancels==0);
+ }
  // A blocked cancellation reply cannot block observation or duplicate-click handling.
  for(bool lost:{false,true}){
   Http http;http.lost=lost;PrintCancelWorker worker(http);assert(!worker.select());worker.observe(base,stats,true);assert(worker.select());http.wait();

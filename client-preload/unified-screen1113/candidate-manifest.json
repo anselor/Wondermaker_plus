@@ -2,10 +2,10 @@
   "scope": "unified-native-development-candidate",
   "activated": false,
   "toolchain_image": "sha256:86fdcabbf2da48f1023d39362d3edc92495da739c716716b83b973aee91d54a8",
-  "ui_build_id": "cc143f012500c6aa",
+  "ui_build_id": "b7d83f66ae98194f",
   "artifact": {
     "path": "libwmp_unified_screen_candidate.so",
-    "sha256": "c2e28ff775b6ab61f59df0a8a366717dcf7a31e49853f16a80e346626af04d45"
+    "sha256": "5905e3ca6aff86361d7ef96241fd6fbea6cfcb4f253c1efba20d1e8452a316c7"
   },
   "runtime_dependencies": {
     "klipper_extras/wmp_component.py": "2157ddcccb944ca6e89222b896715671d51f8ee3ad4e04ad3f294eb82ca1cd94",
@@ -18,9 +18,9 @@
     "klipper_extras/wmp_plr_attempt.py": "93cc606e6e44e6fbd9724b88f3529a254124903f8b4653304f3137db02fe82b6",
     "klipper_extras/wmp_plr_clearance.py": "5799c391907fbda4e79cc2a60bacbe18b8881725978ce0324edcf7153a001ee2",
     "klipper_extras/wmp_plr_review.py": "5d689e38bc9b96b4ecfbbd15a0796996a131a1840798dd3a7f513ec03ebc70a2",
-    "klipper_extras/wmp_plr_jobs.py": "6f5d8d35047f02720b2f6d65e74bbbf23ef98462bfb351ff1a1b8e38ec83b340",
-    "klipper_extras/wmp_print_submission.py": "68093086cfe45812e8eecc645995f6b29c69e789da4ccaa7ac777c6ea354cf01",
-    "klipper_extras/wmp_print_preparation.py": "ecad3fb84ca47d31ba1045e4c9d7298e1df191231ecb89850e1b61dbce3b2a8e",
+    "klipper_extras/wmp_plr_jobs.py": "dc80a6c44298977e4f0c128d45421ef83770a52f4afdee7df8181661499e5911",
+    "klipper_extras/wmp_print_submission.py": "65336e319176dd9eec5c355b7e2ac6a3461ba57b40d96df94204f6058ea3e8be",
+    "klipper_extras/wmp_print_preparation.py": "0cc17350c1be061a8a0c19e941b199816f34337a351a92123ee71079f8a1cfa9",
     "klipper_extras/wmp_filament_planning.py": "a9e7d7642075bd1572b4d31f0cec86994572bfa6a6ac132253698ec359495aa1",
     "klipper_extras/wmp_filament_service.py": "36a2ae3476ee2ed64faaf338c29370342a5ea07c927cd8bc1df2da5a0cb4c97a",
     "klipper_extras/wmp_toolchange_repair.py": "36a1b55dec94490959dd9bf2f8194eaf7779635a47c7c614f68f0da3d56c06d4",
@@ -29,8 +29,8 @@
     "klipper_extras/wmp_material_settings.py": "0d9715ddcd93b9580426a421e951d7b95d9f78df4377d17f485150fe6ef44756",
     "klipper_extras/wmp_filament_state.py": "5c884549853591afdd5ccfe62454818a9a32071d87dc3c09cf8a15a52bceabf0",
     "klipper_extras/wmp_config_save.py": "8aa7396303f15a747614a3c46e8e8793978fa25a6cb7ef37e6d70e2019c8a804",
-    "klipper_extras/wmp_material_status.py": "761c3675c8b60ad7690f921520c17a6db2f3dd9d9896e9218a1846f453ec0469",
-    "klipper_extras/wmp_command_routing.py": "b4f61d5f8582a907609c6fc08a311910a2f39fb05b064603b4b3063f2573350e",
+    "klipper_extras/wmp_material_status.py": "31537ec3e38b997e371b2342cfa3baa55639e3a4ebfc0cbd056a97c0ca243387",
+    "klipper_extras/wmp_command_routing.py": "cd8e36d9bc54683fedc1b721682d032b81ba64847c7e0c18b858959a369ddb98",
     "klipper_extras/wmp_material_owners.py": "48f26c1a0828e4f77c22e610ff1b6eebc81e8f48c8aaf51eee02878dd2ca2e75",
     "klipper_extras/wmp_orca_mapping.py": "b0d4e240653e72232dd9a98a60c363e84467bcf479eebe3cf995f9384f552818",
     "klipper_extras/wmp_calibration_records.py": "11279eba1c9279b7f9dc3c4820a64a62a65db4c86b748bebdce4b488a5c37f2c",
@@ -55,7 +55,7 @@
     "klipper_extras/wmp_filament_types.py": "1ab34609c37d7c159fa8b0eb993a12ffb978b43893b2597b4fabd28e6e172263",
     "klipper_extras/wmp_filament_profiles.py": "17f52d0b881a7ac1d6256564e48087435ccbea242dd5ea52c3bd64a23313a196",
     "klipper_extras/wmp_persistence.py": "81ca4e5dcd1bd28478cdcae9cbb94ff5dc76d4b20ee2d4a19ffc3132490d7d44",
-    "klipper_extras/wmp_print_cancel.py": "14551395f1246e996fbb65f413f0644dc9e75a5812d76184889c5aec3d704632",
+    "klipper_extras/wmp_print_cancel.py": "38b825a058cd3e91afb6563c9aea54e941d51b9111fdfe13da83a5ed46417151",
     "klipper_extras/wmp_stop_points.py": "a85ae0315ec7c8f62c61ac913ae4e8a0b8d94227e9db2060c1eb347cb9b854a2",
     "klipper_extras/wmp_resonance_stop.py": "32fd80e45957d358c247d990f34521a8e3c05c493e706eb8648dd7cf3c704931",
     "klipper_extras/wmp_recovery.py": "82b98f0e8f399a62459c998b66cc60157bc83db62e06b912f67b3da0d8d02f5a",
@@ -127,7 +127,7 @@
     "client-preload/unified-ui/native/plr_progress_steps.hpp": "3110dc3e04af64dd9e1b699eb498495a95cac272d7f1e2c63e3cbc00099cf430",
     "client-preload/unified-ui/native/preview.hpp": "ee84bbba423c41689dfd40595525ac9136f0c2db8603af7ac902b53e8fc6d078",
     "client-preload/unified-ui/native/print_cancel_resolution_worker.hpp": "8ff91326317717ce63903bfd2d0c52c4e3996c63b95fba746f1ef6784d4a5ca4",
-    "client-preload/unified-ui/native/print_cancel_worker.hpp": "d69c04e6b40bf2af8001f0bc4d0a0963c3ca6d424bf3512ffa1ea1046a683874",
+    "client-preload/unified-ui/native/print_cancel_worker.hpp": "9a75f862e67828e2eb16d4379ef5eea80afb66f206da96bac9ba532e4e65f210",
     "client-preload/unified-ui/native/print_context.hpp": "6a25c6a7f1fbcd4a0de51892a027195eb6006c3f343c55f20f715634797efd4e",
     "client-preload/unified-ui/native/probe_editor_flow.hpp": "1369efd71ebc8d73297fc139cc5ffe802b1d402f3eeaafdb34c4b43ae7c1d41b",
     "client-preload/unified-ui/native/probe_editor_status.hpp": "8ec64443fe7dbb9a86cf3bfaaf615abffb0a50fa1355b012047986b907f30adc",
@@ -138,7 +138,7 @@
     "client-preload/unified-ui/native/recovery_resolution_worker.hpp": "81a04bb21e41f0a84178ada6d5513ee8cf2338457b2980644f91a93a7c63ffd3",
     "client-preload/unified-ui/native/recovery_retirement_worker.hpp": "d77178560d55347c02fec466036faf6c4edf5fd108a4787ac1a1a3960eeff918",
     "client-preload/unified-ui/native/recovery_worker.hpp": "d2be4c5b0bd2ff979903c2a708bdb9f7f1654ac6a9d3676c308574c8ffb6e654",
-    "client-preload/unified-ui/native/runtime.hpp": "3650cc0bd53331d0799ecb44ae909b6d0827457887230d557b7a482a11ad70ad",
+    "client-preload/unified-ui/native/runtime.hpp": "769e753fdfc1acc01c0d84e3fcd305f07afd679e6ace7f403d41a9e42860820f",
     "client-preload/unified-ui/native/runtime_inputs.py": "55490d7f36cbb62766ae1dea008423d86ca3ee257c7667d651c2eef584cc16e1",
     "client-preload/unified-ui/native/setup_completion.hpp": "e25874252d9651ad673e4e5f62c4eaad376168fce6f1a54853689d93f98e0b2d",
     "client-preload/unified-ui/native/solid_colour_picker.hpp": "3afc526c7a36122dde91333d23b1f648adff68af1d1bd3bf91bfca73a6307973",
@@ -209,7 +209,7 @@
     "client-preload/unified-ui/print_request.hpp": "46469cf3220e3654fae014cfdf2c106e87c840084fb52e86896436611ad92e7a",
     "client-preload/unified-ui/recovery_request.hpp": "6a0c5059a0285325ad9f4b338a168a35d0b195fc37108b86c69c83d3706bda89",
     "client-preload/unified-ui/screens.hpp": "f3600cb5269da04483eed329bf25255073ea4f44cdb59d50b1df25f2d530f608",
-    "client-preload/unified-ui/standalone_backend.hpp": "8d4174b1d68b5a628b30d61badc15b2cfe8761f50b6dab07b0822f168da1907d",
+    "client-preload/unified-ui/standalone_backend.hpp": "1031bd479d59a0a2667204a141a581d807a76177025f056de2d8350355398ddb",
     "client-preload/unified-ui/typed_management.hpp": "a6f680d403b9dbf789135415e27b10fb4b337c225e842865b82e11cd07a240b0"
   }
 }

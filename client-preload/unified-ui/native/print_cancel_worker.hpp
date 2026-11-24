@@ -19,9 +19,17 @@ class PrintCancelWorker {
  bool current()const{return fresh_&&Clock::now()-observed_<std::chrono::seconds(2)
   &&helper_.value("afc_metadata",Json::object()).value("owner","")=="standalone"
   &&helper_.value("print_cancel_protocol",0)==1;}
- bool selected_current()const{return current()&&helper_.value("session_id","")==selection_.value("session","")
-  &&helper_.value("command_generation",0LL)==generation_&&stats_.value("filename","")==selection_.value("file","")
-  &&(stats_.value("state","")=="printing"||stats_.value("state","")=="paused");}
+ bool selected_current()const{
+  if(!current()||helper_.value("session_id","")!=selection_.value("session","")||helper_.value("command_generation",0LL)!=generation_)return false;
+  if(selection_.contains("start")){
+   const auto submission=helper_.value("print_submission",Json::object());
+   return helper_.value("print_start_cancel_protocol",0)==1&&submission.value("state","")=="pending"
+    &&submission.value("id","")==selection_.value("start","")&&submission.value("file","")==selection_.value("file","")
+    &&submission.value("session","")==selection_.value("session","")
+    &&stats_.value("state","")!="printing"&&stats_.value("state","")!="paused";
+  }
+  return stats_.value("filename","")==selection_.value("file","")&&(stats_.value("state","")=="printing"||stats_.value("state","")=="paused");
+ }
  std::string selection_reason()const{
   if(!fresh_)return "Cancellation status is not fresh.";
   const auto age=std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now()-observed_).count();
@@ -58,8 +66,9 @@ class PrintCancelWorker {
     const auto reply=Json::parse(http_.post("/printer/wmp/print/cancel_review",selected.dump()));
     if(reply.contains("error"))throw std::runtime_error("Cancellation review refused");
     auto request=reply.at("result").at("request");
-    if(!request.is_object()||request.size()!=4)throw std::runtime_error("Invalid cancellation review");
+    if(!request.is_object()||request.size()!=selected.size()+1)throw std::runtime_error("Invalid cancellation review");
     for(const auto*key:{"id","session","file"})if(request.at(key)!=selected.at(key))throw std::runtime_error("Cancellation review changed");
+    if(selected.contains("start")&&request.value("start","")!=selected.value("start",""))throw std::runtime_error("Pending start changed during cancellation review");
     const auto token=request.at("token").get<std::string>();
     if(token.size()!=32||token.find_first_not_of("0123456789abcdef")!=std::string::npos)throw std::runtime_error("Invalid cancellation token");
     {std::lock_guard<std::mutex>lock(mutex_);if(!selected_current()){rejected=selection_reason();throw std::runtime_error("Print changed before cancellation");}
@@ -113,18 +122,27 @@ public:
   if(owner!="standalone")return reject("Cancellation requires standalone ownership; current owner="+rejection_value(owner)+".");
   if(helper_.value("print_cancel_protocol",0)!=1)return reject("Unsupported print_cancel_protocol="+std::to_string(helper_.value("print_cancel_protocol",0))+"; expected=1.");
   if(serial_>=1024)return reject("Cancellation request limit reached: count="+std::to_string(serial_)+", limit=1024.");
-  const auto session=helper_.value("session_id","");const auto file=stats_.value("filename","");
+  const auto session=helper_.value("session_id","");
+  const auto submission=helper_.value("print_submission",Json::object());
+  const bool starting=helper_.value("print_start_cancel_protocol",0)==1&&submission.value("state","")=="pending"
+   &&submission.value("session","")==session&&stats_.value("state","")!="printing"&&stats_.value("state","")!="paused";
+  const auto file=starting?submission.value("file",""):stats_.value("filename","");
   if(session.empty()||session.size()>64||session.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-")!=std::string::npos)return reject("Cancellation session is missing or malformed.");
   if(file.empty()||file.size()>4096)return reject("Cancellation filename is missing or exceeds 4096 bytes.");
   const auto print_state=stats_.value("state","");
-  if(print_state!="printing"&&print_state!="paused")return reject("Cancellation requires printing or paused state; current="+rejection_value(print_state)+".");
+  if(!starting&&print_state!="printing"&&print_state!="paused")return reject("Cancellation requires printing or paused state; current="+rejection_value(print_state)+".");
   const auto held=helper_.value("print_cancel",Json::object()).value("state","");
   if(held=="pending")return reject("Previous backend cancellation is unresolved: state="+rejection_value(held)+".");
   if(!selection_.empty()&&selection_.value("session","")==session&&selection_.value("file","")==file
-     &&generation_==helper_.value("command_generation",0LL)&&state=="complete")return true;
+     &&generation_==helper_.value("command_generation",0LL)&&state=="complete"&&!starting&&!selection_.contains("start"))return true;
   generation_=helper_.value("command_generation",0LL);
   selection_={{"id","cancel_"+std::to_string(std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now().time_since_epoch()).count())+"_"+std::to_string(++serial_)},
               {"session",session},{"file",file}};
+  if(starting){
+   const auto start=submission.value("id","");
+   if(start.empty()||start.size()>96||start.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-")!=std::string::npos)return reject("Invalid pending print identity.");
+   selection_["start"]=start;
+  }
   result_=selection_;result_["state"]="pending";result_["message"]="Reviewing print cancellation";
   matched_=sent_=false;queued_=true;wake_.notify_all();return true;
  }

@@ -688,5 +688,64 @@
       "steps": [],
       "instruction": "Calibration cancelled. All heads are docked. Previous nozzle offsets were restored.\n\nSaved: bed mesh, vibration, Head 1 PID, Head 2 PID, Head 3 PID, Head 4 PID. Restart Klipper to apply saved settings."
     }
+  },
+  {
+    "fit": true,
+    "height": 357,
+    "name": "print-file-processing",
+    "view": {
+      "instruction": "Reading the print file and preparing recovery information.",
+      "steps": [
+        {
+          "label": "Read/process G-code",
+          "state": "running"
+        }
+      ],
+      "title": "Preparing print",
+      "value": "File checked: 42%"
+    },
+    "width": 696
+  },
+  {
+    "fit": true,
+    "height": 357,
+    "name": "print-preheat-after-file",
+    "view": {
+      "instruction": "",
+      "steps": [
+        {
+          "label": "Read/process G-code",
+          "state": "complete"
+        },
+        {
+          "label": "Preheat probe nozzle",
+          "state": "running"
+        },
+        {
+          "label": "Mount head and home printer",
+          "state": "pending"
+        },
+        {
+          "label": "Heat bed",
+          "state": "pending"
+        },
+        {
+          "label": "Prepare bed mesh",
+          "state": "pending"
+        },
+        {
+          "label": "Heat print nozzle",
+          "state": "pending"
+        },
+        {
+          "label": "Prime nozzle",
+          "state": "pending"
+        }
+      ],
+      "title": "Preparing print",
+      "value": "Head 1: 32 / 140 C"
+    },
+    "width": 696
   }
+
 ]

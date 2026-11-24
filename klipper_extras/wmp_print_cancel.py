@@ -29,6 +29,8 @@ class PrintCancellation:
         filename cannot transfer cancellation authority to another print.
         """
         try:
+            if web_request.get_str('start', ''):
+                return self.material._print_service().review_pending_stop(web_request)
             request = {key: web_request.get_str(key) for key in ("id", "session", "file")}
             if (not re.fullmatch(r"[A-Za-z0-9_-]{1,96}", request["id"])
                     or request["session"] != self.material.session_id
@@ -79,6 +81,8 @@ class PrintCancellation:
     def _handle_print_cancel(self, web_request):
         """Record reactor intent only after the reviewed token is confirmed."""
         try:
+            if web_request.get_str('start', ''):
+                return self.material._print_service().cancel_pending_stop(web_request)
             request = {key: web_request.get_str(key) for key in ("id", "session", "file", "token")}
             ticket = getattr(self, "_print_cancel_tickets", {}).get(request["id"])
             if (ticket is None or ticket["used"] or request != ticket["request"]

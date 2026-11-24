@@ -26,10 +26,41 @@ class PrintPreparation:
         self.material = material
         self.state = {}
         self._job_file = None
+        self._submission = None
 
     @property
     def printer(self):
         return self.material.printer
+
+    def begin_submission(self, submission, total):
+        self._submission = submission
+        self._job_file = None
+        self._file_state(submission['file'], total)
+        self.state['scope'] = 'submission'
+        self.state['start'] = submission['id']
+        return self.state['id']
+
+    def bind_dispatched_submission(self, submission):
+        if self._submission is not submission or self.state.get('phase') != 'file':
+            return
+        sd = self.printer.lookup_object('virtual_sdcard', None)
+        now = self.printer.get_reactor().monotonic()
+        stats = self.printer.lookup_object('print_stats').get_status(now)
+        stream = getattr(sd, 'current_file', None)
+        if stream is None or stats.get('filename') != submission['file']:
+            return
+        self._job_file = stream
+        self._submission = None
+        self.state.pop('scope', None)
+        self.state.pop('start', None)
+
+    def _file_state(self, filename, total):
+        self.state = {'protocol': 1, 'id': uuid.uuid4().hex, 'file': filename,
+                      'phase': 'file', 'active': True,
+                      'steps': [{'phase': 'file', 'label': 'Read/process G-code'}],
+                      'file_progress': {'bytes': 0, 'total': total},
+                      'instruction': 'Reading the print file and preparing recovery information.',
+                      'note': ''}
 
     def begin_file_scan(self, filename, total):
         """Show bookkeeping only for the actual active SD attempt.
@@ -44,12 +75,8 @@ class PrintPreparation:
         if stats.get('state') != 'printing' or stats.get('filename') != filename or stream is None:
             return None
         self._job_file = stream
-        self.state = {'protocol': 1, 'id': uuid.uuid4().hex, 'file': filename,
-                      'phase': 'file', 'active': True,
-                      'steps': [{'phase': 'file', 'label': 'Prepare print file'}],
-                      'file_progress': {'bytes': 0, 'total': total},
-                      'instruction': 'Checking the print file and recovery information.',
-                      'note': ''}
+        self._submission = None
+        self._file_state(filename, total)
         return self.state['id']
 
     def file_scan_progress(self, attempt, completed):
@@ -66,11 +93,22 @@ class PrintPreparation:
         filename = self.printer.lookup_object('print_stats').get_status(
             self.printer.get_reactor().monotonic()).get('filename', '')
         sd = self.printer.lookup_object('virtual_sdcard', None)
-        self._job_file = getattr(sd, 'current_file', None)
-        self.state = {'protocol': 1, 'id': uuid.uuid4().hex,
+        stream = getattr(sd, 'current_file', None)
+        continued_scan = (self.state.get('phase') == 'file' and self.state.get('file') == filename
+                          and stream is not None
+                          and (self._job_file is stream
+                               or (self._submission is not None
+                                   and self._submission is self.material.print_submission
+                                   and self._submission.get('state') in ('pending', 'submitted'))))
+        attempt = self.state['id'] if continued_scan else uuid.uuid4().hex
+        steps = ([{'phase': 'file', 'label': 'Read/process G-code'}] if continued_scan else [])
+        steps += [{'phase': key, 'label': label} for key, label in PHASES
+                  if chamber > 0 or key not in ('chamber', 'stabilizing')]
+        self._job_file = stream
+        self._submission = None
+        self.state = {'protocol': 1, 'id': attempt,
                       'file': filename, 'phase': 'preheat', 'active': True,
-                      'steps': [{'phase': key, 'label': label} for key, label in PHASES
-                                if chamber > 0 or key not in ('chamber', 'stabilizing')],
+                      'steps': steps,
                       'chamber_target': chamber, 'hold_remaining': 0., 'instruction': '', 'note': ''}
 
     def cmd_STAGE(self, gcmd):
@@ -90,6 +128,13 @@ class PrintPreparation:
             return result
         stats = self.printer.lookup_object('print_stats').get_status(now)
         sd = self.printer.lookup_object('virtual_sdcard', None)
+        if result.get('scope') == 'submission':
+            result['active'] = (self._submission is self.material.print_submission
+                                and self._submission.get('state') == 'pending'
+                                and self._submission.get('session') == self.material.session_id
+                                and not sd.is_active()
+                                and stats.get('state') not in ('printing', 'paused'))
+            return result
         result['active'] = (stats.get('state') == 'printing' and stats.get('filename') == result['file']
                             and self._job_file is not None and getattr(sd, 'current_file', None) is self._job_file)
         if result['active']:

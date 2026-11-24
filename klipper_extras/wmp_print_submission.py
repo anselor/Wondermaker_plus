@@ -3,6 +3,8 @@
 
 Owns print request history and submission results; the coordinator supplies
 material state, owner routing and PLR startup evidence."""
+import copy
+import uuid
 import json
 import math
 import os
@@ -13,6 +15,96 @@ import stat
 class PrintSubmission:
     def __init__(self, material):
         self.material = material
+
+    def _pending_stop_binding(self, request):
+        printer = self.material.printer
+        now = printer.get_reactor().monotonic()
+        sd = printer.lookup_object('virtual_sdcard')
+        stats = printer.lookup_object('print_stats').get_status(now)
+        submission = self.print_submission
+        if (printer.is_shutdown()
+                or printer.lookup_object('webhooks').get_status(now).get('state') != 'ready'
+                or any(printer.lookup_object(owner, None) is not None for owner in ('openace', 'AFC'))
+                or request['session'] != self.material.session_id
+                or submission.get('session') != request['session']
+                or submission.get('id') != request['start']
+                or submission.get('file') != request['file']
+                or submission.get('state') != 'pending'
+                or sd.is_active() or sd.is_cmd_from_sd()
+                or stats.get('state') in ('printing', 'paused')
+                or self.material._print_cancel_active()):
+            raise ValueError('Pending print start changed; refresh cancellation')
+        return (submission, getattr(self.material, '_command_generation', 0),
+                getattr(sd, 'current_file', None), stats.get('filename'))
+
+    def review_pending_stop(self, web_request):
+        request = {key: web_request.get_str(key) for key in ('id', 'session', 'file', 'start')}
+        if (not re.fullmatch(r'[A-Za-z0-9_-]{1,96}', request['id'])
+                or not re.fullmatch(r'[A-Za-z0-9_-]{1,96}', request['start'])
+                or not 0 < len(request['file']) <= 4096):
+            raise ValueError('Invalid pending-start cancellation request')
+        binding = self._pending_stop_binding(request)
+        cancellation = self.material._cancellation()
+        if request['id'] in getattr(cancellation, '_print_cancel_requests', set()):
+            raise ValueError('Cancellation ID was already attempted')
+        now = self.material.printer.get_reactor().monotonic()
+        tickets = {key: value for key, value in getattr(self, '_pending_stop_tickets', {}).items()
+                   if not value['used'] and now < value['expires']}
+        old = tickets.get(request['id'])
+        if old is not None:
+            if (old['binding'][0] is not binding[0] or old['binding'][1:] != binding[1:]
+                    or any(old['request'][key] != value for key, value in request.items())):
+                raise ValueError('Pending-start cancellation review changed')
+            web_request.send(dict(request=old['request']))
+            return
+        if len(tickets) >= 1024:
+            raise ValueError('Too many pending-start cancellation reviews')
+        request['token'] = uuid.uuid4().hex
+        tickets[request['id']] = dict(request=dict(request), binding=binding, used=False, expires=now + 60.)
+        self._pending_stop_tickets = tickets
+        web_request.send(dict(request=request))
+
+    def cancel_pending_stop(self, web_request):
+        request = {key: web_request.get_str(key) for key in ('id', 'session', 'file', 'start', 'token')}
+        ticket = getattr(self, '_pending_stop_tickets', {}).get(request['id'])
+        now = self.material.printer.get_reactor().monotonic()
+        if ticket is None or ticket['used'] or now >= ticket['expires'] or request != ticket['request']:
+            raise ValueError('Pending-start cancellation review expired, changed or was used')
+        binding = self._pending_stop_binding(request)
+        if ticket['binding'][0] is not binding[0] or ticket['binding'][1:] != binding[1:]:
+            raise ValueError('Pending start changed after cancellation review')
+        ticket['used'] = True
+        web_request.send(self._retire_pending_start(request, binding))
+
+    def cancel_current_pending_start(self):
+        submission = getattr(self, 'print_submission', {})
+        if submission.get('state') != 'pending':
+            return None
+        request = dict(id='legacy_cancel_' + uuid.uuid4().hex, session=self.material.session_id,
+                       file=submission['file'], start=submission['id'])
+        return self._retire_pending_start(request, self._pending_stop_binding(request))
+
+    def _retire_pending_start(self, request, binding):
+        # No SD execution, heating or movement has been dispatched in this
+        # phase. Retire its generation before acknowledging Stop. The command
+        # and scan recheck this fence before writing evidence or opening SD.
+        self.material._command_generation = binding[1] + 1
+        self.print_submission.update(state='not_started', message='Print cancelled before it started.',
+                                     error='Cancelled by user')
+        self.material._pending_recovery_submission = None
+        cancellation = self.material._cancellation()
+        used = getattr(cancellation, '_print_cancel_requests', set())
+        if len(used) >= 1024:
+            used = set()
+        cancellation._print_cancel_requests = used | {request['id']}
+        cancellation._print_cancel_live_binding = None
+        cancellation._print_cancel = dict(version=3, id=request['id'], session=request['session'],
+            file=request['file'], state='complete', phase='complete', message='Print cancelled before it started',
+            stages=[dict(name=name, state='complete') for name in cancellation._CANCEL_STAGES],
+            stop_point=dict(phase='file_preparation', label='Reading/processing G-code',
+                            state='start retired; no heating or movement dispatched'))
+        cancellation._record_print_cancel()
+        return copy.deepcopy(cancellation._print_cancel)
 
     def _print_admission(self, gcmd, openace=False):
         try:
@@ -239,6 +331,8 @@ class PrintSubmission:
         self._remember_print_ticket(request)
         self.print_submission = {"id": ticket, "session": self.material.session_id,
                                  "file": request["file"]["path"], "state": "pending"}
+        if mapping is not None:
+            self.material._print_preparation().begin_submission(self.print_submission, identity[2])
         gcode = self.material.printer.lookup_object("gcode")
         sd_dispatch_attempted = False
         generation = getattr(self.material, "_command_generation", 0)
@@ -298,6 +392,8 @@ class PrintSubmission:
                 raise gcmd.error("Print request retired during preparation; not started")
             sd_dispatch_attempted = True
             gcode.run_script_from_command(script)
+            if mapping is not None:
+                self.material._print_preparation().bind_dispatched_submission(self.print_submission)
         except Exception as error:
             # Preparation can partially change mapping/leveling settings, but
             # cannot start SD execution. Once dispatch is attempted its outcome
@@ -305,7 +401,7 @@ class PrintSubmission:
             self.material._pending_recovery_submission = None
             self.print_submission["state"] = (
                 "unknown" if sd_dispatch_attempted else "not_started")
-            if not sd_dispatch_attempted:
+            if not sd_dispatch_attempted and self.print_submission.get("error") != "Cancelled by user":
                 self.print_submission["message"] = (
                     "Print was not started. Preparation failed; tool mapping or leveling "
                     "settings may have changed. Review them before trying again.")

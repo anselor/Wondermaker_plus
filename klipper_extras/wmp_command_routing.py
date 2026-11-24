@@ -146,6 +146,9 @@ class CommandRouting:
             sd = self.material.printer.lookup_object("virtual_sdcard")
             stats = self.material.printer.lookup_object("print_stats")
             if sd.current_file is None and not sd.is_active() and not sd.is_cmd_from_sd():
+                pending = self.material._print_service().cancel_current_pending_start()
+                if pending is not None:
+                    return pending
                 gcode.respond_info("No open print to cancel")
                 return
             binding = {"session": self.material.session_id, "file": stats.filename, "handle": sd.current_file}

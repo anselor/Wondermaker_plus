@@ -96,8 +96,12 @@ class RecoveryJobs:
         usage = self.material._begin_usage_scan(binding["path"])
         preparation = self.material._print_preparation()
         attempt = preparation.begin_file_scan(relative, os.stat(binding["path"]).st_size)
-        cooperate = _ScanCooperator(self.material.printer.get_reactor(),
-                progress=lambda completed: preparation.file_scan_progress(attempt, completed), source='active-sd')
+        generation = getattr(self.material, '_command_generation', 0)
+        def progress(completed):
+            if generation != getattr(self.material, '_command_generation', 0):
+                raise ValueError('Print start retired during file preparation')
+            preparation.file_scan_progress(attempt, completed)
+        cooperate = _ScanCooperator(self.material.printer.get_reactor(), progress=progress, source='active-sd')
         with open(binding["path"], "rb") as stream:
             continuing = False
             while True:
@@ -305,7 +309,14 @@ class RecoveryJobs:
 
         content = hashlib.sha256()
         usage = self.material._begin_usage_scan(full)
-        cooperate = _ScanCooperator(self.material.printer.get_reactor(), source='screen-submission')
+        generation = getattr(self.material, '_command_generation', 0)
+        preparation = self.material._print_preparation()
+        attempt = preparation.state.get('id')
+        def progress(completed):
+            if generation != getattr(self.material, '_command_generation', 0):
+                raise ValueError('Print start retired during file preparation')
+            preparation.file_scan_progress(attempt, completed)
+        cooperate = _ScanCooperator(self.material.printer.get_reactor(), progress=progress, source='screen-submission')
         with open(full, "rb") as stream:
             if identity(os.fstat(stream.fileno())) != file_identity:
                 raise ValueError("Print file changed before recovery staging")

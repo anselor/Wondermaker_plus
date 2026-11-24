@@ -180,3 +180,29 @@ def test_pre_dispatch_file_scan_never_borrows_previous_print(preparation, state,
         v.sd.current_file = None
     assert v.feature.begin_file_scan('example.gcode', 200) is None
     assert v.feature.get_status(0) == {}
+
+
+def test_pending_file_progress_continues_into_the_actual_sd_preparation(preparation):
+    v = preparation
+    v.stats.update(state='complete', filename='previous.gcode')
+    v.sd.current_file = None
+    v.sd.is_active = lambda: False
+    v.material.session_id = 'session'
+    v.material.print_submission = {'id': 'print_1', 'session': 'session', 'file': 'example.gcode', 'state': 'pending'}
+    attempt = v.feature.begin_submission(v.material.print_submission, 200)
+    assert v.feature.get_status(0)['active']
+    v.feature.file_scan_progress(attempt, 160)
+    assert v.feature.get_status(0)['file_progress']['bytes'] == 160
+    v.material.print_submission['state'] = 'not_started'
+    assert not v.feature.get_status(0)['active']
+    v.material.print_submission['state'] = 'submitted'
+    v.stats.update(state='printing', filename='example.gcode')
+    v.sd.current_file = object()
+    v.feature.bind_dispatched_submission(v.material.print_submission)
+    assert v.feature.get_status(0)['active']
+    v.feature.cmd_BEGIN(Command())
+    progress = v.feature.get_status(0)
+    assert progress['id'] == attempt and progress['active'] and progress['phase'] == 'preheat'
+    assert [step['phase'] for step in progress['steps']][:2] == ['file', 'preheat']
+    v.feature.file_scan_progress(attempt, 200)
+    assert 'file_progress' not in v.feature.get_status(0)

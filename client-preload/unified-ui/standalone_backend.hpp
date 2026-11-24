@@ -93,6 +93,11 @@ public:
     auto state=job.value("state","");
     if(matched&&result.value("state","")=="refused")finish("refused","Print was refused before preparation; nothing started.");
     else if(matched&&result.value("state","")=="not_started")finish("refused",(std::string("Print was not started. Preparation failed; tool mapping or leveling settings may have changed. Review them before trying again. ")+operation_display_text(result,"error","").substr(0,240)).c_str());
+    else if(matched&&result.value("state","")=="pending"&&snapshot_.value("fresh",false)){
+     // Current owned preparation is positive evidence, even for a large file.
+     // Do not expire it after ten polls or resend a start whose reply was lost.
+     readbacks_=0;waiting_=true;receipt_["state"]="pending";receipt_["message"]="Reading/processing G-code.";
+    }
     else if(matched&&result.value("state","")=="submitted"&&job.value("id","")==arguments_.value("file","")&&(state=="printing"||state=="paused"||state=="complete"))finish("complete","Selected print admitted.");
     else if((matched&&result.value("state","")=="unknown")||++readbacks_>=10)finish("unknown","Print admission was not confirmed; inspect the job before retrying.");
    }

@@ -1424,7 +1424,12 @@ private:
    app_.event("file:"+pending_preview_);pending_preview_.clear();break;
   }
   const auto op=app_.operation();
-  if(op.value("id","")!=native_previous_operation_&&op.value("action","")=="start_print"&&op.value("state","")=="complete"){stock_preview_.close();pending_preview_.clear();}
+  const bool new_start=op.value("id","")!=native_previous_operation_&&op.value("action","")=="start_print";
+  if(new_start&&data.value("owner","")=="standalone"&&op.value("state","")=="pending"&&stock_preview_.active()&&stock_){
+   // Admission/file processing belongs on Home's shared progress surface.
+   // Preserve the in-flight receipt; navigation never dispatches a second start.
+   stock_preview_.close();pending_preview_.clear();print_preparation_.navigation("main_page");stock_("main_page");
+  }else if(new_start&&op.value("state","")=="complete"){stock_preview_.close();pending_preview_.clear();}
   else stock_preview_.tick();
  }
  void save_ace_identity(){

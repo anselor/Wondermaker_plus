@@ -91,6 +91,7 @@ class MaterialStatus:
                   "print_preparation": self.material._print_preparation().get_status(eventtime),
                   "print_cancel": copy.deepcopy(getattr(self.material, "_print_cancel", {})),
                   "print_cancel_protocol": 1,
+                  "print_start_cancel_protocol": 1,
                   "script_generation_protocol": 1 if getattr(self.material, "_cancel_script_wrapper", None) is not None else 0,
                   "print_cancel_ingress_protocol": 1 if getattr(self.material, "_cancel_script_wrapper", None) is not None else 0,
                   "print_cancel_resolution_protocol": 1,
