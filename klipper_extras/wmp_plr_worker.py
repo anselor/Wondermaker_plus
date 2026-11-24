@@ -23,9 +23,10 @@ class RecoveryWorker:
             if timer is not None:
                 self.material.printer.get_reactor().unregister_timer(timer)
         finally:
-            if timer is not None and sd.work_timer is timer:
-                sd.work_timer = None
-            self._recovery_pending_worker = None
+            if self._recovery_pending_worker is pending:
+                if timer is not None and sd.work_timer is timer:
+                    sd.work_timer = None
+                self._recovery_pending_worker = None
 
 
     def _recovery_queue_worker(self, execution, guard):

@@ -20,6 +20,24 @@ def test_failed_restart_with_previous_client_still_active_is_not_success(monkeyp
 from test_preload_bundle import local_installer
 
 
+def published_for_removal(tmp_path, monkeypatch):
+    """Create a real publication receipt, not an unowned arbitrary override."""
+    import json
+    import preload_bundle as pb
+    result = local_installer(tmp_path, monkeypatch)
+    root, home, drop, selected, commands, restarts, ctx = result
+    stage = home/'removal-fixture'; stage.mkdir()
+    outputs = {}
+    for name, _ in selected:
+        filename = 'libwmp_%s.so' % name
+        (stage/filename).write_bytes(b'installed library')
+        outputs[filename] = {'file':filename, 'sha256':pb.digest(stage/filename)}
+    (stage/'outputs.json').write_text(json.dumps(outputs))
+    pb.publish_stage(stage, home/'lib', drop)
+    monkeypatch.setattr(preload, 'DEFAULTS_DROPIN', str(home/'defaults.conf'))
+    return result
+
+
 def test_actual_restart_failure_rolls_back_published_files(tmp_path,monkeypatch,capsys):
     actual_restart=preload._restart
     replies = iter([{'state':'ready','process_id':1}, {'state':'ready','process_id':1},
@@ -53,43 +71,40 @@ def test_actual_restart_failure_rolls_back_published_files(tmp_path,monkeypatch,
 
 @pytest.mark.parametrize('failed_target',['library','dropin'])
 def test_uninstall_failed_removal_does_not_claim_success(tmp_path,monkeypatch,capsys,failed_target):
-    root,home,drop,selected,commands,restarts,ctx=local_installer(tmp_path,monkeypatch)
-    (home/'lib').mkdir();old=home/'lib/libwmp_openace-compat.so';old.write_bytes(b'old');drop.write_text('override')
-    shell=preload.run;failures=[]
-    def remote(connection,command,**kwargs):
-        target=str(old if failed_target=='library' else drop)
-        if command.startswith('rm -f ') and target in command:
-            failures.append(command);return '', 'removal denied',1
-        return shell(connection,command,**kwargs)
-    monkeypatch.setattr(preload,'run',remote)
+    root,home,drop,selected,commands,restarts,ctx=published_for_removal(tmp_path,monkeypatch)
+    old=home/'lib/libwmp_openace-compat.so'
+    target=old if failed_target=='library' else drop
+    helper=preload._helper; failures=[]
+    def denied(context,connection,body,**kwargs):
+        if 'restore_preload_factory(' in body:
+            failures.append(True)
+            body = ("original_unlink=Path.unlink\n"
+                    "def deny_unlink(path,*args,**kwargs):\n"
+                    "    if str(path)==%r: raise PermissionError('removal denied')\n"
+                    "    return original_unlink(path,*args,**kwargs)\n"
+                    "Path.unlink=deny_unlink\n" % str(target)) + body
+        return helper(context,connection,body,**kwargs)
+    monkeypatch.setattr(preload,'_helper',denied)
     with pytest.raises(ctx.DeployError,match='removal denied'):preload.uninstall(ctx)
-    assert failures and not restarts
-    assert (old if failed_target=='library' else drop).exists()
-    assert 'Removed the WM+' not in capsys.readouterr().out
+    assert failures and not restarts and target.exists()
+    assert 'Restored original screen resources' not in capsys.readouterr().out
 
 
 def test_uninstall_removes_libraries_from_privileged_publication(tmp_path, monkeypatch):
-    root, home, drop, selected, commands, restarts, ctx = local_installer(tmp_path, monkeypatch)
-    library_dir = home / 'lib'
-    library_dir.mkdir()
-    for name, _ in selected:
-        (library_dir / ('libwmp_%s.so' % name)).write_bytes(b'installed library')
-    drop.write_text('installed override')
-    config = home / 'saved_variables.cfg'
-    config.write_text('operator settings')
-    shell = preload.run
-
+    root,home,drop,selected,commands,restarts,ctx=published_for_removal(tmp_path,monkeypatch)
+    library_dir=home/'lib'
+    config=home/'saved_variables.cfg'; config.write_text('operator settings')
+    shell=preload.run; restores=[]
     def privileged_files(connection, command, **kwargs):
-        # Fresh publication creates lib/ as root. Model that permission boundary
-        # without needing root or changing ownership on the test host.
-        if command.startswith('rm -f ') and not kwargs.get('sudo'):
-            return '', 'Permission denied: root-owned preload directory', 1
+        if 'restore_preload_factory(' in command:
+            restores.append(kwargs.get('sudo'))
+            if not kwargs.get('sudo'):
+                return '', 'Permission denied: root-owned preload directory', 1
         return shell(connection, command, **kwargs)
-
-    monkeypatch.setattr(preload, 'run', privileged_files)
+    monkeypatch.setattr(preload,'run',privileged_files)
     preload.uninstall(ctx)
-    assert not list(library_dir.glob('libwmp_*.so'))
-    assert not drop.exists()
+    assert restores == [True]
+    assert not list(library_dir.glob('libwmp_*.so')) and not drop.exists()
     assert config.read_text() == 'operator settings'
     assert restarts == [True]
 
@@ -118,8 +133,8 @@ def test_successful_restart_still_requires_final_active_check(monkeypatch,active
 
 def test_uninstall_actual_restart_failure_never_claims_completion(tmp_path,monkeypatch,capsys):
     actual_restart=preload._restart
-    root,home,drop,selected,commands,restarts,ctx=local_installer(tmp_path,monkeypatch)
-    (home/'lib').mkdir();old=home/'lib/libwmp_openace-compat.so';old.write_bytes(b'old');drop.write_text('override')
+    root,home,drop,selected,commands,restarts,ctx=published_for_removal(tmp_path,monkeypatch)
+    old=home/'lib/libwmp_openace-compat.so'
     shell=preload.run
     def remote(connection,command,**kwargs):
         if 'daemon-reload' in command:return '', 'restart unavailable',1
@@ -128,4 +143,4 @@ def test_uninstall_actual_restart_failure_never_claims_completion(tmp_path,monke
     monkeypatch.setattr(preload,'run',remote);monkeypatch.setattr(preload,'_restart',actual_restart)
     with pytest.raises(ctx.DeployError,match='restart unavailable'):preload.uninstall(ctx)
     assert not old.exists() and not drop.exists()
-    assert 'Removed the WM+' not in capsys.readouterr().out
+    assert 'Restored original screen resources' not in capsys.readouterr().out

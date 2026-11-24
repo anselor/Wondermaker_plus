@@ -57,7 +57,7 @@ def stop_point_keys():
 def test_start_print_stop_points_once_in_order(adaptive):
     lines = render_start_print(params=adaptive_params(adaptive))
     assert phases(lines) == EXPECTED
-    assert set(phases(lines)) == set(stop_point_keys())
+    assert set(phases(lines)) == {key for key in stop_point_keys() if not key.startswith("resume_")}
 
 
 def test_start_print_key_command_order():
@@ -123,3 +123,18 @@ def test_stop_point_macro_text_passes_validator():
     text = MACROS.read_text()
     assert '_WMP_STOP_POINT' in text
     assert validator.validate_text('macros.cfg', text) == []
+
+
+def test_start_and_resume_together_cover_every_registered_macro_stop_point():
+    model = HeaterModel(ROOT / 'config/live')
+    model.p['wm_material'] = {}
+    model.p['heater_bed']['target'] = 60
+    for i in range(4): model.p['save_variables']['variables']['box_modify_t%d_backup' % i] = i
+    script = model.templates['RESUME'].render(printer=model.p, params={}, resume_bed=60,
+        resume_temperature0=220, resume_temperature1=0, resume_temperature2=0,
+        resume_temperature3=0, fan=128, afan=0, airfan=0)
+    resume = phases([line.strip() for line in script.splitlines() if line.strip()])
+    assert resume == ['resume_heated', 'resume_wipe_ready', 'resume_wiped',
+                      'resume_return_ready', 'resume_returned']
+    assert set(EXPECTED).isdisjoint(resume)
+    assert set(EXPECTED) | set(resume) == set(stop_point_keys())

@@ -94,7 +94,7 @@ class NozzleScrubFlow {
  double scrub_since_ = 0, actual_ = 0, target_ = 0;
  bool stale_ = false;                              // status has been stale since stale_since_
  // A scrub command was handed out; a failure from then on may leave a hot nozzle.
- bool started_ = false, hot_ = false;
+ bool started_ = false, hot_ = false, external_cancel_ = false;
  double stale_since_ = 0, held_since_ = 0;
  // Cancelling: entered at cancelling_since_, last observed at cancelling_at_,
  // of which cancelling_busy_ seconds had the backend executing.
@@ -317,6 +317,18 @@ class NozzleScrubFlow {
   return attempt_in(snapshot, "failed") || attempt_in(snapshot, "refused");
  }
  void observe_scrub(const Json& snapshot, double now) {
+  if(external_cancel_&&state_==ScrubState::Cancelling){
+   if(for_run(snapshot,"calibration_attempt")){
+    const auto attempt=snapshot["calibration_attempt"];const auto cleanup=attempt.value("cancel_cleanup",Json::object());
+    if(attempt.value("session","")==session_&&attempt.value("cancel_requested",false)){
+     if(cleanup.value("state","")=="complete"){
+      cancel_unchanged_=cleanup.value("offsets","")=="restored"||cleanup.value("offsets","")=="not_needed";
+      restored_requested_=cleanup.value("offsets","")=="restored";state_=ScrubState::Finished;hot_=false;
+     }else if(cleanup.value("state","")=="incomplete")fail(ScrubStop::Stopped,cleanup.value("error",""));
+    }
+   }
+   return;
+  }
   const bool own = for_run(snapshot, "nozzle_scrub");
   const Json scrub = own ? snapshot["nozzle_scrub"] : Json::object();
   const auto phase = text(scrub, "phase");
@@ -511,6 +523,13 @@ class NozzleScrubFlow {
  // In Recheck, Remeasure and a repeat scrub the offsets are restored first.
  // The backend refuses the restore while a RAPID_MODE runs, so a cancel
  // during one waits for it to complete.
+ bool cancel_out_of_band(double now){
+  if(state_==ScrubState::Idle||state_==ScrubState::Prepare||state_==ScrubState::Failed||state_==ScrubState::Finished)return false;
+  queue_.clear();attention_=false;rapid_command_.clear();rapid_sent_=cancel_wanted_=false;
+  external_cancel_=true;
+  if(state_!=ScrubState::Cancelling)begin_cancelling(now);
+  return true;
+ }
  void cancel(double now) {
   if (state_ == ScrubState::Prepare) return close();
   if (!held() || state_ == ScrubState::Cancelling) return;
@@ -536,6 +555,7 @@ class NozzleScrubFlow {
  // refused; the backend's failure cleanup then cools the heaters and releases
  // the signal.
  void send_failed(const std::string& command, double now) {
+  if(external_cancel_)return; // Backend receipt, not a rejected queued END, decides completion.
   if (!held() && state_ != ScrubState::Calibrate) return;
   if (command == kEnd) return fail(ScrubStop::Stopped);
   queue_.clear();

@@ -352,6 +352,9 @@ class FilamentService:
 
 
     def _filament_checkpoint(self, phase):
+        scope = getattr(self, '_boundary_scope', None)
+        if scope is not None and (scope['actor'] is not scope['current_actor']() or not self._scope_owned(scope)):
+            raise ValueError('Filament service owner changed before the next phase')
         self.filament_operation["phase"] = phase
         self._record_filament_result()
         if self.filament_operation.get("cancel_requested"):
@@ -361,7 +364,54 @@ class FilamentService:
             raise ValueError("Paused print context changed during filament service: " + getattr(self.material, "_filament_context_refusal", "context admission was not confirmed"))
 
 
+    @staticmethod
+    def _current_actor():
+        from greenlet import getcurrent
+        return getcurrent()
+
+    def _scope_owned(self, scope, check_generation=True):
+        operation = self.filament_operation
+        return (operation is scope['operation'] and operation.get('id') == scope['id']
+                and operation.get('head') == scope['head']
+                and operation.get('session') == scope['session']
+                and self.material.session_id == scope['session']
+                and (not check_generation or getattr(self.material, '_command_generation', 0) == scope['generation'])
+                and all(self.material.printer.lookup_object(owner, None) is captured
+                        for owner, captured in scope['owners']))
+
+    def _cleanup_scope_owned(self, scope):
+        if scope is None or self._scope_owned(scope):
+            return True
+        if self.filament_operation is scope['operation']:
+            self.filament_operation.update(state="unknown", message="Filament owner changed; stopping and heater state need verification")
+        return False
+
+    def check_operation_boundary(self, label):
+        scope = getattr(self, '_boundary_scope', None)
+        if scope is None or scope['actor'] is not scope['current_actor']():
+            return
+        if not self._scope_owned(scope):
+            raise getattr(self.material.printer, 'command_error', ValueError)('Filament service owner changed at operation boundary')
+        operation = self.filament_operation
+        if operation.get('state') != 'running' or not operation.get('cancel_requested'):
+            return
+        operation['cancel_phase'] = label[:160]
+        error = getattr(self.material.printer, 'command_error', FilamentCancelled)(
+            'Filament operation cancelled; stopped ' + label[:160])
+        error.wmp_filament_cancel = True
+        raise error
+
     def _execute_filament(self, gcmd, head, action, plan):
+        # Reactor callbacks share the OS thread, not the command greenlet.
+        # Only this invocation may observe its own nested homing stop points.
+        current_actor = self._current_actor
+        operation = self.filament_operation
+        previous = getattr(self, '_boundary_scope', None)
+        self._boundary_scope = dict(operation=operation, id=operation.get('id'),
+            head=operation.get('head'), session=self.material.session_id,
+            generation=getattr(self.material, '_command_generation', 0),
+            actor=current_actor(), current_actor=current_actor,
+            owners=tuple((owner, self.material.printer.lookup_object(owner, None)) for owner in ('openace', 'AFC')))
         try:
             if plan.get("pause_origin"):
                 self.material._pause_origin.update(serviced=True, ready=False)
@@ -369,13 +419,18 @@ class FilamentService:
                     self.material._pause_origin["fault"]["service_required"].add(plan["head"])
             return self._execute_filament_impl(gcmd, head, action, plan)
         finally:
+            scope = self._boundary_scope
+            owned = self._scope_owned(scope)
+            self._boundary_scope = previous
             binding = getattr(self.material, "_openace_filament_cancel", None)
-            if binding is not None and self.filament_operation.get("state") == "unknown":
+            if owned and binding is not None and self.filament_operation.get("state") == "unknown":
                 self.material._openace_filament_recovery = binding
                 self.filament_operation["openace_recovery_supported"] = True
-            self.material._openace_filament_cancel = None
-            self.filament_operation.pop("openace_cancel_supported", None)
-            self._record_filament_result()
+            if binding is None or binding.get("operation") is operation:
+                self.material._openace_filament_cancel = None
+            if self.filament_operation is operation:
+                self.filament_operation.pop("openace_cancel_supported", None)
+                self._record_filament_result()
 
 
     def _execute_filament_impl(self, gcmd, head, action, plan):
@@ -564,6 +619,22 @@ class FilamentService:
                     raise ValueError("Filament sensor does not confirm completion")
             self.material._set_filament_loaded(plan["head"], action == "load")
         except Exception as error:
+            cancelled = isinstance(error, FilamentCancelled) or getattr(error, 'wmp_filament_cancel', False) is True
+            scope = getattr(self, '_boundary_scope', None)
+            # Shared tool faults deliberately retire their own queued macro
+            # generation. That single, tagged transition keeps this same
+            # operation's cool-down authority; replacement owners do not.
+            fault = getattr(error, 'wmp_toolchange_fault', None)
+            if (scope is not None and self._scope_owned(scope, check_generation=False)
+                    and isinstance(fault, tuple) and len(fault) == 2
+                    and fault[0] in (-2, -3, -5)
+                    and getattr(self.material, '_command_generation', 0) == scope['generation'] + 1):
+                saved = self.material.printer.lookup_object('save_variables').get_status(
+                    self.material.printer.get_reactor().monotonic()).get('variables', {})
+                if saved.get('fail_flag') == fault[0]:
+                    scope['generation'] += 1
+            if not self._cleanup_scope_owned(scope):
+                raise
             # A caught exception proves dispatch returned, not that queued moves
             # drained. Only release the UI for an operator check after M400.
             state = "unknown"
@@ -572,14 +643,30 @@ class FilamentService:
                 state = "failed"
             except Exception:
                 pass
-            if "service" in plan or isinstance(error, FilamentCancelled):
+            if not self._cleanup_scope_owned(scope):
+                raise
+            if cancelled and state == "failed":
+                try:
+                    from .wmp_stop_points import finish_cancelled_toolchange
+                except ImportError:
+                    from wmp_stop_points import finish_cancelled_toolchange
+                try:
+                    self.filament_operation['toolchange_cleanup'] = 'unconfirmed'
+                    self.filament_operation['toolchange_cleanup'] = finish_cancelled_toolchange(
+                        self.material.printer,
+                        lambda: scope is not None and self._scope_owned(scope))
+                except Exception as cleanup_error:
+                    state = "unknown"
+                    self.filament_operation['toolchange_cleanup_error'] = str(cleanup_error)
+            if "service" in plan or cancelled:
                 try:
                     self.material.printer.lookup_object("gcode").run_script_from_command("SET_HEATER_TEMPERATURE HEATER=%s TARGET=0" % ("extruder" if head == 0 else "extruder%d" % head))
                     if self.material.printer.lookup_object("extruder" if head == 0 else "extruder%d" % head).get_status(self.material.printer.get_reactor().monotonic()).get("target") != 0:
                         state = "unknown"
                 except Exception:
                     state = "unknown"
-            cancelled = isinstance(error, FilamentCancelled)
+            if not self._cleanup_scope_owned(scope):
+                raise
             self.filament_operation.update(state=state, cancelled=cancelled,
                 message=("Cancelled; inspect filament before another operation" if cancelled and state == "failed" else
                          "Procedure interrupted; stopping and heater state need verification" if state == "unknown" else

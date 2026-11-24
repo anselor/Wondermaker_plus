@@ -37,6 +37,7 @@ class ProbeEditorCommands:
         self.printer, self.gcode = calibration.printer, calibration.gcode
         self.receipt = None
         self._executing = False
+        self._preparation_scope = None
         self._retired_requests = set()
         self.diagnostic_warning = ''
         self.request = ''
@@ -210,26 +211,67 @@ class ProbeEditorCommands:
         if self.receipt is not None:
             self.receipt.invalidate()
 
+    @staticmethod
+    def _current_actor():
+        from greenlet import getcurrent
+        return getcurrent()
+
+    def _capture_preparation_scope(self, gcmd):
+        material = self.printer.lookup_object('wm_material', None)
+        return {'actor': self._current_actor(), 'session': self.calibration.session,
+                'request': self.request, 'gcmd': gcmd, 'material': material,
+                'generation': getattr(material, '_command_generation', None),
+                'material_session': getattr(material, 'session_id', None),
+                'owners': tuple((name, self.printer.lookup_object(name, None))
+                                for name in ('wm_material', 'wmp_recovery', 'openace', 'AFC')),
+                'receipt': None}
+
+    def _preparation_owned(self, scope):
+        return (self._preparation_scope is scope
+                and getattr(self.calibration, 'probe_editor', None) is self
+                and self.calibration.session == scope['session']
+                and self.request == scope['request']
+                and getattr(scope['material'], '_command_generation', None) == scope['generation']
+                and getattr(scope['material'], 'session_id', None) == scope['material_session']
+                and all(self.printer.lookup_object(name, None) is owner
+                        for name, owner in scope['owners'])
+                and self.receipt is scope['receipt'])
+
+    def _require_preparation_owner(self, scope):
+        if not self._preparation_owned(scope):
+            raise scope['gcmd'].error('Probe preparation request or owner changed')
+
     def handle_stop(self, request):
         # Reactor callback: no G-code mutex, motion, or cleanup here.
-        if (request.get_str('session') != self.calibration.session
-                or request.get_str('request') != self.request
+        scope = self._preparation_scope
+        if (scope is None or not self._preparation_owned(scope)
+                or request.get_str('session') != scope['session']
+                or request.get_str('request') != scope['request']
                 or self.state not in ('preparing', 'stopping')
                 or self.printer.lookup_object('openace', None) is not None
                 or self.printer.lookup_object('AFC', None) is not None):
             raise request.error('Probe preparation request or owner changed')
         self.stop_requested = True
-        request.send({'session': self.calibration.session, 'request': self.request,
+        request.send({'session': scope['session'], 'request': scope['request'],
                       'state': 'requested'})
 
+    def check_operation_boundary(self, label, gcmd=None):
+        scope = self._preparation_scope
+        # A reactor callback may run while G-code yields. Only its command
+        # greenlet may consume this request or unwind the preparation stack.
+        if scope is None or scope.get('actor') is not self._current_actor():
+            return
+        self._require_preparation_owner(scope)
+        command = gcmd if gcmd is not None else scope['gcmd']
+        self.calibration._check(command)  # Real faults take precedence.
+        self._require_preparation_owner(scope)
+        if self.state == 'preparing' and self.stop_requested:
+            self.stop_checkpoint_hit = True
+            self.stop_exception = command.error('Probe preparation stop requested')
+            raise self.stop_exception
+
     def cmd_prepare_check(self, gcmd):
-        # Shared macros retain their existing behavior outside this editor.
-        if self.state == 'preparing':
-            self.calibration._check(gcmd)
-            if self.stop_requested:
-                self.stop_checkpoint_hit = True
-                self.stop_exception = gcmd.error('Probe preparation stop requested')
-                raise self.stop_exception
+        self.check_operation_boundary('probe preparation stage', gcmd)
 
     def _prepare_with_stop_reporting(self, prepare):
         # Keep command_error cleanup events and normal fault reporting. Suppress
@@ -238,11 +280,13 @@ class ProbeEditorCommands:
         if original is None:
             return prepare()
         session, request = self.calibration.session, self.request
+        scope = self._preparation_scope
         def report(message):
             if (self.stop_exception is not None
                     and sys.exc_info()[1] is self.stop_exception
                     and self.state == 'preparing' and self.stop_requested
-                    and self.calibration.session == session and self.request == request):
+                    and self.calibration.session == session and self.request == request
+                    and scope is not None and self._preparation_owned(scope)):
                 return
             return original(message)
         self.gcode._respond_error = report
@@ -252,28 +296,83 @@ class ProbeEditorCommands:
             if self.gcode._respond_error is report:
                 self.gcode._respond_error = original
 
-    def _finish_preparation_stop(self, gcmd):
+    def _finish_preparation_stop(self, gcmd, scope):
+        self._require_preparation_owner(scope)
         self.state = 'stopping'
-        was_executing, self._executing = self._executing, True
         try:
-            # Call the drain primitive directly: the vendor dispatcher can
-            # silently skip a submitted M400 when quick_stop_flag is set.
+            # Drain directly: vendor quick-stop can silently skip M400.
             self.printer.lookup_object('toolhead').wait_moves()
+            self._require_preparation_owner(scope)
             self.calibration._check(gcmd)
-            if self.receipt is not None:
-                self.receipt._require('editing')
-                # Do not dispatch an unbound global ABORT handler.
-                self.receipt.helper.cmd_ABORT(gcmd)
-                if self.receipt.state != 'aborted':
+            self._require_preparation_owner(scope)
+            receipt = scope['receipt']
+            if receipt is not None:
+                if receipt.state == 'preparation_failed':
+                    receipt.abort_failed_preparation(gcmd)
+                else:
+                    receipt._require('editing')
+                    receipt.helper.cmd_ABORT(gcmd)
+                self._require_preparation_owner(scope)
+                if receipt.state != 'aborted':
                     raise gcmd.error('Probe helper abort was not confirmed')
             elif 'ACCEPT' in self.gcode.ready_gcode_handlers:
                 raise gcmd.error('Unresolved probe helper after preparation stop')
+            try:
+                from .wmp_stop_points import finish_cancelled_toolchange
+            except ImportError:
+                from wmp_stop_points import finish_cancelled_toolchange
+            finish_cancelled_toolchange(self.printer, lambda: self._preparation_owned(scope))
             self.state, self.error = 'aborted', ''
         except Exception as error:
-            self.state, self.error = 'unknown', str(error)[:512]
+            if self._preparation_owned(scope):
+                self.state, self.error = 'unknown', str(error)[:512]
             raise
+
+    def _run_preparation(self, gcmd, session):
+        scope = self._capture_preparation_scope(gcmd)
+        self._preparation_scope = scope
+        started = False
+        def admit():
+            self._require_preparation_owner(scope)
+            self._admit(gcmd)
+            self._require_preparation_owner(scope)
+        def prepare():
+            nonlocal started
+            self._require_preparation_owner(scope)
+            started = True
+            self._prepare_with_stop_reporting(
+                lambda: self.gcode.run_script_from_command('_WMP_PROBE_CALIBRATE'))
+        def retain(receipt):
+            if self._preparation_owned(scope):
+                scope['receipt'] = self.receipt = receipt
+        try:
+            try:
+                self._require_preparation_owner(scope)
+                self._admit(gcmd, fresh_action=True)
+                self._require_preparation_owner(scope)
+                self.preparation_config = self._pending_config()
+                self._executing = True
+                receipt = ProbeEditorReceipt.prepare(session, self.gcode,
+                    lambda: self.calibration.session, admit, prepare, failed=retain)
+                self._require_preparation_owner(scope)
+                scope['receipt'] = self.receipt = receipt
+            except Exception as error:
+                if not self._preparation_owned(scope):
+                    raise
+                if self.stop_checkpoint_hit and error is self.stop_exception:
+                    self._finish_preparation_stop(gcmd, scope)
+                    return
+                self.state, self.error = ('failed' if started else 'rejected'), str(error)[:512]
+                self.action_refused = not started
+                self.preparation_error = self.error
+                raise
+            if self.stop_requested:
+                self._finish_preparation_stop(gcmd, scope)
+            else:
+                self.state = 'editing'
         finally:
-            self._executing = was_executing
+            if self._preparation_scope is scope:
+                self._preparation_scope, self._executing = None, False
 
     def _save_with_restart_receipt(self):
         # The retained SAVE_CONFIG writer requests firmware_restart only after
@@ -444,35 +543,7 @@ class ProbeEditorCommands:
             self.preparation_error = ''
             self.stop_requested = self.stop_checkpoint_hit = False
             self.stop_exception = None
-            started = False
-            def prepare():
-                nonlocal started
-                started = True
-                self._prepare_with_stop_reporting(
-                    lambda: self.gcode.run_script_from_command('_WMP_PROBE_CALIBRATE'))
-            try:
-                self._admit(gcmd, fresh_action=True)
-                self.preparation_config = self._pending_config()
-                self._executing = True
-                self.receipt = ProbeEditorReceipt.prepare(session, self.gcode,
-                    lambda: self.calibration.session, lambda: self._admit(gcmd),
-                    prepare,
-                    failed=lambda receipt: setattr(self, 'receipt', receipt))
-            except Exception as error:
-                if self.stop_checkpoint_hit and error is self.stop_exception:
-                    self._finish_preparation_stop(gcmd)
-                    return
-                self.state, self.error = ('failed' if started else 'rejected'), str(error)[:512]
-                self.action_refused = not started
-                self.preparation_error = self.error
-                raise
-            finally:
-                self._executing = False
-            if self.stop_requested:
-                self._finish_preparation_stop(gcmd)
-            else:
-                self.state = 'editing'
-            return
+            return self._run_preparation(gcmd, session)
         if (action == 'DISCARD' and self.state in ('failed', 'unknown') and self.receipt is None
                 and request == self.request and token == self.failure_token and token
                 and sequence == self.sequence + 1 and not step):

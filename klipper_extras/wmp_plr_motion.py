@@ -216,6 +216,9 @@ class RecoveryMotion:
                     and math.isclose(pose[2], reference_z, abs_tol=.05, rel_tol=0))
         def xy_ok():
             return bottom_ok() and all(axis in status("toolhead").get("homed_axes", "") for axis in "xy")
+        def home_xy():
+            return self.material._recovery_lifecycle().run_boundary_stage(
+                guard, lambda: dispatch("G28 X Y\nM400"))
         frame_ready = [False]
         def travel_frame():
             self._recovery_machine_frame(guard)
@@ -355,7 +358,7 @@ class RecoveryMotion:
                        for name, speed in fan_targets())
         stages = [("context", lambda: dispatch("_WMP_RECOVERY_BEGIN"), context_ok),
                 ("bottom_z", lambda: dispatch("_WMP_HOME_Z_BOTTOM"), bottom_ok),
-                ("home_xy", lambda: dispatch("G28 X Y\nM400"), xy_ok),
+                ("home_xy", home_xy, xy_ok),
                 ("machine_frame", travel_frame, frame_ok),
                 ("select_head", select_head, selected_ok),
                 ("restore_mesh", lambda: self.material._restore_recovery_mesh(execution, guard),

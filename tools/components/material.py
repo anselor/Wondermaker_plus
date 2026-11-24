@@ -18,6 +18,7 @@ CFG_DST = "printer_data/config/wm_material.cfg"
 
 HELPERS = (
     'wmp_xy_homing.py',
+    'wmp_raw_homing.py',
     'wmp_orca_profiles.py',
     'wmp_orca_mapping.py',
     'wmp_nozzles.py',
@@ -31,8 +32,10 @@ HELPERS = (
     'wmp_persistence.py',
     'wmp_print_cancel.py',
     'wmp_stop_points.py',
+    'wmp_resonance_stop.py',
     'wmp_component.py',
     'wmp_toolhead_service.py',
+    'wmp_coupling_region.py',
     'wmp_plr_execution.py',
     'wmp_plr_motion.py',
     'wmp_plr_storage.py',
@@ -63,6 +66,7 @@ HELPERS = (
     'wmp_nozzle_touch.py',
     'wmp_tool_probe.py',
     'wmp_offset_snapshot.py',
+    'wmp_calibration_checkpoint.py',
     'wmp_calibration.py',
     'wm_material.py',
 )

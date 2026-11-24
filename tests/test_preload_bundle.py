@@ -33,7 +33,7 @@ def test_failed_activation_restores_previous_libraries_and_dropin(tmp_path,monke
     monkeypatch.setattr(preload,'_home',lambda ctx:str(home))
     monkeypatch.setattr(preload,'DROPIN',str(drop))
     monkeypatch.setattr(preload,'status',lambda ctx:None)
-    monkeypatch.setattr(preload,'_restart',lambda *a:(_ for _ in ()).throw(deploy.DeployError('restart failed')))
+    monkeypatch.setattr(preload,'_restart',lambda *a, **kw:(_ for _ in ()).throw(deploy.DeployError('restart failed')))
     def local_run(client,cmd,**kwargs):
         if cmd == 'systemctl stop '+preload.SERVICE:
             return '', '', 0  # Service lifecycle is modeled; files are real.
@@ -380,7 +380,9 @@ def test_process_loss_recovery_restores_preload_then_backend_then_restarts(tmp_p
     journal.create('printer','test',['config','preload'])
     journal.begin('config');journal.complete_component('config',{'kind':'test-backend'})
     journal.begin('preload');ctx.rollback_backend=NS(journal=journal);ctx.host='printer'
-    def lost(*args):raise SystemExit('installer lost before restart acknowledgement')
+    def lost(*args, repair_markers=False, **kwargs):
+        assert repair_markers is True
+        raise SystemExit('installer lost before restart acknowledgement')
     monkeypatch.setattr(preload,'_restart',lost)
     with pytest.raises(SystemExit):preload.install(ctx)
     saved=Journal(journal.path).load('printer','test')

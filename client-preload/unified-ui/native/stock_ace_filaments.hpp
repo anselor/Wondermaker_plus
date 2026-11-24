@@ -163,7 +163,7 @@ public:
   RenderFrame render(*this,scroll);layout_=key;width_=width;height_=height;
   if(picker_&&!data.value("picker_route_source","").empty()){
    const auto choices=data.value("picker_choices",Json::object()).value(data.value("picker_route_source",""),Json::array());
-   label(pane_,"Choose tool route",12,0,width-180,30);
+   header_title("Choose tool route",12,0,width-180,30);
    picker_header(width);
    button(pane_,"picker-back","Back to slots",12,40,width-24,38);int y=84;
    for(const auto&route:choices){button(pane_,"choose:"+route.value("id",""),route.value("label",route.value("id","")),12,y,width-24,44);y+=50;}
@@ -174,7 +174,7 @@ public:
   if(source_editor_.is_object()){render_source(width);fn<void(*)(void*)>(lv_obj_update_layout)(pane_);fn<void(*)(void*,int,int)>(lv_obj_scroll_to_y)(pane_,scroll,0);return;}
   if(unit_preview_.active()){render_unit(width);fn<void(*)(void*)>(lv_obj_update_layout)(pane_);fn<void(*)(void*,int,int)>(lv_obj_scroll_to_y)(pane_,scroll,0);return;}
   int y=0;
-  if(picker_){label(pane_,"Choose filament source",12,0,width-180,32);picker_header(width);y=44;}
+  if(picker_){header_title("Choose filament source",12,0,width-180,32);picker_header(width);y=44;}
   // Status feedback uses existing headings so updates never shift targets.
   if(!picker_&&!adoption_.operation().is_null()){
    button(pane_,"adopt-status","ACE registration: "+adoption_.operation().value("state","unknown")+" - View",12,y,width-24,46);y+=52;
@@ -291,6 +291,12 @@ private:
  }
  void*panel(void*parent,int x,int y,int w,int h,const std::string&key=""){auto*p=widget(parent,lv_obj_create,"panel:"+(key.empty()?position_key(x,y):key));if(!p)throw std::runtime_error("ACE content allocation failed");style(p,0x463c908);fn<void(*)(void*,unsigned)>(lv_obj_clear_flag)(p,16);rect(p,x,y,w,h);return p;}
  void*label(void*parent,const std::string&t,int x,int y,int w,int h){auto*p=widget(parent,lv_label_create,position_key(x,y));if(!p)throw std::runtime_error("ACE label allocation failed");fn<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(p,reinterpret_cast<void*>(MyriadPro_Regular_16),0);fn<void(*)(void*,std::uint32_t,unsigned)>(lv_obj_set_style_text_color)(p,0xffeeeeeeU,0);if(!record(p).text_set||record(p).text!=t){fn<void(*)(void*,const char*)>(lv_label_set_text)(p,t.c_str());record(p).text=t;record(p).text_set=true;}rect(p,x,y,w,h);return p;}
+ void header_title(const std::string&text,int x,int y,int width,int height=28){
+  auto*object=label(pane_,text,x,y,width,height);
+  // Names remain bound to their full IDs; only the one-line title is elided.
+  // Wrapping here would put text underneath the header actions/body.
+  fn<void(*)(void*,int)>(lv_label_set_long_mode)(object,1);
+ }
  void*button(void*parent,const std::string&id,const std::string&t,int x,int y,int w,int h,bool enabled=true){auto*p=widget(parent,lv_btn_create,id+":"+position_key(x,y));if(!p)throw std::runtime_error("ACE button allocation failed");style(p,0x463c8e8);style(p,0x463c8f8,0x20);rect(p,x,y,w,h);label(p,t,6,4,w-12,h-8);center_button_caption(p,fn<void*(*)(void*,int)>(lv_obj_get_child)(p,0),t);bind(p,id);StockAceFilaments::enabled(p,!((!fresh_&&id!="unit-back"&&id!="slot-cancel"&&id!="remove-cancel"&&id!="adopt-cancel"&&id!="adopt-status"&&id!="source-back"&&id!="picker-close"&&id!="picker-back")||!enabled));return p;}
  void source_card(void*card,const Json&s,const std::string&head,int width,int height,const std::string&title){
   auto identity=s.value("identity",Json::object());bool empty=false,loaded=false;
@@ -382,7 +388,7 @@ private:
   fn<void(*)(void*,int,unsigned)>(lv_obj_set_style_text_align)(caption,0,0);
  }
  void render_brand_picker(int width){
-  label(pane_,"Select brand",12,2,width-150,28);
+  header_title("Select brand",12,2,width-150);
   header_action("source-back","BACK",width-112,100,true);
   auto*rule=panel(pane_,12,34,width-24,1);stock_dialog_backdrop(rule);
   fn<void(*)(void*,std::uint32_t,unsigned)>(lv_obj_set_style_bg_color)(rule,0xff55575bU,0);
@@ -438,7 +444,7 @@ private:
  }
  void render_dryer(int width){
   std::string name=dryer_unit_;for(const auto&unit:snapshot_.value("units",Json::array()))if(unit.value("id","")==dryer_unit_)name=unit.value("name",dryer_unit_);
-  label(pane_,name+" - Drying",12,2,width-140,28);header_action("dryer-close","CLOSE",width-112,100,true);
+  header_title(name+" - Drying",12,2,width-140);header_action("dryer-close","CLOSE",width-112,100,true);
   auto*rule=panel(pane_,12,34,width-24,1);stock_dialog_backdrop(rule);
   fn<void(*)(void*,std::uint32_t,unsigned)>(lv_obj_set_style_bg_color)(rule,0xff55575bU,0);fn<void(*)(void*,int,unsigned)>(lv_obj_set_style_bg_opa)(rule,255,0);
   label(pane_,"Humidity: -- %",12,44,width/2-24,28);label(pane_,"Temperature: -- C",width/2,44,width/2-12,28);
@@ -457,7 +463,7 @@ private:
    for(const auto&unit:snapshot_.value("units",Json::array()))if(unit.value("id","")==source_editor_.value("unit",""))title=unit.value("name",unit.value("id",""))+" - "+title;
   }else title="External - "+title;
   if(loading_)title="Load filament - "+source_editor_.value("name","");
-  label(pane_,title,12,2,width-244,28);
+  header_title(title,12,2,width-244);
   auto*rule=panel(pane_,12,34,width-24,1);stock_dialog_backdrop(rule);
   fn<void(*)(void*,std::uint32_t,unsigned)>(lv_obj_set_style_bg_color)(rule,0xff55575bU,0);
   fn<void(*)(void*,int,unsigned)>(lv_obj_set_style_bg_opa)(rule,255,0);
@@ -532,7 +538,7 @@ private:
  }
  void render_adoption(int width){
   const auto&candidate=adoption_.candidate();const auto&op=adoption_.operation();
-  label(pane_,"Adopt "+candidate.value("name","new ACE unit")+"?",12,8,width-260,28);
+  header_title("Adopt "+candidate.value("name","new ACE unit")+"?",12,8,width-260);
   label(pane_,candidate.value("device_label","Device identity unavailable"),12,60,width-24,52);
   label(pane_,op.is_null()?(adoption_.can_confirm(snapshot_)?"Register this unit, then review its slot assignments.":adoption_.unavailable(snapshot_)):op.value("message","Waiting for backend readback."),12,120,width-24,52);
   const int active=op.is_null()?-1:op.value("state","")=="complete"?1:0;
@@ -548,19 +554,20 @@ private:
  }
  void render_unit(int width){
   const auto unit=unit_preview_.draft();const bool valid_draft=unit_preview_.valid(snapshot_);
-  auto*name=button(pane_,"unit-name",unit.value("name",unit.value("id","")),12,0,width-240,46,valid_draft);
+  auto*name=button(pane_,"unit-name",unit.value("name",unit.value("id","")),12,0,width-240,34,valid_draft);
   auto*caption=fn<void*(*)(void*,int)>(lv_obj_get_child)(name,0);
   fn<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(caption,reinterpret_cast<void*>(MyriadPro_Bold_20),0);
+  fn<void(*)(void*,int)>(lv_label_set_long_mode)(caption,1);
   if(quick_assign_){
-   label(pane_,valid_draft?"Assign all four slots to one head":"Printer context changed - reopen unit details",12,36,width-24,28);
+   label(pane_,valid_draft?"Assign all four slots to one head":"Printer context changed - reopen unit details",12,48,width-24,28);
    int x=12;for(const auto&h:snapshot_.value("heads",Json::array())){
     const auto id=h.value("id","");button(pane_,"all-head:"+id,h.value("name",id),x,88,120,42,valid_draft);x+=128;
    }
    button(pane_,"slot-cancel","Cancel",width-108,0,96,40);return;
   }
   if(remove_confirm_){
-   label(pane_,"Remove this ACE unit?",12,36,width-24,28);
-   label(pane_,"Preview only. Removal and new tool numbering are not available.",12,72,width-24,48);
+   label(pane_,"Remove this ACE unit?",12,48,width-24,28);
+   label(pane_,"Preview only. Removal and new tool numbering are not available.",12,84,width-24,48);
    button(pane_,"remove-cancel","Cancel",width-216,0,96,40);
    button(pane_,"remove-confirm","Remove",width-108,0,96,40,false);
    label(pane_,fresh_?"Current routes using this unit":"Last-known routes using this unit",12,182,width-24,28);

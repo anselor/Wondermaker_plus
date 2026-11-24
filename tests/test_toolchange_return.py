@@ -485,3 +485,15 @@ def test_z_homing_after_same_head_xy_home_uses_absolute_center_and_lift(absolute
     assert moves[-1]['z'] == 7.  # Absolute post-home lift, not 300 + 7.
     assert sv['current_extruder'] == 2
     assert gm['absolute_coordinates']
+
+
+@pytest.mark.parametrize('outcomes,expected', [((0,), 1), ((-2, 0), 1), ((-2, -2), 0), ((-5,), 0)])
+def test_completed_pickup_result_survives_return_consumption(outcomes, expected):
+    m = MotionModel(outcomes)
+    m.p['gcode_macro _WMP_TOOL_RETURN_BEGIN']['completed_success'] = 1
+    m.run('T1')
+    result = m.p['gcode_macro _WMP_TOOL_RETURN_BEGIN']
+    assert result['success'] == 0
+    assert result['completed_success'] == expected
+    m.run('_WMP_TOOL_RETURN_BEGIN', T='1')
+    assert result['completed_success'] == 0

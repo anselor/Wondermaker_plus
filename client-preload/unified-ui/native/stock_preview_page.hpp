@@ -12,7 +12,7 @@ namespace wmp_ui { namespace native {
 class StockPreviewPage {
  App&app_;StockPreviewWidgets widgets_;StockPreviewControls controls_;
  StockPreviewRows rows_;StockAceFilaments picker_;void*modal_=nullptr;void*notice_=nullptr;
- StockImagePreview image_preview_;StockNotice explanation_,material_review_;bool attached_=false;
+ StockImagePreview image_preview_;StockNotice explanation_,material_review_;bool attached_=false,header_ready_=false;
 public:
  std::function<void()>closed;
  explicit StockPreviewPage(App&app):app_(app){
@@ -26,7 +26,7 @@ public:
   close();
   if(!StockPreviewInventory::resolve(widgets))return false;
   if(!controls_.attach(widgets,[this](unsigned action){dispatch(action);}))return false;
-  widgets_=widgets;attached_=true;
+  widgets_=widgets;attached_=true;header_ready_=false;
   if(!stock_function<void*(*)(void*,void(*)(void*),int,void*)>(lv_obj_add_event_cb)(widgets_.content,&deleted,33,this)){close();return false;}
   if(!rows_.mount(widgets_,white)){close();return false;}
   notice_=stock_function<void*(*)(void*)>(lv_label_create)(widgets_.content);
@@ -65,12 +65,13 @@ public:
   if(app_.page()=="preview-loading")text="Loading file information...";
   const bool admitting=op.value("action","")=="start_print"&&(status=="pending"||status=="unknown");
   if(admitting)text=status=="pending"?"Starting print...":"Waiting for print status...";
-  if(stock_function<unsigned(*)(void*)>(lv_obj_get_child_cnt)(widgets_.cancel)==1){
+  if(!header_ready_&&stock_function<unsigned(*)(void*)>(lv_obj_get_child_cnt)(widgets_.cancel)==1){
    auto*caption=stock_function<void*(*)(void*,int)>(lv_obj_get_child)(widgets_.cancel,0);
    stock_function<void(*)(void*,int,int)>(lv_obj_set_size)(widgets_.cancel,100,32);
    stock_function<void(*)(void*,int,int,int)>(lv_obj_align)(widgets_.cancel,1,stock_function<int(*)(void*)>(lv_obj_get_content_width)(widgets_.content)-210,2);
    stock_function<void(*)(void*,const char*)>(lv_label_set_text)(caption,"CANCEL");center_button_caption(widgets_.cancel,caption,"CANCEL");
-  }else if(admitting&&chooser.value("owner","")!="standalone")stock_function<void(*)(void*,unsigned)>(lv_obj_add_state)(widgets_.cancel,128);
+   controls_.fit_header();header_ready_=true;
+  }else if(stock_function<unsigned(*)(void*)>(lv_obj_get_child_cnt)(widgets_.cancel)!=1&&admitting&&chooser.value("owner","")!="standalone")stock_function<void(*)(void*,unsigned)>(lv_obj_add_state)(widgets_.cancel,128);
   stock_function<void(*)(void*,const char*)>(lv_label_set_text)(notice_,text.c_str());
   const auto options=state.value("options",Json::object());
   for(unsigned i:{0U,2U})if(stock_object_valid(widgets_.option_icons[i])){

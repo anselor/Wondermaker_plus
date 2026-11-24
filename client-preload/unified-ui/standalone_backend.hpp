@@ -118,7 +118,7 @@ public:
     if((material_sequence_<=0||!result.contains("previous_session"))&&result.value("id","")==id_&&result.value("session","")==session_&&result.value("head","")==arguments_.value("head","")&&result.value("action","")==action_){
      const auto state=result.value("state","");const auto message=operation_display_text(result,"message","");
      if(state=="complete"||state=="refused"||state=="unknown"||state=="failed")finish(state.c_str(),message.c_str());
-     else if(state=="running")receipt_["message"]=message;
+     else if(state=="running"){waiting_=true;receipt_["state"]="pending";receipt_["message"]=message;}
     }else if(++readbacks_>=10)finish("unknown","Toolhead result unavailable; inspect the printer.");
    }
    else if(action_=="confirm_filament") {
@@ -147,7 +147,8 @@ public:
   }
   if(!id_.empty())normalized["receipts"][id_]=receipt_;
  }
- bool cancel_filament(const std::string&id){
+ bool cancel_filament(const std::string&id){return cancel_operation(id);}
+ bool cancel_operation(const std::string&id){
   std::lock_guard<std::mutex> lock(mutex_);
   if(!can_cancel(id)){report_rejection("filament cancel",control_reason(id,false));return false;}
   if(cancel_queued_||cancel_sent_){report_rejection("filament cancel","Cancellation already queued or sent: queued="+std::to_string(cancel_queued_)+", sent="+std::to_string(cancel_sent_));return false;}
@@ -277,11 +278,11 @@ private:
   const bool tool=action_=="take"||action_=="dock";
   const auto operation=snapshot_.value(tool?"toolhead_operation":"filament_operation",Json::object());
   if(recovery&&(queued_||waiting_))return "Previous request pending: queued="+std::to_string(queued_)+", waiting="+std::to_string(waiting_)+".";
-  if(!recovery&&!waiting_)return "No filament operation is awaiting completion.";
+  if(!recovery&&!waiting_)return "No procedure is awaiting completion.";
   if(id!=id_)return "Selected operation identifier changed.";
-  if((!recovery||!tool)&&action_!="load"&&action_!="unload")return "Unsupported operation action="+rejection_value(action_)+".";
+  if(!tool&&action_!="load"&&action_!="unload")return "Unsupported operation action="+rejection_value(action_)+".";
   if(owner_!="standalone"){
-   if(owner_!="openace"||(recovery&&tool))return "Operation owner is unsupported: owner="+rejection_value(owner_)+".";
+   if(owner_!="openace"||tool)return "Operation owner is unsupported: owner="+rejection_value(owner_)+".";
    const auto key=recovery?"openace_recovery_supported":"openace_cancel_supported";
    if(!operation.value(key,false))return std::string(key)+"=false.";
    if(print_helper_session_.empty())return "openACE print helper session is missing.";
@@ -291,7 +292,7 @@ private:
   if(!snapshot_.value("fresh",false))return "Printer status is not fresh.";
   if(snapshot_.value("owner","")!=owner_)return "Printer owner changed: reviewed="+rejection_value(owner_)+", current="+rejection_value(snapshot_.value("owner",""))+".";
   if(snapshot_.value("session","")!=session_)return "Printer session changed.";
-  const auto protocol=recovery?(tool?"toolhead_recovery_protocol":"filament_recovery_protocol"):"filament_cancel_protocol";
+  const auto protocol=recovery?(tool?"toolhead_recovery_protocol":"filament_recovery_protocol"):(tool?"toolhead_cancel_protocol":"filament_cancel_protocol");
   if(snapshot_.value(protocol,0)!=1)return "Unsupported "+std::string(protocol)+"="+std::to_string(snapshot_.value(protocol,0))+"; expected=1.";
   if(recovery){
    const auto job=snapshot_.value("job",Json::object()).value("state","");
@@ -338,22 +339,27 @@ private:
  }
  bool cancel_queued_=false,cancel_sent_=false;
  bool can_cancel(const std::string&id)const{
-  const auto operation=snapshot_.value("filament_operation",Json::object());
-  const bool supported=owner_=="standalone"||(owner_=="openace"&&operation.value("openace_cancel_supported",false)&&!print_helper_session_.empty()&&snapshot_.value("print_helper_session","")==print_helper_session_);
-  return waiting_&&id==id_&&(action_=="load"||action_=="unload")&&supported&&snapshot_.value("fresh",false)&&
+  const bool tool=action_=="take"||action_=="dock";
+  const auto operation=snapshot_.value(tool?"toolhead_operation":"filament_operation",Json::object());
+  const bool supported=owner_=="standalone"||(!tool&&owner_=="openace"&&operation.value("openace_cancel_supported",false)&&!print_helper_session_.empty()&&snapshot_.value("print_helper_session","")==print_helper_session_);
+  return waiting_&&id==id_&&(tool||action_=="load"||action_=="unload")&&supported&&snapshot_.value("fresh",false)&&
    snapshot_.value("owner","")==owner_&&snapshot_.value("session","")==session_&&
-   snapshot_.value("filament_cancel_protocol",0)==1&&operation.value("id","")==id_&&
+   snapshot_.value(tool?"toolhead_cancel_protocol":"filament_cancel_protocol",0)==1&&operation.value("id","")==id_&&
    operation.value("session","")== (owner_=="openace"?print_helper_session_:session_)&&operation.value("head","")==arguments_.value("head","")&&
-   operation.value("state","")=="running"&&!operation.value("cancel_requested",false);
+   (!tool||operation.value("action","")==action_)&&operation.value("state","")=="running"&&!operation.value("cancel_requested",false);
  }
  void deliver_cancel(wmp_openace::HttpPort&http){
-  Json payload;std::string id;
+  Json payload;std::string id,path;
   {std::lock_guard<std::mutex> lock(mutex_);if(!cancel_queued_)return;cancel_queued_=false;
    if(!can_cancel(id_)){report_rejection("filament cancel dispatch",control_reason(id_,false));return;}
-   id=id_;payload={{"id",id_},{"session",owner_=="openace"?print_helper_session_:session_},{"head",arguments_.at("head")}};cancel_sent_=true;
+   const bool tool=action_=="take"||action_=="dock";
+   path=tool?"/printer/wmp/toolhead/cancel":"/printer/wmp/filament/cancel";
+   id=id_;payload={{"id",id_},{"session",owner_=="openace"?print_helper_session_:session_},{"head",arguments_.at("head")}};
+   if(tool)payload["action"]=action_;
+   cancel_sent_=true;
   }
   bool accepted=false;
-  try{auto reply=Json::parse(http.post("/printer/wmp/filament/cancel",payload.dump()));
+  try{auto reply=Json::parse(http.post(path,payload.dump()));
    const auto result=reply.value("result",Json::object());
    accepted=!reply.contains("error")&&result.value("id","")==id&&result.value("session","")==payload["session"]&&result.value("state","")=="requested";
   }catch(...){}

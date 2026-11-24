@@ -517,6 +517,11 @@
       "bytes": "286363030000000004ae6d0000000000f0ae6d00000000000000000000000000"
     },
     {
+      "name": "warning_callback",
+      "address": "0x54c93c",
+      "bytes": "fd7bb1a9fd030091f30b00f9e01700f9e0630291c0e9fb97e0630291e3e30191"
+    },
+    {
       "name": "popup_build",
       "address": "0x532da8",
       "bytes": "ff8316d1fd7b00a9fd030091f30b00f9e02f00b9ff7f0ba9e0030391017e80d2"
@@ -982,6 +987,16 @@
       "bytes": "ff4319d1fd7b00a9fd030091f35301a9409d019000603091000040b91f380071"
     },
     {
+      "name": "guide_calibration_event",
+      "address": "0x50b7f8",
+      "bytes": "fd7bb7a9fd030091f30b00f9e01700f9e01740f97c300694e08f00b9e01740f9"
+    },
+    {
+      "name": "home_event",
+      "address": "0x526770",
+      "bytes": "fd7ba5a9fd030091f30b00f9e01700f9e01740f99ec40594e0af01b9e01740f9"
+    },
+    {
       "name": "main_refresh",
       "address": "0x51ebf8",
       "bytes": "fd7bbfa9fd03009127fcff975cfdff9724ffff977deaff97011c0012609a01d0"
@@ -1067,6 +1082,16 @@
       "name": "knife_pairing_failed",
       "address": "0xe64572d",
       "symbol": "knife_pairing_failed"
+    },
+    {
+      "name": "calibration_selected",
+      "address": "0x386c1c0",
+      "symbol": "calibration_selected"
+    },
+    {
+      "name": "auto_checking_status",
+      "address": "0x385fc18",
+      "symbol": "auto_checking_status"
     }
   ],
   "sender_returns": [

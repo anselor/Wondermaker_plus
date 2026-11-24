@@ -23,11 +23,12 @@ struct Http: wmp_openace::HttpPort {
  void release(){std::lock_guard<std::mutex>lock(mutex);released=true;wake.notify_all();}
 };
 struct Stop: wmp_openace::HttpPort{
- std::mutex mutex;std::condition_variable wake;unsigned posts=0;Json last;
+ std::mutex mutex;std::condition_variable wake;unsigned posts=0;bool lose=false;Json last;
  std::string get(const std::string&)override{assert(false);return {};}
  std::string post(const std::string&path,const std::string&body)override{
   assert(path=="/printer/wmp/recovery/stop");auto args=Json::parse(body);
   {std::lock_guard<std::mutex>lock(mutex);posts++;last=args;wake.notify_all();}
+  if(lose)throw std::runtime_error("lost stop acknowledgement");
   args["state"]="requested";return Json{{"result",args}}.dump();
  }
  void wait(){std::unique_lock<std::mutex>lock(mutex);assert(wake.wait_for(lock,std::chrono::seconds(3),[this]{return posts==1;}));}
@@ -178,6 +179,45 @@ int main(){
  assert(denied.result().value("message","")=="Saved recovery format 3 lacks print accounting");
  assert(!denied.stop()&&!denied.select(selected));
 
+
+ // A STOP while review is blocked prevents dispatch locally, even on old backends.
+ {
+  struct ReviewWait:Http{
+   std::string post(const std::string&path,const std::string&body)override{
+    assert(path=="/printer/wmp/recovery/review");
+    {std::unique_lock<std::mutex>lock(mutex);entered=true;wake.notify_all();wake.wait(lock,[this]{return released;});}
+    return Http::post(path,body);
+   }
+  } transport;
+  Stop stop;RecoveryWorker flow(transport,stop);
+  auto h=helper;h["session_id"]="session";h.erase("recovery_attempt");h.erase("recovery_submission");
+  flow.observe(h,true);assert(flow.select(selected));transport.wait();
+  assert(flow.result().value("can_stop",false));assert(flow.stop());assert(!flow.stop());
+  assert(flow.result().value("delivery_pending",false));transport.release();
+  const auto end=std::chrono::steady_clock::now()+std::chrono::seconds(3);
+  while(flow.result().value("delivery_pending",true)&&std::chrono::steady_clock::now()<end)std::this_thread::yield();
+  assert(flow.result().at("state")=="cancelled"&&flow.result().value("before_execution",false));
+  assert(!flow.result().value("can_stop",true)&&transport.posts==0&&stop.posts==0);
+ }
+ // A reviewed modern command can be stopped while its acknowledgement is blocked,
+ // before the first runner receipt. Only the exact cancelled submission settles it.
+ for(bool lost_stop_ack:{false,true}){
+  Http transport;transport.tickets=true;Stop stop;stop.lose=lost_stop_ack;RecoveryWorker flow(transport,stop);
+  auto h=helper;h["session_id"]="session";h["recovery_ticket_protocol"]=1;h["recovery_early_stop_protocol"]=1;
+  h.erase("recovery_attempt");h.erase("recovery_submission");
+  flow.observe(h,true);assert(flow.select(selected));transport.wait();
+  assert(flow.result().value("can_stop",false)&&flow.stop());stop.wait();assert(!flow.stop());
+  assert(stop.last==Json({{"id","wmp2rc_1"},{"session","session"},{"ticket",std::string(64,'e')}}));
+  Json request={{"id","wrong"},{"session","session"},{"file","part.gcode"},{"execution_hash",std::string(16,'c')}};
+  h["recovery_submission"]={{"request",request},{"state","cancelled"},{"before_execution",true},{"message","Cancelled before preparation"}};
+  flow.observe(h,true);assert(flow.result().at("state")!="cancelled");
+  h["recovery_submission"]["request"]["id"]="wmp2rc_1";flow.observe(h,true);
+  assert(flow.result().at("state")=="cancelled"&&flow.result().value("before_execution",false));
+  assert(!flow.result().contains("receipt"));transport.release();
+  const auto end=std::chrono::steady_clock::now()+std::chrono::seconds(3);
+  while(flow.result().value("delivery_pending",true)&&std::chrono::steady_clock::now()<end)std::this_thread::yield();
+  assert(flow.result().at("state")=="cancelled"&&transport.posts==1&&stop.posts==1);
+ }
 
  // Modern server IDs bind actual receipts/STOP; repeated terminal selections
  // use bounded server tickets, not a lifetime UI request-ID set.

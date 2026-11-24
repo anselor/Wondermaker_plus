@@ -10,6 +10,12 @@ sys.path.insert(0, str(module.Path(__file__).resolve().parents[1] / 'klipper_ext
 from wm_material import WMMaterial
 
 
+@pytest.fixture(autouse=True)
+def identification_actor(monkeypatch):
+    actor = object()
+    monkeypatch.setattr(module.IdentificationCommands, '_current_actor', staticmethod(lambda: actor))
+
+
 def harness(files, observed_order=None):
     printer = Printer()
     observed_order = list(range(4)) if observed_order is None else observed_order
@@ -47,6 +53,8 @@ def harness(files, observed_order=None):
     material._attachment = lambda now: {'state': 'empty'}
     material._begin_explicit_physical_action = lambda action: WMMaterial._begin_explicit_physical_action(material, action)
     messages, commands, shutdowns = [], [], []
+    printer.objects['toolhead'] = NS(get_status=lambda now: printer.data['toolhead'],
+                                      wait_moves=lambda: commands.append('drain'))
     printer.invoke_shutdown = shutdowns.append
     def execute(command):
         commands.append(command)
@@ -63,7 +71,7 @@ def harness(files, observed_order=None):
                 printer.data['filament_switch_sensor docked%d' % n]['filament_detected'] = True
         elif command.startswith('SAVE_VARIABLE VARIABLE=is_nozzle_setting'):
             printer.data['save_variables']['variables']['is_nozzle_setting'] = int(command[-1])
-    operation = module.IdentificationCommands(printer, NS(run_script_from_command=execute), NS(active=False, failure='', session='calibration-session', probe_editor=NS(busy=lambda: False)))
+    operation = module.IdentificationCommands(printer, NS(run_script_from_command=execute), NS(active=False, failure='', session='calibration-session', probe_editor=NS(busy=lambda: False, check_operation_boundary=lambda label: None), check_cancel=lambda label: None))
     fields = {'SESSION': 'calibration-session', 'REQUEST': uuid.uuid4().hex}
     return operation, NS(error=ValueError, respond_info=messages.append, get=lambda k, d=None: fields.get(k, d)), commands, messages, printer
 
@@ -80,6 +88,34 @@ def test_completed_mapping_is_queryable_and_cannot_be_started_again(files):
     with pytest.raises(ValueError, match='published mapping'):
         operation.run(cmd)
     assert commands == before
+
+
+@pytest.mark.parametrize('repair', [False, True], ids=['identify', 'repair-assignment'])
+def test_lowercase_klipper_status_mcu_sections_identify_and_verify_restart(files, repair):
+    operation, cmd, _, _, printer = harness(files)
+    settings = printer.data['configfile']['settings']
+    printer.data['configfile']['settings'] = {name.lower(): value for name, value in settings.items()}
+    operation.dispatch(repair_command(cmd) if repair else cmd)
+    assert operation.get_status()['state'] == 'complete'
+    fresh, _, commands, _, printer = harness(files)
+    settings = printer.data['configfile']['settings']
+    printer.data['configfile']['settings'] = {name.lower(): value for name, value in settings.items()}
+    fresh.check_startup()
+    assert not fresh.get_status()['failure']
+    assert not commands
+
+
+@pytest.mark.parametrize('same_identity', [True, False], ids=['same-uuid', 'different-uuid'])
+def test_ambiguous_mcu_status_aliases_refuse_before_identification(files, same_identity):
+    operation, cmd, commands, _, printer = harness(files)
+    settings = printer.data['configfile']['settings']
+    identity = settings['mcu T0']['canbus_uuid'] if same_identity else 'ffffffffffff'
+    settings['mcu t0'] = {'canbus_uuid': identity}
+    before = snapshot(files)
+    with pytest.raises(ValueError, match='Ambiguous active head MCU'):
+        operation.dispatch(cmd)
+    assert snapshot(files) == before
+    assert not commands
 
 
 @pytest.mark.parametrize('count', [None, 0, 5, True, '4', 2.5])
@@ -437,6 +473,8 @@ def test_editor_becoming_busy_revokes_migration_admission(files):
 @pytest.mark.parametrize('change', ['generation', 'session', 'owner', 'editor', 'cancel', 'quick_stop'])
 def test_mid_identification_context_change_prevents_next_pickup_and_publication(files, change):
     operation, cmd, commands, _, printer = harness(files)
+    shutdowns = []
+    printer.invoke_shutdown = shutdowns.append
     material = printer.objects['wm_material']
     before = snapshot(files)
     original = operation.gcode.run_script_from_command
@@ -463,6 +501,7 @@ def test_mid_identification_context_change_prevents_next_pickup_and_publication(
         assert commands[-1] == '_CHANGE_TOOL T=0'
         assert printer.data['save_variables']['variables']['is_nozzle_setting'] == 1
         assert 'unable to clear identification mode' in operation.operation.failure
+        assert not shutdowns, 'Retired identification must not shut down the replacement owner'
     else:
         assert commands[-1] == 'SAVE_VARIABLE VARIABLE=is_nozzle_setting VALUE=0'
 
@@ -715,3 +754,315 @@ def test_interrupted_mode_clear_executes_retained_save_variables(files):
     assert saved.allVariables['fail_flag'] == 0
     saved.loadVariables()
     assert saved.allVariables['is_nozzle_setting'] == 0  # Mode restoration is durable.
+
+
+@pytest.mark.parametrize('replacement', ['material', 'operation'])
+def test_replaced_identification_owner_is_not_stopped_or_rewritten(files, replacement):
+    operation, cmd, commands, _, printer = harness(files)
+    shutdowns = [];printer.invoke_shutdown = shutdowns.append
+    before = snapshot(files);original = operation.gcode.run_script_from_command
+    replacement_operation = NS(state='running', failure='new request')
+    old_operation = []
+    def changed(command):
+        original(command)
+        if command == '_CHANGE_TOOL T=0':
+            old_operation.append(operation.operation)
+            if replacement == 'material': printer.objects['wm_material'] = NS(session_id='new')
+            else: operation.operation = replacement_operation
+    operation.gcode.run_script_from_command = changed
+    with pytest.raises(ValueError, match='ownership changed'): operation.run(cmd)
+    assert commands[-1] == '_CHANGE_TOOL T=0'
+    assert snapshot(files) == before and not shutdowns
+    assert old_operation[0].status()['mode_cleanup'] == 'unconfirmed'
+    if replacement == 'operation':
+        assert operation.operation is replacement_operation
+        assert replacement_operation.failure == 'new request'
+        assert operation.failure == ''
+
+
+def cancel_request(operation, identity, session=None):
+    fields = {'session': operation.calibration.session if session is None else session,
+              'request': identity}
+    replies = []
+    return NS(get_str=lambda key: fields[key], error=ValueError, send=replies.append), replies
+
+
+@pytest.mark.parametrize('mode', ['identify', 'repair_assignment'])
+def test_fast_identification_cancel_retires_queued_start_without_motion(files, mode):
+    operation, command, commands, _, printer = harness(files)
+    if mode == 'repair_assignment': command = repair_command(command)
+    identity = command.get('REQUEST')
+    before = snapshot(files)
+    request, replies = cancel_request(operation, identity)
+    operation.handle_cancel(request)
+    operation.dispatch(command)
+    assert commands == [] and snapshot(files) == before
+    assert replies == [{'session': operation.calibration.session, 'request': identity, 'state': 'requested'}]
+    assert operation.get_status()['request_result']['state'] == 'cancelled'
+    assert operation.get_status()['cancel_protocol'] == 1
+
+
+@pytest.mark.parametrize('mode', ['identify', 'repair_assignment'])
+def test_identification_cancel_after_pickup_holds_without_publishing_or_parking_again(files, mode):
+    operation, command, commands, _, printer = harness(files, [3, 2, 1, 0])
+    if mode == 'repair_assignment': command = repair_command(command)
+    records = {
+        'wmp_filaments.json': b'{"h0":{"material":"PLA","brand":"Pink","color":"#ff00ff"}}',
+        'wmp_filament_loaded.json': b'{"h0":true}',
+        'wmp_hotend_materials.json': b'{"version":1,"heads":{}}',
+    }
+    for name, content in records.items(): (files/name).write_bytes(content)
+    before = {p.name: p.read_bytes() for p in files.iterdir() if p.is_file()}
+    execute = operation.gcode.run_script_from_command
+    def run(text):
+        execute(text)
+        if text == '_CHANGE_TOOL T=0': operation.handle_cancel(cancel_request(operation, command.get('REQUEST'))[0])
+    operation.gcode.run_script_from_command = run
+    operation.dispatch(command)
+    assert operation.get_status()['state'] == 'cancelled'
+    assert operation.get_status()['request_result']['state'] == 'cancelled'
+    assert commands.count('PARK_CURRENT_TOOL') == 1  # Initial preparation only.
+    assert '_CHANGE_TOOL T=1' not in commands
+    assert commands[-1] == 'SAVE_VARIABLE VARIABLE=is_nozzle_setting VALUE=0'
+    assert printer.data['save_variables']['variables']['is_nozzle_setting'] == 0
+    assert {p.name: p.read_bytes() for p in files.iterdir() if p.is_file()} == before
+
+
+@pytest.mark.parametrize('field', ['session', 'request', 'openace', 'AFC'])
+def test_identification_cancel_rejects_foreign_binding_without_side_effects(files, field):
+    operation, command, commands, _, printer = harness(files)
+    identity = 'invalid' if field == 'request' else command.get('REQUEST')
+    if field in ('openace', 'AFC'): printer.objects[field] = object()
+    request, replies = cancel_request(operation, identity, 'old' if field == 'session' else None)
+    with pytest.raises(ValueError, match='request or owner changed'): operation.handle_cancel(request)
+    assert not operation.requests and commands == [] and replies == []
+
+
+def test_identification_fast_cancel_is_idempotent_and_history_is_bounded(files):
+    operation, command, commands, _, _ = harness(files)
+    request, replies = cancel_request(operation, command.get('REQUEST'))
+    operation.handle_cancel(request);operation.handle_cancel(request)
+    assert len(operation.requests) == 1 and len(replies) == 2
+    for n in range(1,128): operation.handle_cancel(cancel_request(operation, format(n, '032x'))[0])
+    with pytest.raises(ValueError, match='cannot retire'):
+        operation.handle_cancel(cancel_request(operation, 'f'*32)[0])
+    assert len(operation.requests) == 128 and not commands
+
+
+@pytest.mark.parametrize('mode', ['identify', 'repair_assignment'])
+def test_identification_cancel_cannot_interrupt_atomic_publication(files, monkeypatch, mode):
+    operation, command, commands, _, _ = harness(files)
+    transaction_type = module.ManagedMappingTransaction
+    if mode == 'repair_assignment':
+        command = repair_command(command)
+        transaction_type = module.AssignmentRepairTransaction
+    commit = transaction_type.commit
+    def committing(transaction, *args, **kwargs):
+        assert operation.get_status()['publication_started'] is True
+        with pytest.raises(ValueError, match='publication has started'):
+            operation.handle_cancel(cancel_request(operation, command.get('REQUEST'))[0])
+        return commit(transaction, *args, **kwargs)
+    monkeypatch.setattr(transaction_type, 'commit', committing)
+    operation.dispatch(command)
+    assert operation.get_status()['state'] == 'complete'
+    assert operation.get_status()['publication_started'] is True
+    assert operation.get_status()['request_result']['state'] == 'complete'
+    assert 'drain' not in commands
+
+
+@pytest.mark.parametrize('change', ['generation', 'material_session', 'session', 'operation', 'manager', 'controller'])
+def test_identification_cancel_drain_handoff_never_clears_new_owners_mode(files, change):
+    operation, command, commands, _, printer = harness(files)
+    execute = operation.gcode.run_script_from_command
+    def run(text):
+        execute(text)
+        if text == '_CHANGE_TOOL T=0': operation.handle_cancel(cancel_request(operation, command.get('REQUEST'))[0])
+    material = printer.objects['wm_material']
+    replacement = NS(state='running', status=lambda: {'state':'running'}, failure='replacement')
+    printer.objects['wmp_recovery'] = NS(identification=operation, calibration=operation.calibration)
+    def drain():
+        commands.append('drain')
+        if change == 'generation': material._command_generation = 1
+        elif change == 'material_session': material.session_id = 'new'
+        elif change == 'session': operation.calibration.session = 'new'
+        elif change == 'operation': operation.operation = replacement
+        elif change == 'controller': printer.objects['wmp_recovery'].identification = object()
+        else: printer.objects['openace'] = object()
+    printer.objects['toolhead'].wait_moves = drain
+    operation.gcode.run_script_from_command = run
+    before = snapshot(files)
+    with pytest.raises(ValueError, match='owner changed|ownership changed'):
+        operation.dispatch(command)
+    assert commands[-1] == 'drain'
+    assert 'SAVE_VARIABLE VARIABLE=is_nozzle_setting VALUE=0' not in commands
+    assert printer.data['save_variables']['variables']['is_nozzle_setting'] == 1
+    assert snapshot(files) == before
+    if change == 'operation': assert operation.operation is replacement and replacement.failure == 'replacement'
+
+
+def test_identification_cancel_in_foreign_callback_latches_but_does_not_unwind(files, monkeypatch):
+    from wmp_stop_points import check_operation_boundary
+    operation, command, commands, _, printer = harness(files)
+    printer.objects['wmp_recovery'] = NS(identification=operation, calibration=operation.calibration)
+    actor = [object()];monkeypatch.setattr(operation, '_current_actor', lambda: actor[0])
+    execute = operation.gcode.run_script_from_command
+    def run(text):
+        execute(text)
+        if text == '_CHANGE_TOOL T=0':
+            owner = actor[0];actor[0] = object()
+            operation.handle_cancel(cancel_request(operation, command.get('REQUEST'))[0])
+            check_operation_boundary(printer, 'foreign callback')
+            assert operation.get_status()['cancel_phase'] == ''
+            actor[0] = owner
+            check_operation_boundary(printer, 'completed pickup')
+            pytest.fail('owned command failed to observe cancellation')
+    operation.gcode.run_script_from_command = run
+    operation.dispatch(command)
+    assert operation.get_status()['state'] == 'cancelled'
+    assert operation.get_status()['cancel_phase'] == 'completed pickup'
+    assert commands[-2:] == ['drain', 'SAVE_VARIABLE VARIABLE=is_nozzle_setting VALUE=0']
+
+
+@pytest.mark.parametrize('stop_axis', [1, 0])
+def test_identification_cancel_after_native_axis_never_disables_motors(files, stop_axis):
+    import importlib.util
+    from pathlib import Path
+    from wmp_xy_homing import XYHoming
+    path = Path(__file__).resolve().parents[1]/'analysis/fw_1.1.13_payload/root/home/t13dp/klipper/klippy/extras/homing.py'
+    spec = importlib.util.spec_from_file_location('identification_cancel_native_homing', path)
+    native = importlib.util.module_from_spec(spec);spec.loader.exec_module(native)
+    operation, command, commands, _, printer = harness(files)
+    printer.objects['wmp_recovery'] = NS(identification=operation, calibration=operation.calibration)
+    printer.command_error = ValueError
+    printer.data['toolhead']['homed_axes'] = ''
+    rails = [NS(get_name=lambda: 'stepper_x', get_homing_info=lambda: NS(positive_dir=True)),
+             NS(get_name=lambda: 'stepper_y', get_homing_info=lambda: NS(positive_dir=False))]
+    axes = []
+    def home(state):
+        axes.append(state.get_axes())
+        if state.get_axes() == [stop_axis]: operation.handle_cancel(cancel_request(operation, command.get('REQUEST'))[0])
+    kin = NS(rails=rails, home=home, limits=[(0,300), (0,300)])
+    printer.objects['toolhead'].get_kinematics = lambda: kin
+    printer.objects['stepper_enable'] = NS(motor_off=lambda: pytest.fail('normal identification Cancel disabled motors'))
+    homing = native.PrinterHoming.__new__(native.PrinterHoming);homing.printer = printer
+    printer.objects['homing'] = homing
+    operation.gcode.register_command = lambda *args, **kwargs: None
+    operation.gcode.create_gcode_command = lambda name, text, params: NS(get=lambda key, default=None: params.get(key, default))
+    printer.objects['gcode'] = operation.gcode
+    xy = XYHoming(printer)
+    execute = operation.gcode.run_script_from_command
+    gcmd = NS(error=ValueError, respond_info=lambda message: None)
+    def run(text):
+        if text == 'G28': xy._home(gcmd, native.Homing, native.HomingMove)
+        else: execute(text)
+    operation.gcode.run_script_from_command = run
+    before = snapshot(files)
+    operation.dispatch(command)
+    assert axes == ([[1]] if stop_axis == 1 else [[1], [0]])
+    assert operation.get_status()['state'] == 'cancelled'
+    assert commands[-1] == 'drain' and 'PARK_CURRENT_TOOL' not in commands
+    assert kin.limits[1] == (1., -1.) and snapshot(files) == before
+
+
+def test_real_identification_fault_wins_over_simultaneous_cancel(files):
+    operation, command, commands, _, printer = harness(files)
+    execute = operation.gcode.run_script_from_command
+    def run(text):
+        execute(text)
+        if text == '_CHANGE_TOOL T=0':
+            operation.handle_cancel(cancel_request(operation, command.get('REQUEST'))[0])
+            printer.data['save_variables']['variables']['fail_flag'] = 17
+    operation.gcode.run_script_from_command = run
+    before = snapshot(files)
+    with pytest.raises(ValueError, match='fault|fail_flag'):
+        operation.dispatch(command)
+    assert operation.get_status()['state'] == 'failed'
+    assert operation.get_status()['request_result']['state'] == 'failed'
+    assert 'drain' not in commands and snapshot(files) == before
+
+
+def test_cancel_drain_failure_keeps_identification_failed_without_motion_retry(files):
+    operation, command, commands, _, printer = harness(files)
+    execute = operation.gcode.run_script_from_command
+    def run(text):
+        execute(text)
+        if text == '_CHANGE_TOOL T=0': operation.handle_cancel(cancel_request(operation, command.get('REQUEST'))[0])
+    def fail_drain():
+        commands.append('drain')
+        raise ValueError('drain failed')
+    printer.objects['toolhead'].wait_moves = fail_drain
+    operation.gcode.run_script_from_command = run
+    with pytest.raises(ValueError, match='drain failed'): operation.dispatch(command)
+    assert commands[-1] == 'drain' and '_CHANGE_TOOL T=1' not in commands
+    assert operation.get_status()['state'] == 'failed'
+    assert printer.data['save_variables']['variables']['is_nozzle_setting'] == 1
+
+
+@pytest.mark.parametrize('mode', ['identify', 'repair_assignment'])
+def test_cancel_before_publication_does_not_replace_mapping(files, monkeypatch, mode):
+    operation, command, commands, _, _ = harness(files)
+    if mode == 'repair_assignment': command = repair_command(command)
+    begin = operation._begin_publication
+    def stop_before_publication():
+        operation.handle_cancel(cancel_request(operation, command.get('REQUEST'))[0])
+        begin()
+    monkeypatch.setattr(operation, '_begin_publication', stop_before_publication)
+    before = snapshot(files)
+    operation.dispatch(command)
+    assert snapshot(files) == before
+    assert operation.get_status()['state'] == 'cancelled'
+    assert operation.get_status()['publication_started'] is False
+    assert not list(files.glob('.wmp-head-migration-*.json'))
+
+
+def test_identification_cancel_endpoint_delegate_never_initializes_a_controller(files):
+    from wmp_recovery import BottomZ
+    request = NS(error=ValueError)
+    owner = NS(identification=None)
+    with pytest.raises(ValueError, match='not available'):
+        BottomZ.handle_identification_cancel(owner, request)
+    calls = []
+    owner.identification = NS(handle_cancel=calls.append)
+    BottomZ.handle_identification_cancel(owner, request)
+    assert calls == [request]
+
+
+def test_identification_remains_running_until_cancel_drain_and_cleanup_finish(files):
+    operation, command, commands, _, printer = harness(files)
+    execute = operation.gcode.run_script_from_command
+    def run(text):
+        execute(text)
+        if text == '_CHANGE_TOOL T=0': operation.handle_cancel(cancel_request(operation, command.get('REQUEST'))[0])
+    def drain():
+        status = operation.get_status()
+        assert status['state'] == 'running' and status['request_result']['state'] == 'pending'
+        assert status['cancel_requested'] and status['mode_cleanup'] == 'not_needed'
+        commands.append('drain')
+    printer.objects['toolhead'].wait_moves = drain
+    operation.gcode.run_script_from_command = run
+    operation.dispatch(command)
+    status = operation.get_status()
+    assert status['state'] == status['request_result']['state'] == 'cancelled'
+    assert status['mode_cleanup'] == 'cleared' and status['request_result']['error']
+
+
+def test_cancel_clears_owned_toolchange_marker_after_draining_before_mode_clear(files):
+    operation, command, commands, _, printer = harness(files)
+    printer.objects['gcode'] = operation.gcode
+    execute = operation.gcode.run_script_from_command
+    variables = printer.data['save_variables']['variables']
+    def run(text):
+        execute(text)
+        if text == '_CHANGE_TOOL T=0':
+            variables['changing_tool'] = 1
+            operation.handle_cancel(cancel_request(operation, command.get('REQUEST'))[0])
+        elif text == 'SAVE_VARIABLE VARIABLE=changing_tool VALUE=0':
+            variables['changing_tool'] = 0
+    operation.gcode.run_script_from_command = run
+    operation.dispatch(command)
+    assert operation.get_status()['state'] == 'cancelled'
+    assert operation.get_status()['toolchange_cleanup'] == 'cleared'
+    assert variables['changing_tool'] == 0 and variables['is_nozzle_setting'] == 0
+    assert commands[-3:] == ['drain', 'SAVE_VARIABLE VARIABLE=changing_tool VALUE=0',
+                             'SAVE_VARIABLE VARIABLE=is_nozzle_setting VALUE=0']
+    assert '_CHANGE_TOOL T=1' not in commands

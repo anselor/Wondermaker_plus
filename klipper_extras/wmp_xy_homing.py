@@ -1,6 +1,10 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Establish Y at a repeatable X position, without moving Z or changing tools."""
 import logging
+try:
+    from .wmp_stop_points import check_operation_boundary
+except ImportError:
+    from wmp_stop_points import check_operation_boundary
 
 
 class XYHoming:
@@ -32,20 +36,55 @@ class XYHoming:
             raise gcmd.error('Fixed-corner homing requires the WM X-positive/Y-negative configuration')
         material = printer.lookup_object('wm_material', None)
         generation = getattr(material, '_command_generation', None)
+        sd = printer.lookup_object('virtual_sdcard', None)
+        stats = printer.lookup_object('print_stats', None)
+        print_handle = getattr(sd, 'current_file', None)
+        print_file = getattr(stats, 'filename', None)
+        print_session = getattr(material, 'session_id', None)
+        is_cmd_from_sd = getattr(sd, 'is_cmd_from_sd', None)
+        from_sd = callable(is_cmd_from_sd) and is_cmd_from_sd()
 
-        def guard():
+        def record_print_stop(label):
+            # An ordinary Stop retires command generations immediately. It
+            # must still name the completed axis, without admitting any more
+            # movement. Never borrow a replacement job's cancellation.
+            if (not from_sd or print_handle is None or material is None
+                    or type(generation) is not int or not print_session or not print_file
+                    or any(printer.lookup_object(owner, None) is not None
+                           for owner in ('openace', 'AFC'))
+                    or printer.lookup_object('virtual_sdcard', None) is not sd
+                    or printer.lookup_object('print_stats', None) is not stats
+                    or sd.current_file is not print_handle
+                    or stats.filename != print_file
+                    or getattr(material, 'session_id', None) != print_session
+                    or getattr(material, '_command_generation', None) != generation + 1):
+                return
+            cancellation = material._cancellation()
+            if (getattr(cancellation, '_coupling_finish_generation', None) == generation
+                    and getattr(cancellation, '_print_cancel', {}).get('phase') == 'stopping'
+                    and material._print_cancel_active()
+                    and material.stop_requested() is not None):
+                material.check_stop_point('xy_homing', label,
+                    'XY homing stopped; Y reference unverified; Z unchanged')
+
+        def guard(label="between XY homing moves"):
             if (printer.is_shutdown() or getattr(printer, 'quick_stop_flag', False)
-                    or getattr(material, '_command_generation', None) != generation):
+                    or printer.lookup_object('wm_material', None) is not material):
                 raise gcmd.error('XY homing interrupted')
+            if getattr(material, '_command_generation', None) != generation:
+                record_print_stop(label)
+                raise gcmd.error('XY homing interrupted')
+            check_operation_boundary(printer, label, 'xy_homing',
+                                     'XY homing interrupted; Y reference unverified; Z unchanged')
 
         def native_home(axis):
-            guard()
+            guard('before ' + axis + ' homing')
             command = self.gcode.create_gcode_command('G28', 'G28 ' + axis, {axis: ''})
             # Call the native homing implementation, not the macro override:
             # this routine owns XY only and must never trigger Z or tool pickup.
             printer.lookup_object('homing').cmd_G28(command)
             toolhead.wait_moves()
-            guard()
+            guard('after ' + axis + ' homing')
 
         def move_to(**axes):
             guard()

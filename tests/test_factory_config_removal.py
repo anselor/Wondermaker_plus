@@ -9,8 +9,18 @@ import reconcile_screen_config as reconcile
 import preload_bundle as bundle
 
 
+def legacy_bytes(name):
+    """Pinned published code, independent of the candidate's new macros."""
+    import gzip, hashlib
+    directory = ROOT/'tests/fixtures/config-r4-16bc1f9'
+    evidence = json.loads((directory/'source.json').read_text())
+    raw = gzip.decompress((directory/(name+'.gz')).read_bytes())
+    assert hashlib.sha256(raw).hexdigest() == evidence['sha256'][name]
+    return raw
+
+
 def test_legacy_inline_macros_are_restored_before_helpers_removed(printer):
-    shutil.copy2(ROOT/'config/live/macros.cfg', printer/'macros.cfg')
+    (printer/'macros.cfg').write_bytes(legacy_bytes('macros.cfg'))
     original = (printer/'printer.cfg').read_bytes()
     for _ in range(2):
         apply_plan(printer, reconcile.plan(ROOT, printer))
@@ -23,13 +33,13 @@ def test_legacy_inline_macros_are_restored_before_helpers_removed(printer):
     assert active.get('gcode_macro START_PRINT', 'gcode') == stock.get('gcode_macro START_PRINT', 'gcode')
     assert active.get('printer', 'max_velocity') == '123'
     assert (printer/'printer.cfg').read_bytes().partition(reconcile.SAVE_MARKER)[2] == original.partition(reconcile.SAVE_MARKER)[2]
-    assert (backup/'macros.cfg.before').read_bytes() == (ROOT/'config/live/macros.cfg').read_bytes()
+    assert (backup/'macros.cfg.before').read_bytes() == legacy_bytes('macros.cfg')
     assert reconcile.removal_plan(ROOT, printer)['changes'] == []
 
 
 def test_legacy_behavior_removal_has_recoverable_multi_file_rollback(printer):
     for name in ('macros.cfg', 'change_macros.cfg', 'offset_calibrate.cfg'):
-        shutil.copy2(ROOT/'config/live'/name, printer/name)
+        (printer/name).write_bytes(legacy_bytes(name))
     apply_plan(printer, reconcile.plan(ROOT, printer))
     planned = reconcile.removal_plan(ROOT, printer)
     backup = reconcile.publish(printer, planned)
@@ -47,7 +57,7 @@ def test_factory_files_are_byte_identical_after_removal(printer):
 
 
 def test_unknown_legacy_code_is_retained_and_reported(printer):
-    text = (ROOT/'config/live/macros.cfg').read_text().replace(
+    text = legacy_bytes('macros.cfg').decode('utf-8').replace(
         'WMP_CHECK_RESUME', 'WMP_CHECK_RESUME\n    RESPOND MSG="operator edit"')
     assert 'operator edit' in text
     (printer/'macros.cfg').write_text(text)
@@ -59,7 +69,7 @@ def test_unknown_legacy_code_is_retained_and_reported(printer):
 
 def test_removal_remote_script_includes_legacy_catalog(printer):
     import subprocess, sys
-    shutil.copy2(ROOT/'config/live/macros.cfg', printer/'macros.cfg')
+    (printer/'macros.cfg').write_bytes(legacy_bytes('macros.cfg'))
     script = reconcile.remote_script(ROOT, printer, action='remove-plan')
     result = subprocess.run([sys.executable, '-I', '-'], input=script,
                             text=True, capture_output=True, check=True)
@@ -89,7 +99,7 @@ def test_full_inline_legacy_behavior_restores_without_changing_geometry(printer)
     names=('printer.cfg','macros.cfg','change_macros.cfg','offset_calibrate.cfg',
            'fz-wipe-nozzle.cfg','case_light.cfg','extruder0.cfg','extruder1.cfg','extruder2.cfg','extruder3.cfg')
     for name in names:
-        shutil.copy2(ROOT/'config/live'/name,printer/name)
+        (printer/name).write_bytes(legacy_bytes(name))
     target=printer/'extruder2.cfg'
     target.write_text(target.read_text().replace('rotation_distance: 21.018','rotation_distance: 21.6485'))
     before=bundle.read_active_config(printer/'printer.cfg')
@@ -104,7 +114,7 @@ def test_full_inline_legacy_behavior_restores_without_changing_geometry(printer)
 
 
 def test_custom_command_rename_is_not_mixed_with_factory_body(printer):
-    text=(ROOT/'config/live/macros.cfg').read_text()
+    text=legacy_bytes('macros.cfg').decode('utf-8')
     import re
     section=re.search(r'(?ms)^\[gcode_macro PAUSE\].*?(?=^\[|\Z)',text).group()
     assert 'rename_existing:' in section
@@ -141,7 +151,7 @@ def test_private_generated_files_are_removed_and_uninstall_is_recoverable(printe
 
 def test_known_legacy_daemon_configuration_returns_to_factory(printer):
     for name in ('crowsnest.conf','moonraker.conf'):
-        shutil.copy2(ROOT/'config/live'/name,printer/name)
+        (printer/name).write_bytes(legacy_bytes(name))
     planned=reconcile.removal_plan(ROOT,printer)
     reconcile.publish(printer,planned)
     for name in ('crowsnest.conf','moonraker.conf'):
@@ -162,7 +172,7 @@ def test_vendor_factory_reset_variant_does_not_retain_all_wmp_definitions(printe
 
 
 def test_user_call_to_nonprefixed_legacy_command_blocks_removal(printer):
-    shutil.copy2(ROOT/'config/live/macros.cfg',printer/'macros.cfg')
+    (printer/'macros.cfg').write_bytes(legacy_bytes('macros.cfg'))
     with (printer/'custom.cfg').open('a') as stream:
         stream.write('\n[gcode_macro USER_PROBE]\ngcode: PROBE_WITH_INITIAL_TOOL\n')
     before={p.name:p.read_bytes() for p in printer.iterdir() if p.is_file()}
@@ -171,3 +181,14 @@ def test_user_call_to_nonprefixed_legacy_command_blocks_removal(printer):
     with pytest.raises(ValueError,match='Unresolved legacy command dependencies'):
         reconcile.publish(printer,planned)
     assert {p.name:p.read_bytes() for p in printer.iterdir() if p.is_file()}==before
+
+
+def test_unpublished_inline_behavior_is_not_blessed_by_candidate_sources(printer):
+    text = legacy_bytes('macros.cfg').decode('utf-8')
+    text = text.replace('WMP_CHECK_RESUME', 'WMP_CHECK_RESUME\n    RESPOND MSG="unpublished behavior"')
+    assert 'unpublished behavior' in text
+    (printer/'macros.cfg').write_text(text)
+    plan = reconcile.removal_plan(ROOT, printer)
+    assert plan['retained_dependencies']
+    change = next(c for c in plan['changes'] if c['file'] == 'macros.cfg')
+    assert b'unpublished behavior' in change['after']

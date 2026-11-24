@@ -21,6 +21,80 @@ class ToolheadService:
     def __init__(self, material):
         self.material = material
 
+    def coupling_regions(self):
+        value = getattr(self, '_coupling_regions', None)
+        if value is None:
+            try:
+                from .wmp_coupling_region import CouplingRegions
+            except ImportError:
+                from wmp_coupling_region import CouplingRegions
+            value = self._coupling_regions = CouplingRegions(self)
+        return value
+
+    def cmd_COUPLING_BEGIN(self, gcmd):
+        return self.coupling_regions().begin(gcmd)
+
+    def cmd_COUPLING_END(self, gcmd):
+        return self.coupling_regions().end(gcmd)
+
+    @staticmethod
+    def _current_actor():
+        from greenlet import getcurrent
+        return getcurrent()
+
+    def _scope_owned(self, scope):
+        op = self.toolhead_operation
+        return (op is scope['operation'] and self.material.session_id == scope['session']
+                and all(op.get(key) == scope[key] for key in ('id', 'session', 'head', 'action'))
+                and getattr(self.material, '_command_generation', 0) == scope['generation']
+                and all(self.material.printer.lookup_object(name, None) is owner
+                        for name, owner in scope['owners']))
+
+    def wait_owner(self):
+        scope = getattr(self, '_boundary_scope', None)
+        return (self if scope is not None and scope['actor'] is self._current_actor()
+                and self._scope_owned(scope) and self.toolhead_operation.get('state') == 'running'
+                else None)
+
+    def check_operation_boundary(self, label):
+        scope = getattr(self, '_boundary_scope', None)
+        if scope is None or scope['actor'] is not self._current_actor():
+            return
+        error_type = getattr(self.material.printer, 'command_error', ValueError)
+        if not self._scope_owned(scope):
+            raise error_type('Toolhead service owner changed at operation boundary')
+        self._check_printer_fault()
+        if not self.toolhead_operation.get('cancel_requested'):
+            return
+        self.toolhead_operation['cancel_phase'] = label[:160]
+        error = error_type('Toolhead operation cancelled; stopped ' + label[:160])
+        error.wmp_toolhead_cancel = True
+        raise error
+
+    def _check_printer_fault(self):
+        error_type = getattr(self.material.printer, 'command_error', ValueError)
+        # A real sensor/driver/print-stop fault wins over simultaneous Cancel.
+        now = self.material.printer.get_reactor().monotonic()
+        saved = self.material.printer.lookup_object('save_variables').get_status(now).get('variables', {})
+        if (saved.get('fail_flag', 0) != 0 or self.material.printer.is_shutdown()
+                or getattr(self.material.printer, 'quick_stop_flag', False)
+                or self.material._print_cancel_active()):
+            raise error_type('Toolhead service interrupted by a printer fault or print cancellation')
+
+    def _handle_toolhead_cancel(self, web_request):
+        # Out of band: latch intent only, never acquire the G-code mutex or move.
+        scope = getattr(self, '_request_binding', None)
+        op = self.toolhead_operation
+        if (scope is None or not self._scope_owned(scope)
+                or any(owner is not None for _, owner in scope['owners'])
+                or any(web_request.get_str(key) != op.get(key)
+                       for key in ('session', 'id', 'head', 'action'))):
+            raise web_request.error('Toolhead operation changed')
+        if op.get('state') != 'running':
+            raise web_request.error('Toolhead operation is not running')
+        op.update(cancel_requested=True, message='Cancellation requested; finishing the current safe motion')
+        web_request.send({'id': op['id'], 'session': op['session'], 'state': 'requested'})
+
     def _toolhead_operation_path(self):
         return os.path.join(os.path.dirname(self.material.profile_path), "wmp_toolhead_operation.json")
 
@@ -227,20 +301,29 @@ class ToolheadService:
         self._record_toolhead_result()
         generation = getattr(self.material, "_command_generation", 0)
         session = self.material.session_id
+        operation = self.toolhead_operation
+        binding = dict(operation=operation, id=request_id, session=session,
+                       head=operation['head'], action=action, generation=generation,
+                       owners=tuple((name, self.material.printer.lookup_object(name, None))
+                                    for name in ('openace', 'AFC')))
+        self._request_binding = binding
         scheduling_failed = False
         def execute(now):
             if scheduling_failed:
                 return
             dispatched = False
+            previous_scope = getattr(self, '_boundary_scope', None)
             try:
                 gcode = self.material.printer.lookup_object("gcode")
                 with gcode.get_mutex():
-                    if session != self.material.session_id or generation != getattr(self.material, "_command_generation", 0):
+                    if not self._scope_owned(binding):
                         raise ValueError("Toolhead request invalidated by cancellation or restart")
                     if paused_origin is not None and getattr(self.material, "_pause_origin", None) is not paused_origin:
                         raise ValueError("Paused print context changed before dispatch")
                     if self._toolhead_context(head, action, reactor.monotonic()) != attachment:
                         raise ValueError("Head attachment changed before dispatch")
+                    self._boundary_scope = dict(binding, actor=self._current_actor())
+                    self.check_operation_boundary('before toolhead dispatch')
                     run = gcode.run_script_from_command
                     # The legacy dock macro reads current_extruder. Reconcile
                     # that bookkeeping from sensors, never from a UI selection.
@@ -255,6 +338,8 @@ class ToolheadService:
                         self.toolhead_operation["message"] = "Docking Head %d..." % (int(previous_head[1]) + 1)
                     run("_CHANGE_TOOL T=%d" % head if action == "take" else "PARK_CURRENT_TOOL")
                     run("M400")
+                    if not self._scope_owned(binding):
+                        raise ValueError("Toolhead service owner changed after motion")
                     self.toolhead_operation["phase"] = "verifying"
                     observed = self.material._attachment(reactor.monotonic())
                     wanted = {"state": "attached", "head": "h%d" % head} if action == "take" else {"state": "empty", "head": ""}
@@ -269,13 +354,47 @@ class ToolheadService:
                         # this paused job may have an additional user offset.
                         # Preserve physical position and the original PAUSE states.
                         run("SET_GCODE_OFFSET X=%.17g Y=%.17g Z=%.17g MOVE=0" % tuple(paused_origin["offset"]))
-                    self.toolhead_operation.update(state="complete", message="Head mounted" if action == "take" else "Head docked")
+                    self.check_operation_boundary('after toolhead verification')
+                    operation.update(state="complete", message="Head mounted" if action == "take" else "Head docked")
             except Exception as error:
-                if dispatched:
-                    self.material._command_generation = getattr(self.material, "_command_generation", 0) + 1
-                self.toolhead_operation.update(state="unknown" if dispatched else "refused", message=str(error))
+                cancelled = (getattr(error, 'wmp_toolhead_cancel', False) is True
+                             and self._scope_owned(binding))
+                if cancelled and self._scope_owned(binding):
+                    try:
+                        with self.material.printer.lookup_object('gcode').get_mutex():
+                            if not self._scope_owned(binding):
+                                raise ValueError('Toolhead owner changed before draining motion')
+                            if dispatched:
+                                # Drain only. No park, offset guess, heater change,
+                                # driver disable, retry or additional coupling.
+                                self.material.printer.lookup_object('gcode').run_script_from_command('M400')
+                            if not self._scope_owned(binding):
+                                raise ValueError('Toolhead owner changed while draining motion')
+                            self._check_printer_fault()
+                            if dispatched:
+                                try:
+                                    from .wmp_stop_points import finish_cancelled_toolchange
+                                except ImportError:
+                                    from wmp_stop_points import finish_cancelled_toolchange
+                                operation['toolchange_cleanup'] = 'unconfirmed'
+                                operation['toolchange_cleanup'] = finish_cancelled_toolchange(
+                                    self.material.printer, lambda: self._scope_owned(binding))
+                            operation.update(cancelled=True, cancel_cleanup='held' if dispatched else 'not_started')
+                    except Exception as cleanup_error:
+                        cancelled = False
+                        error = cleanup_error
+                if self.toolhead_operation is operation:
+                    if dispatched and not cancelled and self._scope_owned(binding):
+                        self.material._command_generation = getattr(self.material, "_command_generation", 0) + 1
+                    operation.update(state="unknown" if dispatched else "refused",
+                        message=('Cancelled; motion held. Verify head attachment before continuing'
+                                 if cancelled and dispatched else str(error)))
             finally:
-                self._record_toolhead_result()
+                self._boundary_scope = previous_scope
+                if getattr(self, '_request_binding', None) is binding:
+                    self._request_binding = None
+                if self.toolhead_operation is operation:
+                    self._record_toolhead_result()
         try:
             reactor.register_callback(execute)
         except Exception as error:
@@ -310,7 +429,7 @@ class ToolheadService:
             if self.material._material_operation_active("filament_operation"):
                 raise ValueError("Resolve the filament operation first")
             saved = self.material.printer.lookup_object("save_variables").get_status(now).get("variables", {})
-            if saved.get("fail_flag") != 0 or saved.get("is_nozzle_setting") != 0:
+            if saved.get("fail_flag", 0) != 0 or saved.get("is_nozzle_setting", 0) != 0:
                 raise ValueError("Finish stock toolhead recovery or setup first")
             attachment = self.material._attachment(now)
             if attachment.get("state") not in ("attached", "empty"):
@@ -318,8 +437,10 @@ class ToolheadService:
             return attachment
 
         try:
-            self.material._begin_explicit_physical_action("toolhead reconcile")
+            # Reconciliation verifies a stopped outcome, not a fresh pickup.
+            # Never retire a real stock fault to make this readback pass.
             context()
+            self.material._begin_explicit_physical_action("toolhead reconcile")
         except (ValueError, KeyError, AttributeError, TypeError) as error:
             operation.update(message="Recovery not confirmed: " + str(error))
             raise gcmd.error(operation["message"])
@@ -423,7 +544,7 @@ class ToolheadService:
         reactor = self.material.printer.get_reactor()
         gcode = self.material.printer.lookup_object("gcode")
         def guard():
-            self.material._check_command_generation(gcmd)
+            self.material._check_command_generation(gcmd, coupling_region=True, coupling_owner=self)
             if self.material.printer.is_shutdown() or getattr(self.material.printer, "quick_stop_flag", False):
                 raise gcmd.error("Dock support verification stopped; inspect the current printer state")
             saved = self.material.printer.lookup_object("save_variables").get_status(reactor.monotonic())["variables"]
@@ -497,7 +618,7 @@ class ToolheadService:
         reactor = self.material.printer.get_reactor()
         gcode = self.material.printer.lookup_object("gcode")
         def guard():
-            self.material._check_command_generation(gcmd)
+            self.material._check_command_generation(gcmd, coupling_region=True, coupling_owner=self)
             if self.material.printer.is_shutdown() or getattr(self.material.printer, "quick_stop_flag", False):
                 raise gcmd.error("Pickup verification stopped; inspect the current printer state")
             saved = self.material.printer.lookup_object("save_variables").get_status(reactor.monotonic())["variables"]
@@ -601,7 +722,7 @@ class ToolheadService:
             raise gcmd.error("Confirmation retry requires LOCK=1")
         gcode = self.material.printer.lookup_object("gcode")
         def guard(finish_coupling=False):
-            self.material._check_command_generation(gcmd, finish_coupling=finish_coupling)
+            self.material._check_command_generation(gcmd, finish_coupling=finish_coupling, coupling_region=True, coupling_owner=self)
             if self.material.printer.is_shutdown() or getattr(self.material.printer, "quick_stop_flag", False):
                 raise gcmd.error("Coupling stopped; inspect the printer before recovery")
             now = self.material.printer.get_reactor().monotonic()
@@ -621,7 +742,8 @@ class ToolheadService:
                 guard(True)
             else:
                 self.material._recovery_actuator_stroke(lock, lambda: guard(True), disable_on_success=False)
-            if self.material._print_cancel_active():
+            regions = getattr(self, '_coupling_regions', None)
+            if self.material._print_cancel_active() and not (regions is not None and regions.allows(gcmd)):
                 # The cancelled macro tail cannot perform its normal disable.
                 guard(True)
                 self.material.printer.lookup_object("echelon_stepper trans_stepper").do_enable(False)

@@ -73,7 +73,9 @@ def test_checkpoint_and_whole_job_binding(change):
     with pytest.raises(ValueError):analysis.analyze(io.BytesIO(STAMP),execution,context,[[0.,0.],[0.,0.]],0.,PROOF)
 
 
-@pytest.mark.parametrize('changed', ['START_PRINT', '_WMP_XY_TRAVEL'])
+@pytest.mark.parametrize('changed', ['START_PRINT', '_WMP_XY_TRAVEL',
+                                      '_CHANGING_TOOL', '_CHECK_CHANGE_TOOL', '_UNLOCK_TOOL', '_LOCK_TOOL',
+                                      '_WMP_TOOL_RETURN_BEGIN', '_WMP_TOOL_RETURN_FINISH'])
 def test_contract_matches_delivered_macro_sources_and_rejects_changes(changed):
     parser=configparser.RawConfigParser(strict=False)
     for name in ('offset_calibrate.cfg','macros.cfg','change_macros.cfg','fz-wipe-nozzle.cfg'):
@@ -207,3 +209,55 @@ def test_restart_saved_mesh_reconstruction_does_not_activate_or_write(tmp_path, 
 def test_rounded_mesh_fingerprint_cannot_shrink_integer_ceiling():
     # Raw interpolation may be slightly above the rounded zero grid.
     assert derive(matrix=[[0.,0.],[0.,0.]])['max_z'] >= 1.0000004
+
+
+@pytest.mark.parametrize('started,ended', [(False,False),(True,False),(True,True)])
+def test_membership_move_shortcut_matches_full_dialect(started,ended):
+    import random
+    rng=random.Random(419)
+    lines=['G1', 'g0 X1 Y2 E.5 F12000', 'G1 X1 X2', 'G1 X1e999',
+           'G1 X'+'9'*310, 'G1 Xnan', 'G1 X1Y2', 'G1 X١٢', 'G1 x1',
+           'G1 E1 X2', 'G1 X1 ; non-ASCII comment: café', 'G01 X1',
+           'G1 X1 # comment', 'T3', 'START_PRINT INITIAL_TOOL=2', 'PRINT_END']
+    for _ in range(2000):
+        keys=rng.sample('XYZEF',rng.randrange(6))
+        if rng.randrange(2): keys.sort(key='XYZEF'.index)
+        values=['0','-1.25','+.5','123456.','0001','+0.00003','1e3','nan']
+        lines.append(rng.choice(['G0','G1','g1'])+''.join(
+            rng.choice([' ','  ','\t'])+key+rng.choice(values) for key in keys))
+    for source in lines:
+        raw=(source+'\n').encode('utf-8')
+        line=raw.split(b';',1)[0].decode('ascii',errors='replace').strip()
+        try:
+            if '\ufffd' in line: raise ValueError('nonascii')
+            analysis.classified_command(line,started,ended)
+            expected=True
+        except (ValueError,UnicodeError):expected=False
+        scan=analysis.ToolUsage();scan.started=started;scan.ended=ended
+        scan.feed(raw)
+        assert (not scan.error)==expected,source
+
+
+@pytest.mark.parametrize('name,previous', [
+    ('_WMP_TOOL_RETURN_BEGIN', '8c794eec2350652e75ea46ace1eb3f0f832682a25914708b1dddf271b16e1a75'),
+    ('_WMP_TOOL_RETURN_FINISH', '66a330b655f72f0073a97f5c8027d3ce3ddd978c89b7049a2048cbb131119873')])
+def test_identification_completion_changes_only_nonmotion_bookkeeping(name, previous):
+    parser = configparser.RawConfigParser(strict=False)
+    parser.read(ROOT / 'config/live/change_macros.cfg', encoding='utf-8')
+    body = parser.get('gcode_macro ' + name, 'gcode')
+    without_result = '\n'.join(line for line in body.splitlines()
+        if 'SET_GCODE_VARIABLE MACRO=_WMP_TOOL_RETURN_BEGIN VARIABLE=completed_success ' not in line)
+    assert analysis.macro_digest(without_result) == previous
+
+
+@pytest.mark.parametrize('name,previous', [
+    ('_UNLOCK_TOOL', '75c806836f674fc7784d2d23cd37ab3b1389f7f69ce139a55e45c3c88f75c399'),
+    ('_LOCK_TOOL', '90e973e4dfd7d04a1cd467f509517d5f5edb12ac7cb8c35fc816b931b3683960')])
+def test_coupling_region_changes_only_invocation_bookkeeping(name, previous):
+    import re
+    parser = configparser.RawConfigParser(strict=False)
+    parser.read(ROOT / 'config/live/change_macros.cfg', encoding='utf-8')
+    body = parser.get('gcode_macro ' + name, 'gcode')
+    pattern = r'(?m)^[ \t]*\{% if printer\.wm_material is defined and printer\.openace is not defined and printer\.AFC is not defined %\}\n[ \t]*_WMP_COUPLING_(?:BEGIN|END)[^\n]*\n[ \t]*\{% endif %\}\n?'
+    original, count = re.subn(pattern, '', body)
+    assert count == 2 and analysis.macro_digest(original) == previous

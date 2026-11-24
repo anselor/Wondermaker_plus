@@ -19,8 +19,44 @@ inline Json calibration_attempt_result(const Json&value){
  if(!value.is_object()||!value.contains("protocol")||!value["protocol"].is_number_integer()||value["protocol"]!=1)return Json::object();
  for(const auto*key:{"session","request"})if(!value.contains(key)||!value[key].is_string()||value[key].get<std::string>().size()!=32||value[key].get<std::string>().find_first_not_of("0123456789abcdef")!=std::string::npos)return Json::object();
  if(!value.contains("state")||!value["state"].is_string()||!value.contains("error")||!value["error"].is_string())return Json::object();
- const auto state=value["state"].get<std::string>();if(state!="pending"&&state!="refused"&&state!="failed"&&state!="saved")return Json::object();
+ const auto state=value["state"].get<std::string>();if(state!="pending"&&state!="refused"&&state!="failed"&&state!="saved"&&state!="complete")return Json::object();
  Json out{{"protocol",1},{"session",value["session"]},{"request",value["request"]},{"state",state},{"error",value["error"].get<std::string>().substr(0,512)}};
+ const auto operation=value.value("operation",Json());
+ if(operation.is_string()&&(operation=="home"||operation=="calibration"))out["operation"]=operation;
+ if(state=="complete"&&out.value("operation","")!="home")return Json::object();
+ if(out.value("operation","")=="home"){
+  const auto axes=value.value("home_axes",Json()),origin=value.value("home_origin",Json());
+  if(axes.is_string()){const auto a=axes.get<std::string>();if(a=="X"||a=="Y"||a=="Z"||a=="X/Y"||a=="X/Z"||a=="Y/Z"||a=="X/Y/Z")out["home_axes"]=a;}
+  if(origin.is_string()&&(origin=="raw"||origin=="request"))out["home_origin"]=origin;
+ }
+ if(value.contains("ticket")&&value["ticket"].is_string()){
+  const auto t=value["ticket"].get<std::string>();if(!t.empty()&&t.size()<=256&&t[0]!='0'&&t.find_first_not_of("0123456789")==std::string::npos)out["ticket"]=t;
+ }
+ if(value.contains("cancel_requested")&&value["cancel_requested"].is_boolean())out["cancel_requested"]=value["cancel_requested"];
+ if(value.contains("cancel_phase")&&value["cancel_phase"].is_string())out["cancel_phase"]=value["cancel_phase"].get<std::string>().substr(0,160);
+ const auto cleanup=value.value("cancel_cleanup",Json());
+ if(cleanup.is_object()&&cleanup.contains("state")&&cleanup["state"].is_string()&&cleanup.contains("offsets")&&cleanup["offsets"].is_string()&&cleanup.contains("park")&&cleanup["park"].is_string()&&cleanup.contains("error")&&cleanup["error"].is_string()){
+  const auto state=cleanup["state"].get<std::string>(),offsets=cleanup["offsets"].get<std::string>(),park=cleanup["park"].get<std::string>(),error=cleanup["error"].get<std::string>();
+  const bool known_offsets=offsets=="restored"||offsets=="not_needed"||offsets=="unconfirmed";
+  const bool known_park=park=="parked"||park=="already_docked"||park=="not_moved"||park=="unconfirmed"||park=="not_attempted"||(park=="held"&&out.value("operation","")=="home");
+  const bool complete=state=="complete"&&offsets!="unconfirmed"&&park!="unconfirmed"&&park!="not_attempted"&&error.empty();
+  if(known_offsets&&known_park&&(complete||state=="running"||state=="incomplete"))out["cancel_cleanup"]={{"state",state},{"offsets",offsets},{"park",park},{"error",error.substr(0,512)}};
+ }
+ const auto checkpoints=value.value("checkpoints",Json());
+ if(checkpoints.is_array()&&checkpoints.size()<=16){
+  Json records=Json::array();
+  for(const auto&r:checkpoints){
+   if(!r.is_object()||!r.contains("type")||!r["type"].is_string()||!r.contains("state")||!r["state"].is_string()
+      ||!r.contains("sha256")||!r["sha256"].is_string()||!r.contains("sequence")||!r["sequence"].is_number_integer())continue;
+   const auto type=r["type"].get<std::string>(),state=r["state"].get<std::string>(),hash=r["sha256"].get<std::string>();
+   const auto sequence=r["sequence"].get<std::int64_t>();
+   const bool kind=type=="mesh"||type=="vibration"||type=="pid:extruder"||type=="pid:extruder1"||type=="pid:extruder2"||type=="pid:extruder3";
+   if(!kind||sequence<0||(state!="saved"&&state!="pending"&&state!="unconfirmed"))continue;
+   if(state=="saved"&&(hash.size()!=64||hash.find_first_not_of("0123456789abcdef")!=std::string::npos))continue;
+   records.push_back({{"type",type},{"state",state},{"sequence",sequence},{"sha256",state=="saved"?hash:""}});
+  }
+  out["checkpoints"]=records;
+ }
  // Outcome of the offset stage; absent from backends that do not report it.
  if(value.contains("offsets")&&value["offsets"].is_string()){
   const auto offsets=value["offsets"].get<std::string>();
@@ -356,6 +392,14 @@ inline Json project(const Json&status,const Json&ace,bool present,const std::str
  }
  const auto attempt_protocol=recovery_status.value("calibration_attempt_protocol",Json());
  out["calibration_attempt_protocol"]=attempt_protocol.is_number_integer()&&attempt_protocol==1?1:0;
+ const auto checkpoint_protocol=recovery_status.value("calibration_checkpoint_protocol",Json());
+ out["calibration_checkpoint_protocol"]=checkpoint_protocol.is_number_integer()&&checkpoint_protocol==1?1:0;
+ const auto raw_home_protocol=recovery_status.value("homing_raw_protocol",Json());
+ out["homing_raw_protocol"]=raw_home_protocol.is_number_integer()&&raw_home_protocol==1?1:0;
+ const auto home_protocol=recovery_status.value("homing_operation_protocol",Json());
+ out["homing_operation_protocol"]=home_protocol.is_number_integer()&&home_protocol==1?1:0;
+ const auto cancel_protocol=recovery_status.value("calibration_cancel_protocol",Json());
+ out["calibration_cancel_protocol"]=cancel_protocol.is_number_integer()&&cancel_protocol==2?2:0;
  const auto ticket_protocol=recovery_status.value("calibration_ticket_protocol",Json());
  const auto next_ticket=recovery_status.value("calibration_next_ticket",Json());
  out["calibration_ticket_protocol"]=ticket_protocol.is_number_integer()&&ticket_protocol==1?1:0;
@@ -384,6 +428,7 @@ inline Json project(const Json&status,const Json&ace,bool present,const std::str
  out["filament_runout_protocol"]=screen_helper.value("filament_runout_protocol",0);
  out["toolhead_recovery_protocol"]=screen_helper.value("toolhead_recovery_protocol",0);
  out["filament_cancel_protocol"]=screen_helper.value("filament_cancel_protocol",0);
+ out["toolhead_cancel_protocol"]=screen_helper.value("toolhead_cancel_protocol",0);
  out["nozzle_revision"]=screen_helper.value("nozzle_revision","");
  out["nozzle_save"]=screen_helper.value("nozzle_save",Json::object());
  out["filament_catalogue"]=Json::array(); // Preserve stored catalogues, hide import UI for now.

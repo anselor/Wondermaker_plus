@@ -521,6 +521,56 @@ def restore_publication(stage):
         raise ValueError('preload changed before restoration completed')
 
 
+def repair_recovery_marker_access(home):
+    """Upgrade old 0600 coordinate markers to the current writer's read policy.
+
+    This is an idempotent accessibility migration, not recovery admission. No
+    content, ownership or directory permissions change, even on install rollback.
+    Walk directory descriptors without following links; prevalidate both markers
+    before modifying either, and never chmod a linked/special/unbounded file.
+    """
+    import stat
+    directory = Path(home) / 'TM_T1' / 'bin'
+    if not directory.is_absolute() or '..' in directory.parts:
+        raise ValueError('Recovery marker directory must be absolute')
+    parent = os.open('/', os.O_RDONLY | os.O_DIRECTORY)
+    opened = []
+    try:
+        for part in directory.parts[1:]:
+            child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                            dir_fd=parent)
+            os.close(parent)
+            parent = child
+        for name in ('plr_dataA.ini.wmp-coordinates', 'plr_dataB.ini.wmp-coordinates'):
+            try:
+                fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK,
+                             dir_fd=parent)
+            except FileNotFoundError:
+                continue
+            opened.append((fd, name))
+            info = os.fstat(fd)
+            if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_size > 256:
+                raise ValueError('Refusing non-regular, linked or oversized recovery marker: ' + name)
+        repaired = []
+        for fd, name in opened:
+            info = os.fstat(fd)
+            if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_size > 256:
+                raise ValueError('Recovery marker changed during permissions upgrade: ' + name)
+            current = os.stat(name, dir_fd=parent, follow_symlinks=False)
+            if (info.st_dev, info.st_ino) != (current.st_dev, current.st_ino):
+                raise ValueError('Recovery marker changed during permissions upgrade: ' + name)
+            mode = stat.S_IMODE(info.st_mode)
+            if mode & 0o444 != 0o444:
+                os.fchmod(fd, mode | 0o444)
+                os.fsync(fd)
+                repaired.append(str(directory / name))
+        return repaired
+    finally:
+        for fd, _ in opened:
+            os.close(fd)
+        os.close(parent)
+
+
 def recovery_environment(home):
     """Resolve the material extra's record location from installed active config."""
     home = Path(home)

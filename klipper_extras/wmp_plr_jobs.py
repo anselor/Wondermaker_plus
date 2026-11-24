@@ -8,6 +8,28 @@ import re
 import uuid
 
 
+class _ScanCooperator:
+    """Bound startup bookkeeping without changing the active G-code stream."""
+    def __init__(self, reactor):
+        self.reactor = reactor
+        self.deadline = reactor.monotonic() + .020
+        self.bytes = self.lines = 0
+
+    def advance(self, size):
+        self.bytes += size
+        self.lines += 1
+        # Check wall time at most every 64 bounded line chunks; bytes also
+        # bound progress for long slicer comments. Avoid tell() per G-code line.
+        if self.bytes < 65536 and self.lines < 64:
+            return
+        self.lines = 0
+        now = self.reactor.monotonic()
+        if self.bytes >= 65536 or now >= self.deadline:
+            self.reactor.pause(now + .001)
+            self.bytes = 0
+            self.deadline = self.reactor.monotonic() + .020
+
+
 class RecoveryJobs:
     def __init__(self, material):
         self.material = material
@@ -57,6 +79,7 @@ class RecoveryJobs:
             raise ValueError("Active print file is outside the SD directory")
         content, tools = hashlib.sha256(), set()
         usage = self.material._begin_usage_scan(binding["path"])
+        cooperate = _ScanCooperator(self.material.printer.get_reactor())
         with open(binding["path"], "rb") as stream:
             continuing = False
             while True:
@@ -81,9 +104,7 @@ class RecoveryJobs:
                     initial = re.search(r"\bINITIAL_TOOL=([0-3])(?:\s|$)", line, re.IGNORECASE)
                     if initial:
                         tools.add(int(initial.group(1)))
-                if stream.tell() % (1024 * 1024) < len(raw):
-                    reactor = self.material.printer.get_reactor()
-                    reactor.pause(reactor.monotonic() + .001)
+                cooperate.advance(len(raw))
         self.material._finish_usage_scan(usage, content.hexdigest(), binding["stream"])
         if not tools:
             raise ValueError("Cannot identify physical tool requirements in the SD file")
@@ -261,6 +282,7 @@ class RecoveryJobs:
 
         content = hashlib.sha256()
         usage = self.material._begin_usage_scan(full)
+        cooperate = _ScanCooperator(self.material.printer.get_reactor())
         with open(full, "rb") as stream:
             if identity(os.fstat(stream.fileno())) != file_identity:
                 raise ValueError("Print file changed before recovery staging")
@@ -269,9 +291,7 @@ class RecoveryJobs:
                 if usage is not None: usage["scanner"].feed(chunk)
                 # Large G-code files must not starve status/sensor processing.
                 # The G-code lock remains held; revalidate after yielding.
-                reactor = self.material.printer.get_reactor()
-                if stream.tell() % (1024 * 1024) < len(chunk):
-                    reactor.pause(reactor.monotonic() + 0.001)
+                cooperate.advance(len(chunk))
             if identity(os.fstat(stream.fileno())) != file_identity:
                 raise ValueError("Print file changed during recovery staging")
         if identity(os.stat(full)) != file_identity:

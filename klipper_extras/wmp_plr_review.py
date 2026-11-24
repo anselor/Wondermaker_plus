@@ -316,6 +316,8 @@ class RecoveryReview:
         if (issued is None or issued["sequence"] <= state["consumed"]
                 or issued["request"] != request or issued["ticket"]["token"] != token):
             raise ValueError("Recovery ticket was consumed, superseded, or does not match this request; review again")
+        if kind == 'continue' and issued.get('cancel_requested') is True and getattr(self, '_recovery_command_active', False):
+            self._recovery_stop_request = {key: request[key] for key in ('id', 'session', 'file', 'execution_hash')}
         state["consumed"] = issued["sequence"]
         state["slots"] = {key: value for key, value in state["slots"].items()
                           if value["sequence"] > state["consumed"]}
@@ -480,42 +482,66 @@ class RecoveryReview:
 
 
     def _handle_recovery_stop(self, web_request):
-        # Reactor endpoint: never queue behind the G-code mutex or issue motion.
-        runner = getattr(self.material, "_recovery_attempt", None)
+        # Reactor intent only. Retire an exact reviewed ticket before execution,
+        # or latch the existing active request; never acquire the G-code mutex.
+        session, identity = web_request.get_str('session'), web_request.get_str('id')
+        token = web_request.get_str('ticket', '')
+        if (session != self.material.session_id
+                or any(self.material.printer.lookup_object(name, None) is not None for name in ('openace', 'AFC'))):
+            raise web_request.error('Recovery request or owner changed')
+        runner = getattr(self.material, '_recovery_attempt', None)
         receipt = runner.record if runner is not None else None
-        pending = getattr(self.material, "_recovery_pending_worker", None)
-        preparing = runner is not None and (runner.busy or pending is not None and not pending["armed"])
-        if (not getattr(self, "_recovery_command_active", False) or not preparing
-                or receipt is None or receipt["state"] not in ("pending", "running", "complete")):
-            raise web_request.error("Recovery preparation is not running; use print controls after continuation")
-        request = receipt["request"]
-        if (self.material.printer.lookup_object("openace", None) is not None
-                or self.material.printer.lookup_object("AFC", None) is not None
-                or web_request.get_str("session") != self.material.session_id
-                or request["session"] != self.material.session_id
-                or web_request.get_str("id") != request["id"]):
-            raise web_request.error("Recovery request or owner changed: " +
-                                    ("openace owner is present" if self.material.printer.lookup_object("openace", None) is not None else
-                                     "AFC owner is present" if self.material.printer.lookup_object("AFC", None) is not None else
-                                     "SESSION differs from printer session" if web_request.get_str("session") != self.material.session_id else
-                                     "receipt session differs from printer session" if request["session"] != self.material.session_id else
-                                     "ID differs from recovery receipt"))
-        self._recovery_stop_request = copy.deepcopy(request)
-        web_request.send({"session": self.material.session_id, "id": request["id"], "state": "requested"})
+        pending = getattr(self.material, '_recovery_pending_worker', None)
+        preparing = runner is not None and (runner.busy or pending is not None and not pending['armed'])
+        lifecycle = getattr(self.material, '_plr_lifecycle_component', None)
+        scope = getattr(lifecycle, '_execution_scope', None)
+        active = getattr(self, '_recovery_active_ticket', None)
+        command_active = getattr(self, '_recovery_command_active', False)
+        if (command_active and preparing and receipt is not None
+                and receipt['state'] in ('pending', 'running', 'complete')):
+            request = receipt['request']
+            if (scope is None or not lifecycle._scope_owned(scope) or scope['record'] is not receipt
+                    or request['session'] != session or request['id'] != identity
+                    or token and (active is None or active['token'] != token)):
+                raise web_request.error('Recovery request or owner changed')
+            self._recovery_stop_request = copy.deepcopy(request)
+        elif command_active:
+            # The ticket was consumed but review has not created a runner yet.
+            if (scope is not None or active is None or not token or active['token'] != token
+                    or active['request']['session'] != session or active['request']['id'] != identity
+                    or receipt is not None and receipt['request'] == active['request']):
+                raise web_request.error('Recovery preparation is not running; use print controls after continuation')
+            self._recovery_stop_request = copy.deepcopy(active['request'])
+        else:
+            tickets = getattr(self, '_recovery_tickets', None)
+            state = tickets.get('continue') if tickets is not None and tickets['session'] == session else None
+            issued = state['slots'].get('continue') if state is not None else None
+            if (preparing or not token or issued is None or issued['sequence'] <= state['consumed']
+                    or issued['request']['session'] != session or issued['request']['id'] != identity
+                    or issued['ticket']['token'] != token):
+                raise web_request.error('Recovery preparation is not running or its ticket changed')
+            issued['cancel_requested'] = True
+        web_request.send({'session': session, 'id': identity, 'state': 'requested'})
 
+    @staticmethod
+    def _cancelled_before_preparation(attempt):
+        return {'request': copy.deepcopy(attempt), 'state': 'cancelled', 'before_execution': True,
+                'message': 'Recovery cancelled before preparation; nothing moved or heated.'}
 
     def cmd_RECOVERY_CONTINUE(self, gcmd):
         if getattr(self, "_recovery_command_active", False):
             raise gcmd.error("Recovery command is already active")
         self._recovery_command_active = True
         self._recovery_stop_request = None
-        tracked = None
+        self._recovery_active_ticket = None
+        tracked = submission = None
         try:
             encoded = gcmd.get("REQUEST")
             request, attempt = self._decode_recovery_request(encoded)
             if attempt["session"] != self.material.session_id:
                 raise ValueError("Recovery printer session changed")
-            if not self._consume_recovery_ticket("continue", request, gcmd):
+            ticketed = self._consume_recovery_ticket("continue", request, gcmd)
+            if not ticketed:
                 seen = getattr(self, "_recovery_command_ids", set())
                 runner = self.material._recovery_attempt
                 if (attempt["id"] in seen
@@ -525,25 +551,37 @@ class RecoveryReview:
                     raise ValueError("Legacy recovery history is full; update the WM+ screen for bounded tickets or restart Klipper")
                 seen.add(attempt["id"])
                 self._recovery_command_ids = seen
+            if ticketed:
+                self._recovery_active_ticket = {"request": copy.deepcopy(attempt), "token": gcmd.get("TICKET")}
             tracked = attempt
-            self._recovery_submission = {"request": copy.deepcopy(attempt), "state": "reviewing", "message": "Reviewing recovery"}
-            result = self._consume_recovery_request(encoded,
-                lambda: self._recovery_stop_request is not None)
-            self._recovery_submission.update(state="attempted", message="Read the recovery attempt for its outcome")
+            submission = {"request": copy.deepcopy(attempt), "state": "reviewing", "message": "Reviewing recovery"}
+            self._recovery_submission = submission
+            if self._recovery_stop_request == attempt:
+                result = self._cancelled_before_preparation(attempt)
+            else:
+                result = self._consume_recovery_request(encoded,
+                    lambda: self._recovery_stop_request is not None)
+            if self._recovery_submission is submission:
+                if result.get('before_execution') is True:
+                    submission.update(state='cancelled', message=result['message'], before_execution=True)
+                else:
+                    submission.update(state="attempted", message="Read the recovery attempt for its outcome")
             # A scheduled worker is not proof of resumed printing.
             if result.get("archive_warning"):
                 self._recovery_resolution["message"] += "; archive unavailable: " + result["archive_warning"]
             gcmd.respond_info(json.dumps(result, sort_keys=True))
         except Exception as error:
-            if tracked is not None:
+            if tracked is not None and self._recovery_submission is submission:
                 record = self.material._recovery_attempt.record
                 attempted = record is not None and record["request"]["id"] == tracked["id"]
                 self._recovery_submission.update(state="attempted" if attempted else "refused",
                                                  message=str(error)[:512])
             raise gcmd.error(str(error))
         finally:
-            self._recovery_command_active = False
-            self._recovery_stop_request = None
+            if submission is None or self._recovery_submission is submission:
+                self._recovery_command_active = False
+                self._recovery_stop_request = None
+                self._recovery_active_ticket = None
 
 
     def _consume_recovery_request(self, encoded, cancelled=lambda: False):
@@ -551,6 +589,8 @@ class RecoveryReview:
         if not self.material.printer.lookup_object("gcode").get_mutex().test():
             raise ValueError("Recovery request requires command ownership")
         attempt, review = self._recovery_request_review(encoded)
+        if cancelled():
+            return self._cancelled_before_preparation(attempt)
         self.material._begin_explicit_physical_action("recovery continue")
         stages = self.material._recovery_initial_stages(review, cancelled, continue_print=True)
         return self.material._run_recovery_stages(attempt, review, stages, cancelled)

@@ -310,3 +310,20 @@ def test_cancel_review_capacity_counts_only_live_reviews(managed_cancel_intent):
     print_cancel_review(material, binding, request_id='overflow')
     assert len(material._cancellation()._print_cancel_tickets) == 1024
     assert not cleanup and len(timers) == before
+
+
+@pytest.mark.parametrize('marker', [1, True])
+def test_cancel_resolution_cannot_acknowledge_unfinished_coupling(managed_cancel_intent, marker):
+    from test_wm_material import cancel_resolution_review
+    fixture, binding, cleanup, _ = managed_cancel_intent
+    material, objects, states, calls, review, request, timers, body, locked = fixture
+    material._begin_print_cancel('cancel-print', binding)
+    locked[0] = False
+    timers[-1].callback(2.)
+    material._print_cancel.update(state='unknown')
+    material._write_recovery_json(material._cancellation()._print_cancel_path(), material._print_cancel)
+    objects['save_variables'].values['variables']['changing_tool'] = marker
+    before = list(cleanup)
+    reviewed = cancel_resolution_review(material)
+    assert reviewed['action'] == 'finish_idle_cleanup'
+    assert cleanup == before

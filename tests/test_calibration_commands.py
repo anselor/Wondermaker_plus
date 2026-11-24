@@ -66,9 +66,17 @@ class Printer:
         self.on_run(command)
 
 
+def isolate_checkpoint_io(runner):
+    # These tests isolate command/ownership behavior. Scoped disk publication
+    # and rollback use retained config files in test_calibration_checkpoints.py.
+    from contextlib import nullcontext
+    runner.checkpoints = SimpleNamespace(stage=lambda command, attempt: nullcontext())
+
+
 def setup():
     printer = Printer()
     runner = module.CalibrationCommands(printer, printer)
+    isolate_checkpoint_io(runner)
     runner._heater_ownership = module.CalibrationHeaterOwnership(
         printer.objects['heaters'].heaters, lambda: 'test-dispatch')
     return printer, runner

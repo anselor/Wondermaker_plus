@@ -28,6 +28,7 @@ class RecoveryWorker {
  mutable std::mutex mutex_;std::condition_variable wake_;
  Json helper_=Json::object(),selection_=Json::object(),request_=Json::object(),result_=Json::object();
  Clock::time_point observed_{};bool fresh_=false,quit_=false,queued_=false,busy_=false,dispatched_=false;
+ Json stop_request_=Json::object();bool local_stop_=false;
  bool stop_queued_=false,stop_sent_=false,stop_busy_=false,matched_=false;std::set<std::string>seen_;
  std::thread command_thread_,stop_thread_;
  bool current()const{return fresh_&&Clock::now()-observed_<std::chrono::seconds(2)
@@ -55,26 +56,42 @@ class RecoveryWorker {
    result_["message"]="Printer restarted during recovery; the previous attempt is interrupted. Select recovery again to check the current printer state.";
   }
  }
+ void cancel_undispatched(){
+  result_["state"]="cancelled";result_["before_execution"]=true;
+  result_["message"]="Recovery cancelled before preparation; nothing moved or heated.";
+ }
+ bool can_stop_locked()const{
+  if(!current()||local_stop_||stop_queued_||stop_sent_)return false;
+  if(!dispatched_)return queued_||busy_;
+  const auto state=result_.value("receipt",Json::object()).value("state","");
+  if(matched_)return state=="pending"||state=="running";
+  return helper_.value("recovery_early_stop_protocol",0)==1
+   &&result_.value("review",Json::object()).contains("ticket");
+ }
  void command_loop()noexcept{
   for(;;){
    Json selected;bool ticket_mode=false;
    {std::unique_lock<std::mutex>lock(mutex_);wake_.wait(lock,[this]{return quit_||queued_;});if(quit_)return;
-    queued_=false;busy_=true;selected=selection_;ticket_mode=helper_.value("recovery_ticket_protocol",0)==1;}
+    queued_=false;if(local_stop_){cancel_undispatched();continue;}busy_=true;selected=selection_;ticket_mode=helper_.value("recovery_ticket_protocol",0)==1;}
    bool sent=false;std::string rejected;
    try{
     {std::lock_guard<std::mutex>lock(mutex_);if(!current()){rejected=current_reason();throw std::runtime_error("Selection is stale");}}
     auto args=selected;if(ticket_mode)args["ticket_protocol"]="1";
     const auto reply=Json::parse(command_http_.post("/printer/wmp/recovery/review",args.dump()));
+    {std::lock_guard<std::mutex>lock(mutex_);if(local_stop_){cancel_undispatched();busy_=false;continue;}}
     if(reply.contains("error")){
      const auto error=reply.at("error");std::string reason="Recovery review refused; no preparation sent.";
      if(error.is_string())reason=error.get<std::string>();
      else if(error.is_object()&&error.contains("message")&&error.at("message").is_string())reason=error.at("message").get<std::string>();
      report_rejection("recovery review",reason+" Selection="+selected.dump());
-     std::lock_guard<std::mutex>lock(mutex_);result_["state"]="refused";result_["message"]=reason.substr(0,512);busy_=false;continue;
+     std::lock_guard<std::mutex>lock(mutex_);if(local_stop_)cancel_undispatched();
+     else{result_["state"]="refused";result_["message"]=reason.substr(0,512);}
+     busy_=false;continue;
     }
     const auto review=reply.at("result");if(ticket_mode&&!review.contains("ticket")){rejected="Advertised recovery ticket is missing from the review.";throw std::runtime_error(rejected);}
     std::string script;try{script=recovery_continue_script(selected,review);}catch(const std::exception&error){rejected=error.what();throw;}
     {std::lock_guard<std::mutex>lock(mutex_);
+     if(local_stop_){cancel_undispatched();busy_=false;continue;}
      if(!current()){rejected=current_reason();throw std::runtime_error("Ownership changed before dispatch");}
      request_=review.at("request");result_["review"]=review;result_["message"]="Preparing recovery";
      dispatched_=true;sent=true;}
@@ -84,15 +101,15 @@ class RecoveryWorker {
       "Recovery command returned an error; waiting for its recorded result.":"Waiting for the recorded recovery result.";}
    }catch(const std::exception&error){
     report_rejection("recovery review/delivery",std::string(error.what())+" Selection="+selected.dump());
-    std::lock_guard<std::mutex>lock(mutex_);if(!matched_){
+    std::lock_guard<std::mutex>lock(mutex_);if(local_stop_&&!sent){cancel_undispatched();}else if(!matched_){
      result_["state"]=sent?"unknown":"refused";
      result_["message"]=std::string(error.what()).substr(0,512)+(sent?" Delivery outcome unknown; request will not be repeated.":" No preparation sent.");
     }
-   }catch(...){std::lock_guard<std::mutex>lock(mutex_);if(!matched_){
+   }catch(...){std::lock_guard<std::mutex>lock(mutex_);if(local_stop_&&!sent){cancel_undispatched();}else if(!matched_){
     report_rejection("recovery review/delivery","Unknown exception. Selection="+selected.dump());
     result_["state"]=sent?"unknown":"refused";
     result_["message"]=sent?"Recovery delivery outcome unknown; request will not be repeated.":"Recovery review failed or changed; no preparation sent.";}}
-   {std::lock_guard<std::mutex>lock(mutex_);if(!rejected.empty()){report_rejection("recovery dispatch",rejected);if(!matched_)result_["message"]=rejected+" No preparation sent.";}busy_=false;retire_restarted_attempt();}
+   {std::lock_guard<std::mutex>lock(mutex_);if(!rejected.empty()){report_rejection("recovery dispatch",rejected);if(!matched_&&!local_stop_)result_["message"]=rejected+" No preparation sent.";}busy_=false;retire_restarted_attempt();}
   }
  }
  void stop_loop()noexcept{
@@ -100,7 +117,7 @@ class RecoveryWorker {
    {std::unique_lock<std::mutex>lock(mutex_);wake_.wait(lock,[this]{return quit_||stop_queued_;});if(quit_)return;
     stop_queued_=false;stop_sent_=true;
     if(!current()){result_["stop"]="unconfirmed";continue;}
-    stop_busy_=true;args={{"id",request_.at("id")},{"session",request_.at("session")}};}
+    stop_busy_=true;args=stop_request_;}
    bool confirmed=false;
    try{auto reply=Json::parse(stop_http_.post("/printer/wmp/recovery/stop",args.dump()));
     const auto r=reply.at("result");confirmed=r.at("id")==args.at("id")&&r.at("session")==args.at("session")&&r.value("state","")=="requested";
@@ -129,7 +146,7 @@ private:
   if(owner!="standalone")return reject("Recovery requires standalone ownership; current owner="+rejection_value(owner)+".");
   for(const auto*key:{"recovery_review_protocol","recovery_continue_protocol","recovery_stop_protocol"})if(helper_.value(key,0)!=1)return reject("Unsupported "+std::string(key)+"="+std::to_string(helper_.value(key,0))+"; expected=1.");
   if(helper_.value("recovery_ticket_protocol",0)!=1&&!seen_.insert(selection.at("id").get<std::string>()).second)return reject("Recovery request was already submitted; duplicate delivery prevented.");
-  selection_=selection;request_=Json::object();matched_=dispatched_=stop_sent_=false;
+  selection_=selection;request_=Json::object();stop_request_=Json::object();local_stop_=false;matched_=dispatched_=stop_sent_=false;
   result_={{"id",selection.at("id")},{"state","pending"},{"message","Reviewing saved recovery"}};
   queued_=true;wake_.notify_all();return true;
  }
@@ -175,8 +192,9 @@ public:
   }
   if(receipt.value("request",Json::object())!=expected){
    const auto submission=helper.value("recovery_submission",Json::object());
-   if(submission.value("request",Json::object())==expected&&submission.value("state","")=="refused"&&!matched_){
-    matched_=true;result_["state"]="refused";result_["message"]=submission.value("message","Recovery refused before preparation.");
+   if(submission.value("request",Json::object())==expected&&!matched_
+      &&(submission.value("state","")=="refused"||(submission.value("state","")=="cancelled"&&submission.value("before_execution",false)))){
+    matched_=true;result_["state"]=submission.at("state");result_["before_execution"]=submission.value("before_execution",false);result_["message"]=submission.value("message","Recovery refused before preparation.");
    }
    return;
   }
@@ -190,18 +208,20 @@ public:
   if(result_.value("message","").empty())result_["message"]=receipt.value("continuation",Json::object()).value("error","");
  }
  bool stop(){std::lock_guard<std::mutex>lock(mutex_);
-  const auto receipt=result_.value("receipt",Json::object());const auto state=receipt.value("state","");
   auto reject=[](const std::string&why){report_rejection("recovery STOP",why);return false;};
   if(!fresh_||Clock::now()-observed_>=std::chrono::seconds(2))return reject("Recovery status is stale: fresh="+std::to_string(fresh_)+", age_ms="+std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now()-observed_).count())+", limit_ms=2000.");
   if(helper_.value("session_id","")!=selection_.value("session",""))return reject("Recovery session changed.");
   const auto owner=helper_.value("afc_metadata",Json::object()).value("owner","");
   if(owner!="standalone")return reject("Recovery STOP requires standalone ownership; current="+rejection_value(owner)+".");
-  if(!dispatched_)return reject("Recovery has not been dispatched.");
-  if(!matched_)return reject("No matching recovery receipt has been observed.");
-  if(stop_queued_||stop_sent_)return reject("Recovery STOP already queued or sent: queued="+std::to_string(stop_queued_)+", sent="+std::to_string(stop_sent_)+".");
-  if(state!="running"&&state!="pending")return reject("Recovery STOP requires running or pending receipt; current="+rejection_value(state)+".");
+  if(!can_stop_locked())return reject("Recovery STOP is unavailable or already requested.");
+  if(!dispatched_){local_stop_=true;result_["stop"]="queued";wake_.notify_all();return true;}
+  stop_request_={{"id",request_.at("id")},{"session",request_.at("session")}};
+  if(helper_.value("recovery_early_stop_protocol",0)==1){
+   const auto review=result_.value("review",Json::object());
+   if(review.contains("ticket"))stop_request_["ticket"]=review.at("ticket").at("token");
+  }
   stop_queued_=true;result_["stop"]="queued";wake_.notify_all();return true;
  }
- Json result()const{std::lock_guard<std::mutex>lock(mutex_);auto value=result_;value["fresh"]=current();value["delivery_pending"]=busy_||queued_;return value;}
+ Json result()const{std::lock_guard<std::mutex>lock(mutex_);auto value=result_;value["can_stop"]=can_stop_locked();value["fresh"]=current();value["delivery_pending"]=busy_||queued_;return value;}
 };
 }}

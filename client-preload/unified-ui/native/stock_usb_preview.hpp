@@ -9,6 +9,7 @@ namespace wmp_ui { namespace native {
 // Copy and review are separate actions; this view has no print submission.
 class StockUsbPreview {
  StockPreviewControls controls_;StockPreviewWidgets widgets_;
+ std::string rendered_label_,rendered_message_;
  void*message_=nullptr;Json result_=Json::object();bool attached_=false,ready_=false,submitted_=false,reviewed_=false;
  static bool caption(void*button,const std::string&text){
   if(stock_function<unsigned(*)(void*)>(lv_obj_get_child_cnt)(button)!=1)return false;
@@ -34,6 +35,9 @@ public:
  bool attach(StockPreviewWidgets widgets){
   close();
   if(!StockPreviewInventory::resolve(widgets))return false;
+  stock_function<void(*)(void*,int,int)>(lv_obj_set_size)(widgets.start,128,40);
+  stock_function<void(*)(void*,int,int)>(lv_obj_set_size)(widgets.cancel,100,40);
+  rendered_label_="COPY";rendered_message_.clear();
   if(!caption(widgets.start,"COPY")||!caption(widgets.cancel,"CANCEL"))return false;
   if(!controls_.attach(widgets,[this](unsigned action){dispatch(action);}))return false;
   widgets_=widgets;attached_=true;submitted_=reviewed_=false;result_=Json::object();
@@ -66,7 +70,8 @@ public:
   const auto destination=result.value("destination","");
   if(state=="unknown"&&!destination.empty())text+="\nLocal file: "+destination;
   if(state=="copied")controls_.admission_settled();
-  caption(widgets_.start,label);stock_function<void(*)(void*,const char*)>(lv_label_set_text)(message_,text.c_str());
+  if(label!=rendered_label_){caption(widgets_.start,label);controls_.fit_header();rendered_label_=label;}
+  if(text!=rendered_message_){stock_function<void(*)(void*,const char*)>(lv_label_set_text)(message_,text.c_str());rendered_message_=text;}
   controls_.readiness(enabled,enabled,true);
  }
  void close(){controls_.retire();auto*content=attached_?widgets_.content:nullptr;attached_=false;message_=nullptr;ready_=false;if(stock_object_valid(content))stock_function<void(*)(void*)>(lv_obj_del)(content);}

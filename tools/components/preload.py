@@ -62,7 +62,7 @@ def _printer_info(ctx):
     return info
 
 
-def _restart(ctx, c, expected_guard=True):
+def _restart(ctx, c, expected_guard=True, repair_markers=False):
     try:
         before = _printer_info(ctx)
     except Exception:
@@ -78,6 +78,11 @@ def _restart(ctx, c, expected_guard=True):
             except (OSError, ValueError, KeyError, ctx.DeployError):
                 pass
     _checked(ctx, c, "systemctl daemon-reload && systemctl stop %s" % SERVICE, sudo=True)
+    if repair_markers:
+        changed = json.loads(_helper(ctx, c,
+            "print(json.dumps(repair_recovery_marker_access(%r)))" % _printer_home(ctx), sudo=True))
+        for path in changed:
+            print('Restored recovery marker read access: ' + path)
     # Managed client startup deliberately does not restart Klipper. Deployment
     # owns this explicit process restart, including rollback to the prior generation.
     # FIRMWARE_RESTART only rebuilds Printer in the retained Python process;
@@ -470,7 +475,7 @@ def install(ctx):
                               'home': _printer_home(ctx)}
         _helper(ctx,c,"print(json.dumps(publish_stage(%r,%r,%r,%r,start_backend=%r,defaults_paths=%r,require_guard=True)))"%(stage,home+'/lib',DROPIN,recovery_env,start_backend,defaults_paths),sudo=True)
         restart_attempted=True
-        _restart(ctx,c)
+        _restart(ctx,c,repair_markers=True)
         if screen_selected and location==preload_bundle.CURRENT_BUNDLE:
             if getattr(ctx, 'preload_backend_ready', True):
                 _verify_running_backend(ctx)

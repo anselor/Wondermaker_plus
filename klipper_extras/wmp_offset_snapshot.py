@@ -8,6 +8,7 @@ the attempt's failure is not latched and the following _WMP_SCRUB_END runs.
 """
 import logging
 import numbers
+import math
 
 NAMES = tuple('t%d_offset' % head for head in range(4))
 
@@ -23,7 +24,8 @@ def _offset(value):
     if len(values) != 3 or not all(isinstance(v, numbers.Real) and not isinstance(v, bool)
                                    for v in values):
         return None
-    return tuple(float(v) for v in values)
+    result = tuple(float(v) for v in values)
+    return result if all(math.isfinite(v) for v in result) else None
 
 
 class OffsetSnapshot:
@@ -79,6 +81,16 @@ class OffsetSnapshot:
                     'SAVE_VARIABLE VARIABLE=%s VALUE=%s' % (name, self._format(self.offsets[name])))
         except Exception:
             logging.exception('Offset snapshot: offsets not restored')
+            self.state = 'failed'
+            return False
+        try:
+            printer = self.calibration.printer
+            now = printer.get_reactor().monotonic()
+            variables = printer.lookup_object('save_variables').get_status(now)['variables']
+            if any(_offset(variables.get(name)) != self.offsets[name] for name in NAMES):
+                raise ValueError('Restored offsets did not match their snapshot')
+        except Exception:
+            logging.exception('Offset snapshot: restore readback failed')
             self.state = 'failed'
             return False
         self.state = 'done'

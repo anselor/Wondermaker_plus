@@ -1,0 +1,18 @@
+{
+  "commit": "16bc1f969decd5b3e30cdd34cc08f049e4e647f0",
+  "path": "config/live",
+  "sha256": {
+    "printer.cfg": "1ae78f49bf44aa01f4e5cfc81c407fffbaeb65555d5b3d413b0d2307c3182975",
+    "macros.cfg": "42233d307cc0ee552f8be7b5eb127b0a6839466e160f89fe117e6554cddfef69",
+    "change_macros.cfg": "ade9e619db8ec8daf85def74645e1938cbd28f97fcfae6f6bed98a9e266dd195",
+    "offset_calibrate.cfg": "cc5e2f57103049e698703eed41c9b7619bba20ac51801e4c4ef89b295ad57ae1",
+    "fz-wipe-nozzle.cfg": "93a76f48651fcbf1ecdb19c12f3538048e4948ea9a5fb6a6ff9e3366fc15c283",
+    "case_light.cfg": "4ec275f7d835e770a74822e4b4252cf7820c200198fd61896a16c2cebde9da1f",
+    "extruder0.cfg": "5ac030d64a57163e357b26e759455e1d3174af33471cbbd71caf8396c09dae84",
+    "extruder1.cfg": "0f9a2bbde56f1933e4144bc1214569195e2b570d374a5f9884a58025b47f3fec",
+    "extruder2.cfg": "987f83c8bd32f7f084ce7b19feca3c608645c406a145efbf69289d88510e9aba",
+    "extruder3.cfg": "e4cad0c45abd849497ac3673dcd1aa17c6a2316ea4b1baac033fd0c75603ea33",
+    "crowsnest.conf": "d96b30ec70e0aa710c64b8454c84a358b27ae4d217880a2ecf65dacfb6bf4c1b",
+    "moonraker.conf": "c6a62b87b23bd214a69f390beec0931e16b09d5a9f7768051a66f6a288b3553b"
+  }
+}

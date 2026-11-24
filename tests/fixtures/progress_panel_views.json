@@ -343,10 +343,26 @@
     "name": "scrub-state-10",
     "scrub_options": false,
     "scrub_readings": [
-      ["Head 1", "0.006 mm", "passed"],
-      ["Head 2", "0.013 mm", "flagged"],
-      ["Head 3", "0.002 mm", "measuring"],
-      ["Head 4", "", ""]
+      [
+        "Head 1",
+        "0.006 mm",
+        "passed"
+      ],
+      [
+        "Head 2",
+        "0.013 mm",
+        "flagged"
+      ],
+      [
+        "Head 3",
+        "0.002 mm",
+        "measuring"
+      ],
+      [
+        "Head 4",
+        "",
+        ""
+      ]
     ],
     "view": {
       "choices_height": 144,
@@ -403,10 +419,26 @@
     "scrub_options": true,
     "scrub_reading_columns": 2,
     "scrub_readings": [
-      ["Head 1", "0.783 mm", "flagged"],
-      ["Head 2", "0.050 mm", "flagged"],
-      ["Head 3", "0.033 mm", "flagged"],
-      ["Head 4", "0.011 mm", "passed"]
+      [
+        "Head 1",
+        "0.783 mm",
+        "flagged"
+      ],
+      [
+        "Head 2",
+        "0.050 mm",
+        "flagged"
+      ],
+      [
+        "Head 3",
+        "0.033 mm",
+        "flagged"
+      ],
+      [
+        "Head 4",
+        "0.011 mm",
+        "passed"
+      ]
     ],
     "view": {
       "choices_height": 288,
@@ -615,6 +647,46 @@
         "error": "Head 4 did not mount. Inspect the head attachment, then retry."
       },
       "calibration_failed": "Head 4 did not mount."
+    }
+  },
+  {
+    "fit": true,
+    "height": 335,
+    "name": "calibration-cancel-complete",
+    "width": 660,
+    "view": {
+      "steps": [],
+      "instruction": "Calibration cancelled. All heads are docked. Previous nozzle offsets were restored."
+    }
+  },
+  {
+    "fit": true,
+    "height": 335,
+    "name": "calibration-cancel-incomplete",
+    "width": 660,
+    "view": {
+      "steps": [],
+      "instruction": "Calibration stopped. Cleanup is incomplete.\n\nHoming incomplete; automatic park skipped.\n\nInspect the printer before retrying."
+    }
+  },
+  {
+    "fit": true,
+    "height": 335,
+    "name": "calibration-cancel-unconfirmed",
+    "width": 660,
+    "view": {
+      "steps": [],
+      "instruction": "Cancellation delivery is unconfirmed. Waiting for printer status; no retry was sent."
+    }
+  },
+  {
+    "fit": true,
+    "height": 335,
+    "name": "calibration-cancel-completed-checkpoints",
+    "width": 660,
+    "view": {
+      "steps": [],
+      "instruction": "Calibration cancelled. All heads are docked. Previous nozzle offsets were restored.\n\nSaved: bed mesh, vibration, Head 1 PID, Head 2 PID, Head 3 PID, Head 4 PID. Restart Klipper to apply saved settings."
     }
   }
 ]

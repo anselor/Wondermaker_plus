@@ -24,6 +24,8 @@ class RecoveryModel:
         env = jinja2.Environment('{%', '%}', '{', '}', undefined=jinja2.StrictUndefined)
         self.templates, self.defaults = {}, {}
         self.probe_prepare_check = lambda: None
+        self.operation_stop_check = lambda phase: None
+        self.hardware_command = lambda command, args: None
         for name in ('macros.cfg', 'printer.cfg', 'change_macros.cfg'):
             for section in re.split(r'(?m)^\[', (ROOT / 'config/live' / name).read_text())[1:]:
                 heading, body = section.split(']', 1)
@@ -89,7 +91,11 @@ class RecoveryModel:
                 continue
             command = words[0].upper()
             args = {k.upper(): v for k, v in (w.split('=', 1) for w in words[1:] if '=' in w)}
+            if command in ('G0', 'G1'):
+                args.update({w[0].upper(): w[1:] for w in words[1:]
+                             if re.fullmatch(r'[XYZEFxyzef][-+0-9.eE]+', w)})
             self.events.append((command, args))
+            self.hardware_command(command, args)
             if command == 'SAVE_VARIABLE':
                 self.sv[args['VARIABLE']] = ast.literal_eval(args['VALUE'])
             elif command == 'SET_GCODE_VARIABLE':
@@ -147,6 +153,9 @@ class RecoveryModel:
                 self.events.append(('PHYSICAL_TOOL', {'tool': tool, 'reference': self.sv['probe_tool']}))
             elif command in ('_WMP_RECOVERY_JOB_BEGIN', '_WMP_RECOVERY_JOB_COMMIT', '_WMP_RECOVERY_JOB_CLEAR'):
                 self.material_handlers[command]()
+            elif command == '_WMP_OPERATION_STOP_POINT':
+                assert set(args) == {'PHASE'}
+                self.operation_stop_check(args['PHASE'])
             elif command == '_WMP_PROBE_PREPARE_CHECK':
                 self.probe_prepare_check()
             elif command in ('_WMP_CASE_LIGHT_PRINT_START', '_WMP_CASE_LIGHT_PRINT_END',
@@ -705,3 +714,16 @@ def test_probe_positioning_and_probe_start_each_have_stop_boundary():
     commands = [line.strip() for line in script.splitlines() if line.strip()]
     for stage in ('BED_MESH_CLEAR', '_WMP_CALIBRATION_CLEARANCE', 'G1 X150 Y150 F3000', 'PROBE_CALIBRATE_BASE'):
         assert commands[commands.index(stage)-1] == '_WMP_PROBE_PREPARE_CHECK'
+
+
+@pytest.mark.parametrize('phase', ['before_z_homing', 'before_z_positioning'])
+def test_recovery_interpreter_observes_operation_boundaries_without_shutdown(phase):
+    model = RecoveryModel()
+    def check(current):
+        if current == phase:
+            raise RuntimeError('cooperative operation stop')
+    model.operation_stop_check = check
+    with pytest.raises(RuntimeError, match='cooperative operation stop'):
+        model.start()
+    assert not model.shutdown
+    assert model.events[-1] == ('_WMP_OPERATION_STOP_POINT', {'PHASE': phase})

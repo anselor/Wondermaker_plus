@@ -43,7 +43,7 @@ public:
   bind(root_,33);stock_dialog_backdrop(root_);
   stock_function<void(*)(void*,std::uint32_t,unsigned)>(lv_obj_set_style_bg_color)(root_,0xff3c3e42U,0);style(root_,lv_obj_set_style_bg_opa,255);
   const int w=stock_function<int(*)(void*)>(lv_obj_get_content_width)(parent),h=stock_function<int(*)(void*)>(lv_obj_get_content_height)(parent);stock_object_place(root_,0,0,w,h);
-  label(root_,"Head "+std::to_string(head+1)+" - Nozzle",20,10,w-260,28);
+  label(root_,"Head "+std::to_string(head+1)+" - Nozzle",20,10,w-276,28);
   auto*back=header("BACK",w-244,false);back_label_=stock_function<void*(*)(void*,int)>(lv_obj_get_child)(back,0);save_=header("SAVE",w-124,true);
   auto*rule=stock_function<void*(*)(void*)>(lv_obj_create)(root_);if(!rule)throw std::runtime_error("Nozzle separator allocation failed");stock_dialog_backdrop(rule);stock_object_place(rule,20,44,w-40,1);style(rule,lv_obj_set_style_bg_opa,255);stock_function<void(*)(void*,std::uint32_t,unsigned)>(lv_obj_set_style_bg_color)(rule,0xff55575aU,0);
   label(root_,"Material",20,80,130,28);label(root_,"Diameter",20,148,130,28);

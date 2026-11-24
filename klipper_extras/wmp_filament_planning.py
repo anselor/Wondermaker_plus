@@ -135,32 +135,51 @@ class FilamentPlanning:
             heater = "extruder" if head == 0 else "extruder%d" % head
             run("SET_HEATER_TEMPERATURE HEATER=%s TARGET=%.3f" % (heater, heat_target))
         current = context["attachment"]["head"]
-        # Filament service uses the dock/purge XY path at the existing bed height.
-        # Never home, lift, or synthesize a Z reference, including mid-print.
-        run("G90\nSET_GCODE_OFFSET X=0 Y=0 Z=0 MOVE=0")
-        if current != "h%d" % head:
+        offset, reference = context["offsets"][head], context["offsets"][context["probe"]]
+        restore_offset = context.get("restore_offset", tuple(a-b for a,b in zip(offset, reference)))
+        restore = "SET_GCODE_OFFSET X=%.5f Y=%.5f Z=%.5f MOVE=0" % tuple(restore_offset)
+        changed = current != "h%d" % head
+        # Stop only in coherent frames: before clearing the old attached
+        # head's offset, after verified docking, or after pickup bookkeeping.
+        # Dock/purge moves still use the machine frame at the existing Z.
+        if changed:
             if current:
                 index = int(current[1])
                 phase("Docking Head %d" % (index + 1), prefix + "docking")
+                self.material._filament_checkpoint(prefix + "docking")
+                run("G90\nSET_GCODE_OFFSET X=0 Y=0 Z=0 MOVE=0")
                 run("_UNLOCK_TOOL T=%d SERVICE=1" % index)
+                saved = self.material.printer.lookup_object("save_variables").get_status(
+                    reactor.monotonic()).get("variables", {})
+                if saved.get("fail_flag", 0) != 0:
+                    raise ValueError("Head %d docking failed: current fail_flag=%r" %
+                                     (index + 1, saved.get("fail_flag")))
+                self.material._filament_checkpoint(prefix + "docking")
             phase("Mounting Head %d" % (head + 1), prefix + "mounting")
+            self.material._filament_checkpoint(prefix + "mounting")
+            run("G90\nSET_GCODE_OFFSET X=0 Y=0 Z=0 MOVE=0")
             run("_LOCK_TOOL T=%d SERVICE=1" % head)
-            # This is physical pickup only. _CHECK_CHANGE_TOOL also applies
-            # print offsets, heats and wipes; service owns those later stages.
+            # Coupling, mandatory retreat and sensor verification finish before
+            # observing Cancel. Preserve a real mounting fault as the error.
             saved = self.material.printer.lookup_object("save_variables").get_status(
                 reactor.monotonic()).get("variables", {})
             if saved.get("fail_flag", 0) != 0:
                 raise ValueError("Head %d mounting failed: current fail_flag=%r" %
                                  (head + 1, saved.get("fail_flag")))
-        phase("Moving to filament service position")
         heater = "extruder" if head == 0 else "extruder%d" % head
         run("ACTIVATE_EXTRUDER EXTRUDER=%s\nSAVE_VARIABLE VARIABLE=current_extruder VALUE=%d" % (heater, head))
-        # Off-bed purge in machine coordinates. Restore head-relative offsets
-        # without travel after arriving; never restore the previous XY point.
+        if changed:
+            # A stopped pickup must leave sensor identity, active extruder,
+            # saved head and coordinate offset consistent, with no new travel.
+            run(restore)
+            self.material._filament_checkpoint(prefix + "mounting")
+        phase("Moving to filament service position")
+        self.material._filament_checkpoint(phase_name)
+        run("G90\nSET_GCODE_OFFSET X=0 Y=0 Z=0 MOVE=0")
         run("_WMP_XY_TRAVEL X=-13 HOT=1\n_WMP_XY_TRAVEL Y=80 HOT=1\nM400")
-        offset, reference = context["offsets"][head], context["offsets"][context["probe"]]
-        restore_offset = context.get("restore_offset", tuple(a-b for a,b in zip(offset, reference)))
-        run("SET_GCODE_OFFSET X=%.5f Y=%.5f Z=%.5f MOVE=0" % tuple(restore_offset))
+        # Restore head-relative coordinates without travel after arriving.
+        run(restore)
+        self.material._filament_checkpoint(phase_name)
 
 
     def _filament_plan(self, head, action, now, ace_status_cache=None):

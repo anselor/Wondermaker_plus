@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 from types import SimpleNamespace as NS
 import pytest
-from test_calibration_commands import Command, AttemptCommand, Printer, module
+from test_calibration_commands import Command, AttemptCommand, Printer, module, isolate_checkpoint_io
 
 
 def parser(values):
@@ -46,11 +46,13 @@ def machine(tmp_path):
             p.request_restart('firmware_restart')
     p.on_run = save
     runner = module.CalibrationCommands(p, p)
+    isolate_checkpoint_io(runner)
     return p, runner, path, expected
 
 
 def restore(p):
     runner = module.CalibrationCommands(p, p)
+    isolate_checkpoint_io(runner)
     runner._restore_save_result()
     return runner
 

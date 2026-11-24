@@ -244,13 +244,15 @@ private:
    operation.value("head","")==review_.physical_head()&&operation.value("state","")=="unknown";
  }
  bool can_cancel()const{
-  const auto operation=latest_.value("filament_operation",Json::object());
+  const bool tool=tool_recovery();
+  const auto operation=latest_.value(tool?"toolhead_operation":"filament_operation",Json::object());
   const auto owner=latest_.value("owner","");
-  const bool supported=owner=="standalone"||(owner=="openace"&&operation.value("openace_cancel_supported",false)&&!operation_session(latest_).empty());
-  return submitted_&&!tool_recovery()&&cancel&&result_.value("state","")=="pending"&&!request_id_.empty()&&
-   latest_.value("fresh",false)&&supported&&latest_.value("filament_cancel_protocol",0)==1&&
+  const bool supported=owner=="standalone"||(!tool&&owner=="openace"&&operation.value("openace_cancel_supported",false)&&!operation_session(latest_).empty());
+  return submitted_&&cancel&&result_.value("state","")=="pending"&&!request_id_.empty()&&
+   latest_.value("fresh",false)&&supported&&latest_.value(tool?"toolhead_cancel_protocol":"filament_cancel_protocol",0)==1&&
    operation.value("session","")==operation_session(latest_)&&operation.value("id","")==request_id_&&
-   operation.value("head","")==review_.physical_head()&&operation.value("state","")=="running"&&!operation.value("cancel_requested",false);
+   operation.value("head","")==review_.physical_head()&&(!tool||operation.value("action","")==review_.action())&&
+   operation.value("state","")=="running"&&!operation.value("cancel_requested",false);
  }
  static std::string source_label(const Json&data,const Json&source){
   std::string title=source.value("name",source.value("id",""));

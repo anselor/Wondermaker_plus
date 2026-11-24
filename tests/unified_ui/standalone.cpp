@@ -716,6 +716,38 @@ int main(){
   stopping.observe(current);assert(current["receipts"][ticket.id]["state"]=="failed");assert(!stopping.cancel_filament(ticket.id));
  }
 
+ // Tool Cancel reuses the procedure transport, with an immutable action binding.
+ for(const auto*action:{"take","dock"})for(bool lost_reply:{false,true}){
+  struct ToolCancelHttp:wmp_openace::HttpPort{
+   unsigned commands=0,cancels=0;Json body;bool lost=false;
+   std::string get(const std::string&)override{return "{}";}
+   std::string post(const std::string&path,const std::string&raw)override{
+    body=Json::parse(raw);
+    if(path=="/printer/gcode/script"){++commands;if(lost)throw std::runtime_error("lost mount reply");return "{\"result\":\"ok\"}";}
+    assert(path=="/printer/wmp/toolhead/cancel");++cancels;
+    return Json{{"result",{{"id",body.at("id")},{"session",body.at("session")},{"state","requested"}}}}.dump();
+   }
+  } wire;wire.lost=lost_reply;
+  Json data={{"owner","standalone"},{"fresh",true},{"session","tool-cancel"},{"revision","rev"},
+   {"job",{{"state","idle"}}},{"capabilities",{{"toolhead_action",true}}},
+   {"attachment",{{"state","attached"},{"head","h1"}}}};
+  const bool take=std::string(action)=="take";
+  const std::string head=take?"h2":"h1";
+  StandaloneBackend backend;backend.observe(data);
+  auto receipt=backend.submit({action,"rev","standalone",{{"head",head},{"attached","h1"}}});
+  assert(receipt.state=="pending");backend.deliver(wire);assert(wire.commands==1);
+  data["toolhead_operation"]={{"id",receipt.id},{"session","tool-cancel"},{"head",head},{"action",action},{"state","running"}};
+  backend.observe(data);assert(!backend.cancel_operation(receipt.id));
+  data["toolhead_cancel_protocol"]=1;backend.observe(data);
+  auto bad=data;bad["toolhead_operation"]["action"]="other";backend.observe(bad);assert(!backend.cancel_operation(receipt.id));
+  bad=data;bad["fresh"]=false;backend.observe(bad);assert(!backend.cancel_operation(receipt.id));
+  backend.observe(data);assert(!backend.cancel_operation("old"));assert(backend.cancel_operation(receipt.id));
+  backend.deliver(wire);assert(wire.cancels==1&&wire.commands==1&&wire.body.at("action")==action);
+  assert(!backend.cancel_operation(receipt.id));
+  data["toolhead_operation"]["state"]="unknown";data["toolhead_operation"]["cancelled"]=true;
+  backend.observe(data);assert(data["receipts"][receipt.id]["state"]=="unknown");
+ }
+
  // Recovery retains the interrupted operation receipt and never replays load.
  {
   struct RecoveryHttp:wmp_openace::HttpPort{

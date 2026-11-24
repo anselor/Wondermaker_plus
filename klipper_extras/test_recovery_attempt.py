@@ -173,3 +173,85 @@ def test_restart_retains_interrupted_worker_phase_as_unknown(phase):
         restored.run(REQUEST, [('start_file', lambda: calls.append('stale'), lambda: True)])
     result = restored.run(dict(REQUEST, id='new-request'), [('start_file', lambda: calls.append('fresh'), lambda: True)])
     assert result['state'] == 'complete' and calls == ['fresh']
+
+
+@pytest.mark.parametrize('when', ['dispatch', 'verify', 'persist'])
+def test_replaced_attempt_record_is_never_modified_or_persisted_by_old_run(when):
+    writes, calls, replacement = [], [], []
+    runner = None
+    def replace():
+        value = copy.deepcopy(runner.record)
+        value['request']['id'] = 'replacement'
+        replacement.append((value, copy.deepcopy(value)))
+        runner.record = value
+    def persist(value):
+        writes.append(copy.deepcopy(value))
+        if when == 'persist' and value['state'] == 'running' and not replacement: replace()
+    runner = RecoveryAttempt(persist)
+    def dispatch():
+        calls.append('dispatch')
+        if when == 'dispatch': replace()
+    def verify():
+        calls.append('verify')
+        if when == 'verify': replace()
+        return True
+    with pytest.raises(ValueError, match='ownership changed'):
+        runner.run(REQUEST, [('first', dispatch, verify), ('second', lambda: calls.append('tail'), lambda: True)])
+    value, before = replacement[0]
+    assert runner.record is value and value == before and runner.busy is True
+    assert 'tail' not in calls
+    assert all(row['request']['id'] != 'replacement' for row in writes)
+
+
+def test_old_attempt_exception_does_not_rewrite_a_replacement_receipt():
+    writes = []
+    runner = RecoveryAttempt(lambda value: writes.append(copy.deepcopy(value)))
+    replacement = []
+    def dispatch():
+        value = copy.deepcopy(runner.record);value['request']['id'] = 'replacement'
+        runner.record = value;replacement.append(copy.deepcopy(value))
+        raise RuntimeError('original stage failed')
+    with pytest.raises(RuntimeError, match='original stage failed'):
+        runner.run(REQUEST, [('first', dispatch, lambda: True)])
+    assert runner.record == replacement[0] and runner.busy is True
+    assert all(row['request']['id'] != 'replacement' for row in writes)
+
+
+@pytest.mark.parametrize('lost', ['false', 'error'])
+def test_attempt_owner_loss_stops_without_old_journal_cleanup(lost):
+    journal, calls, ownership = [], [], [True]
+    runner = RecoveryAttempt(lambda value: journal.append(copy.deepcopy(value)))
+    def owner():
+        if ownership[0] is False and lost == 'error': raise ValueError('owner evidence unavailable')
+        return ownership[0]
+    def dispatch():
+        calls.append('first');ownership[0] = False
+    with pytest.raises(ValueError, match='ownership changed'):
+        runner.run(REQUEST, [('first', dispatch, lambda: calls.append('verify') or True),
+                             ('tail', lambda: calls.append('tail'), lambda: True)], owner=owner)
+    assert calls == ['first'] and not runner.busy
+    assert runner.record['state'] == journal[-1]['state'] == 'running'
+    assert runner.record['error'] == ''
+
+
+def test_attempt_record_is_bound_before_initial_persistence():
+    bound = []
+    runner = None
+    def persist(record):
+        assert bound == [runner.record] and bound[0]['request'] == REQUEST
+    runner = RecoveryAttempt(persist)
+    result = runner.run(REQUEST, [('first', lambda: None, lambda: True)], started=bound.append)
+    assert result['state'] == 'complete'
+
+
+def test_owner_callback_cannot_replace_receipt_while_returning_true():
+    runner = RecoveryAttempt(lambda value: None)
+    replace, replacement = [False], []
+    def owner():
+        if replace[0] and not replacement:
+            record = copy.deepcopy(runner.record);record['request']['id'] = 'replacement'
+            runner.record = record;replacement.append(copy.deepcopy(record))
+        return True
+    with pytest.raises(ValueError, match='ownership changed'):
+        runner.run(REQUEST, [('first', lambda: replace.__setitem__(0, True), lambda: True)], owner=owner)
+    assert runner.record == replacement[0] and runner.busy is True

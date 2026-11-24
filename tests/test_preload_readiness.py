@@ -201,3 +201,28 @@ def test_absent_service_cannot_invent_a_stopped_baseline(monkeypatch):
     invoke, _, _ = restart(monkeypatch, [OSError('HTTP unavailable'), READY],
         backend_service={'LoadState':'not-found','ActiveState':'inactive','MainPID':'0'})
     with pytest.raises(deploy.DeployError, match='did not reach verified'): invoke()
+
+
+def test_marker_upgrade_runs_with_screen_stopped_before_backend_restart(monkeypatch):
+    run, _, calls = restart(monkeypatch, [READY, dict(READY, process_id=101)])
+    monkeypatch.setattr(preload, '_printer_home', lambda ctx: '/home/printer')
+    def helper(ctx, client, body, sudo=False):
+        assert sudo
+        assert 'repair_recovery_marker_access' in body
+        assert calls == ['systemctl daemon-reload && systemctl stop '+preload.SERVICE]
+        return '[]'
+    monkeypatch.setattr(preload, '_helper', helper)
+    run(repair_markers=True)
+    assert calls[1:] == ['systemctl restart klipper.service',
+                         'systemctl start '+preload.SERVICE]
+
+
+def test_marker_upgrade_failure_does_not_start_backend_or_screen(monkeypatch):
+    run, _, calls = restart(monkeypatch, [READY])
+    monkeypatch.setattr(preload, '_printer_home', lambda ctx: '/home/printer')
+    def helper(*args, **kwargs):
+        raise deploy.DeployError('unsafe recovery marker')
+    monkeypatch.setattr(preload, '_helper', helper)
+    with pytest.raises(deploy.DeployError, match='unsafe recovery marker'):
+        run(repair_markers=True)
+    assert calls == ['systemctl daemon-reload && systemctl stop '+preload.SERVICE]

@@ -119,7 +119,7 @@ def rig(monkeypatch):
     probe.gcode = NS(respond_info=lambda text: calls.append(('report', text)))
     objects['tools_calibrate'] = NS(probe_multi_axis=probe)
     return NS(probe=probe, printer=printer, calls=calls, position=position,
-              script=script, gcmd=Gcmd(calls), module=module)
+              script=script, gcmd=Gcmd(calls), module=module, objects=objects)
 
 
 def run(r, direction='x+', samples=None):
@@ -237,3 +237,16 @@ def test_config_section_installs_on_connect(rig, monkeypatch):
     assert installed == []
     handlers['klippy:connect']()
     assert installed == [printer]
+
+
+def test_cancel_between_touches_ends_probe_session_after_retract(rig):
+    rig.script[:]=[15.,16.,17.]
+    def check(label):
+        if any(row[0]=='touch' for row in rig.calls):
+            raise CommandError('Calibration cancellation requested')
+    rig.objects['wmp_recovery']=NS(calibration=NS(check_cancel=check))
+    with pytest.raises(CommandError,match='cancellation requested'):run(rig)
+    assert len([row for row in rig.calls if row[0]=='touch'])==1
+    assert rig.calls.count(('begin',))==1 and rig.calls.count(('end',))==1
+    assert rig.position[0]==14.25
+    assert rig.calls[-2:]==[('wait',),('end',)]

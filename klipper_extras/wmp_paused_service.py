@@ -233,7 +233,8 @@ class PausedService:
         try:
             if self.material._toolchange_pause_status():
                 self._resume_progress["phase"] = "toolchange"
-            return execute()
+                return execute()
+            return self.material._stop_points().run_resume_waits(execute)
         finally:
             # Includes refusal, cancellation, shutdown and nested M24 exits.
             self._resume_progress = {}

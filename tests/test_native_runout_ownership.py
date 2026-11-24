@@ -53,7 +53,7 @@ def test_recovery_entries_share_verified_native_installation():
     handlers = re.findall(r'&([a-z_]+)\)', replacements)
     assert len(addresses) == len(handlers)
     bindings = dict(zip(addresses, handlers))
-    for name, address in [('resume_prepare', '0x51a7b4'), ('runout_purge', '0x5328b4'), ('resume_check', '0x61b2c4'), ('draw_pop', '0x5352e0'), ('popup_build', '0x532da8'), ('popup_event', '0x5303e4')]:
+    for name, address in [('resume_prepare', '0x51a7b4'), ('runout_purge', '0x5328b4'), ('resume_check', '0x61b2c4'), ('draw_pop', '0x5352e0'), ('popup_build', '0x532da8'), ('popup_event', '0x5303e4'), ('warning_callback', '0x54c93c')]:
         assert rows[name]['address'] == address
         assert bindings[address] == 'unified_' + name
     # Backend-owned runout suppresses the duplicate factory pause; other

@@ -21,7 +21,10 @@ class Mutex:
     def test(self): return self.held
 
 @pytest.fixture
-def job(tmp_path):
+def job(tmp_path, monkeypatch):
+    from wmp_stop_points import StopPoints
+    actor = object()
+    monkeypatch.setattr(StopPoints, "_current_actor", staticmethod(lambda: actor))
     gc = load('pause_retained_gcode', 'gcode.py')
     sdmod = load('pause_retained_sd', 'extras/virtual_sdcard.py')
     events, callbacks, objects = [], [], {}
@@ -39,6 +42,7 @@ def job(tmp_path):
     gcode.respond_raw = lambda message: None
     material = WMMaterial.__new__(WMMaterial)
     material.printer, material.session_id = printer, 'session'
+    objects['wm_material'] = material
     material._command_generation = 0
     material._cancellation()._print_cancel_active = lambda: False
     material._execution_evidence()._execution_command_completed = lambda boundary: events.append(('completed', boundary[2]))
@@ -61,6 +65,7 @@ def job(tmp_path):
     stats.note_cancel = lambda: setattr(stats, 'state', 'cancelled')
     path = tmp_path / 'body.gcode'
     path.write_text('T3\nG1 X130 E1\n')
+    stats.filename = path.name
     sd = sdmod.VirtualSD.__new__(sdmod.VirtualSD)
     objects['virtual_sdcard'] = sd
     sd.printer, sd.gcode, sd.reactor, sd.print_stats = printer, gcode, reactor, stats
@@ -179,6 +184,7 @@ def test_new_file_does_not_inherit_historical_fault(job, tmp_path):
     new = tmp_path / 'new.gcode'
     new.write_text('G1 E2\n')
     job.sd.current_file = new.open()
+    job.stats.filename = new.name
     assert job.material._toolchange_pause_status() == {}
     job.gcode.run_script('M24')
     assert job.sd.is_active()

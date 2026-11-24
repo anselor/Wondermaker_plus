@@ -192,10 +192,13 @@ Run configuration validation and the local test suite:
 
 ```bash
 uv run --with jinja2 python tools/validate_klipper_config.py
-uv run --with pytest --with jinja2 --with unicorn --with capstone --with tornado==6.3.3 python -m pytest -q tests klipper_extras
+uv run --with pytest --with jinja2 --with unicorn --with capstone --with pyelftools --with tornado==6.3.3 python -m pytest -q -rs tests klipper_extras
 ```
 
 Some tests need local vendor extracts or optional packages and skip without them.
+Review the reported skip reasons; a passing run with missing inputs does not
+qualify those checks. The ELF parser above enables the retained native route,
+restart and touch-frame checks in addition to the emulation and font checks.
 Static checks do not establish physical motion safety; see the
 [validation scope](config/README.md#configuration-validation).
 

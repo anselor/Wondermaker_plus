@@ -60,7 +60,8 @@
       "_WMP_SCRUB_ATTENTION",
       "_WMP_OFFSETS_RESTORE",
       "WMP_RECOVERY_CONTINUE",
-      "WMP_RECOVERY_RESOLVE"
+      "WMP_RECOVERY_RESOLVE",
+      "_WMP_OPERATION_STOP_POINT"
     ]
   },
   "optional": {
@@ -71,7 +72,10 @@
       "recovery_ticket_protocol": 1,
       "filament_recipe_write_protocol": 1
     },
-    "wmp_recovery": {}
+    "wmp_recovery": {
+      "calibration_cancel_protocol": 2,
+      "calibration_checkpoint_protocol": 1
+    }
   },
   "backend_owned_protocols": [
     "script_generation_protocol",

@@ -17,6 +17,72 @@ except ImportError:
 class RecoveryLifecycle:
     def __init__(self, material):
         self.material = material
+        self._execution_scope = None
+
+    @staticmethod
+    def _current_actor():
+        from greenlet import getcurrent
+        return getcurrent()
+
+    def _scope_owned(self, scope):
+        record = scope['record']
+        pending = getattr(self.material, '_recovery_pending_worker', None)
+        return (self._execution_scope is scope
+                and getattr(self.material, '_plr_lifecycle_component', None) is self
+                and self.material.session_id == scope['request']['session']
+                and getattr(self.material, '_command_generation', 0) == scope['generation']
+                and self._recovery_attempt is scope['runner']
+                and (record is None or scope['runner'].record is record
+                     and record.get('request') == scope['request'])
+                and (pending is None or pending.get('session') == scope['request']['session']
+                     and pending.get('request') == scope['request'])
+                and getattr(self.material, '_plr_review_component', None) is scope['review_owner']
+                and getattr(scope['review_owner'], '_recovery_submission', None) is scope['submission']
+                and getattr(scope['review_owner'], '_recovery_stop_request', None) in (None, scope['request'])
+                and all(self.material.printer.lookup_object(name, None) is owner
+                        for name, owner in scope['owners']))
+
+    def _require_scope(self, scope):
+        if not self._scope_owned(scope):
+            raise ValueError('Recovery preparation ownership changed')
+
+    def run_boundary_stage(self, guard, execute):
+        scope = self._execution_scope
+        if scope is None:
+            return execute()  # Private stage-only validation keeps its semantics.
+        if scope['actor'] is not self._current_actor():
+            raise ValueError('Recovery stage command owner changed')
+        self._require_scope(scope)
+        previous, scope['guard'] = scope['guard'], guard
+        try:
+            return execute()
+        finally:
+            if self._execution_scope is scope and scope['guard'] is guard:
+                scope['guard'] = previous
+
+    def check_operation_boundary(self, label):
+        scope = self._execution_scope
+        if scope is None or scope['actor'] is not self._current_actor():
+            return
+        self._require_scope(scope)
+        if scope['cleanup']:
+            return
+        printer = self.material.printer
+        now = printer.get_reactor().monotonic()
+        saved = printer.lookup_object('save_variables').get_status(now)['variables']
+        if (printer.is_shutdown() or getattr(printer, 'quick_stop_flag', False)
+                or printer.lookup_object('webhooks').get_status(now).get('state') != 'ready'
+                or any(type(saved.get(key)) is not int or saved[key] != 0
+                       for key in ('fail_flag', 'is_nozzle_setting'))):
+            raise ValueError('Recovery interrupted by a printer fault')
+        stopping = scope['cancelled']()
+        self._require_scope(scope)
+        if stopping:
+            if scope['guard'] is not None:
+                scope['guard']()  # Full stage/frame evidence before acknowledging Stop.
+            self._require_scope(scope)
+            scope['cancel_phase'] = label[:160]
+            raise ValueError('Recovery preparation stopped ' + label[:160])
 
     def _recovery_attempt_path(self):
         return os.path.join(os.path.dirname(self.material.profile_path), "wmp_recovery_attempt.json")
@@ -330,7 +396,7 @@ class RecoveryLifecycle:
             runner.busy = False
 
 
-    def _stop_recovery_heaters(self, review):
+    def _stop_recovery_heaters(self, review, owner=None):
         """Best-effort heater-only cleanup; never moves or resolves the attempt."""
         names = sorted(review["execution"]["heater_targets"])
         allowed = {"extruder", "extruder1", "extruder2", "extruder3", "heater_bed"}
@@ -341,12 +407,17 @@ class RecoveryLifecycle:
         errors = []
         for name in names:
             try:
-                if (self.material.session_id != review["machine"]["session"] or not gcode.get_mutex().test()
+                if (owner is not None and owner() is not True
+                        or self.material.session_id != review["machine"]["session"] or not gcode.get_mutex().test()
                         or self.material.printer.is_shutdown() or self.material.printer.lookup_object("openace", None) is not None
                         or self.material.printer.lookup_object("AFC", None) is not None):
                     raise ValueError("Recovery cleanup command ownership is unavailable")
                 gcode.run_script_from_command("SET_HEATER_TEMPERATURE HEATER=%s TARGET=0" % name)
+                if owner is not None and owner() is not True:
+                    raise ValueError("Recovery cleanup owner changed after heater command")
                 target = self.material.printer.lookup_object(name).get_status(self.material.printer.get_reactor().monotonic()).get("target")
+                if owner is not None and owner() is not True:
+                    raise ValueError("Recovery cleanup owner changed during readback")
                 if type(target) not in (int, float) or target != 0:
                     raise ValueError("Heater-off target was not confirmed")
                 result["heaters"][name] = True
@@ -355,11 +426,33 @@ class RecoveryLifecycle:
                 errors.append(name + ": " + str(error))
         if errors:
             result.update(state="unknown", error="; ".join(errors))
-        self._recovery_temperatures = {}
+        if owner is None or owner() is True:
+            self._recovery_temperatures = {}
         return result
 
 
     def _run_recovery_stages(self, request, review, stages, cancelled=lambda: False):
+        if self._execution_scope is not None:
+            raise ValueError('Recovery preparation is already executing')
+        printer = self.material.printer
+        if printer.lookup_object('wm_material', None) is not self.material:
+            raise ValueError('Recovery material owner changed')
+        scope = {'actor': self._current_actor(), 'request': copy.deepcopy(request),
+                 'runner': self._recovery_attempt, 'record': None,
+                 'generation': getattr(self.material, '_command_generation', 0),
+                 'review_owner': getattr(self.material, '_plr_review_component', None),
+                 'submission': getattr(getattr(self.material, '_plr_review_component', None), '_recovery_submission', None),
+                 'owners': tuple((name, printer.lookup_object(name, None)) for name in
+                                 ('wm_material', 'gcode', 'virtual_sdcard', 'wmp_recovery', 'openace', 'AFC')),
+                 'guard': None, 'cancelled': cancelled, 'cancel_phase': '', 'cleanup': False}
+        self._execution_scope = scope
+        try:
+            return self._run_owned_stages(request, review, stages, cancelled, scope)
+        finally:
+            if self._execution_scope is scope:
+                self._execution_scope = None
+
+    def _run_owned_stages(self, request, review, stages, cancelled, scope):
         """Run an admitted chain under the caller's command mutex, with cleanup."""
         review = copy.deepcopy(review)
         RecoveryAttempt._validate_request(request)
@@ -369,7 +462,16 @@ class RecoveryLifecycle:
             raise ValueError("Recovery request differs from its admitted evidence")
         runner = self._recovery_attempt
         previous = runner.record
+        def owned():
+            return self._scope_owned(scope)
+        def started(record):
+            self._require_scope(scope)
+            if record is not runner.record or record['request'] != scope['request']:
+                raise ValueError('Recovery attempt request changed before dispatch')
+            scope['record'] = record
         def cleanup():
+            self._require_scope(scope)
+            scope['cleanup'] = True
             if runner.record is previous or runner.record is None or runner.record["state"] == "complete":
                 return
             if runner.record.get("continuation", {}).get("state") == "scheduled":
@@ -377,9 +479,12 @@ class RecoveryLifecycle:
                 runner.record["state"] = "unknown"
             disarm_error = ""
             try:
+                self._require_scope(scope)
                 self.material._recovery_disarm_worker()
+                self._require_scope(scope)
             except Exception as error:
                 disarm_error = str(error)
+            self._require_scope(scope)
             accounting_error = ""
             if any(stage["name"] == "accounting" and stage["state"] != "pending"
                    for stage in runner.record["stages"]):
@@ -397,34 +502,58 @@ class RecoveryLifecycle:
                             or sd.file_position != execution["file_position"]
                             or self.material._recovery_active_file(sd, identity) != self.material._print_file(sd, identity)):
                         raise ValueError("Recovery accounting cleanup lost ownership")
+                    self._require_scope(scope)
                     if stats.state == "printing":
                         stats.note_cancel()
+                    self._require_scope(scope)
                     if stats.state not in ("standby", "cancelled"):
                         raise ValueError("Recovery accounting stop was not confirmed")
                 except Exception as error:
                     accounting_error = str(error)
+            self._require_scope(scope)
             touched = any(stage["name"] == "heater_targets" and stage["state"] != "pending"
                           for stage in runner.record["stages"])
-            result = self._stop_recovery_heaters(review) if touched else {"state": "complete", "heaters": {}, "error": ""}
-            if disarm_error or accounting_error:
+            result = self._stop_recovery_heaters(review, owner=owned) if touched else {"state": "complete", "heaters": {}, "error": ""}
+            self._require_scope(scope)
+            transient_error = ""
+            if scope['cancel_phase']:
+                try:
+                    try:
+                        from .wmp_stop_points import finish_cancelled_toolchange
+                    except ImportError:
+                        from wmp_stop_points import finish_cancelled_toolchange
+                    transient = finish_cancelled_toolchange(self.material.printer, owned)
+                    if transient != 'not_needed':
+                        result['toolchange'] = transient
+                except Exception as error:
+                    result['toolchange'] = 'unconfirmed'
+                    transient_error = str(error)
+            self._require_scope(scope)
+            if disarm_error or accounting_error or transient_error:
                 result.update(state="unknown", error="; ".join(filter(None,
-                    (result.get("error", ""), disarm_error, accounting_error))))
+                    (result.get("error", ""), disarm_error, accounting_error, transient_error))))
             if result["state"] != "complete":
                 runner.record["state"] = "unknown"
             try:
                 runner._save(cleanup=result)
+                self._require_scope(scope)
             except Exception:
-                runner.record["state"] = "unknown"
+                if owned():
+                    runner.record["state"] = "unknown"
                 raise
         try:
-            runner.run(request, stages, cancelled)
+            runner.run(request, stages, cancelled, owner=owned, started=started)
+            self._require_scope(scope)
             if runner.record["state"] == "complete":
                 try:
                     if getattr(self.material, "_recovery_pending_worker", None) is not None and cancelled():
                         raise ValueError("Recovery stopped before worker activation")
+                    self._require_scope(scope)
                     self.material._recovery_activate_worker(request)
+                    self._require_scope(scope)
                 except Exception as error:
-                    runner.record.update(state="unknown", error=str(error))
+                    if owned():
+                        runner.record.update(state="unknown", error=str(error))
                     raise
         except Exception:
             try:
@@ -432,6 +561,7 @@ class RecoveryLifecycle:
             except Exception:
                 pass  # Preserve the original failure; retained outcome is unknown.
             raise
+        self._require_scope(scope)
         if runner.record["state"] != "complete":
             cleanup()
         return copy.deepcopy(runner.record)

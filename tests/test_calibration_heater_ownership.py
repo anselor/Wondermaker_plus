@@ -1,6 +1,6 @@
 """Observational ownership: cleanup must not turn off another actor's heater."""
 import pytest
-from test_calibration_commands import module, Printer, Command, AttemptCommand
+from test_calibration_commands import module, Printer, Command, AttemptCommand, isolate_checkpoint_io
 
 
 @pytest.fixture
@@ -9,6 +9,7 @@ def tracked():
     actor = ['calibration']
     tracker = module.CalibrationHeaterOwnership(p.objects['heaters'].heaters, lambda: actor[0])
     runner = module.CalibrationCommands(p, p)
+    isolate_checkpoint_io(runner)
     runner._heater_ownership = tracker
     return p, runner, tracker, actor
 
@@ -89,6 +90,7 @@ def test_nested_context_keeps_latest_owner_and_original_return_errors(tracked):
 def test_missing_tracker_logs_limitation_without_global_heater_off(caplog):
     p = Printer()
     runner = module.CalibrationCommands(p, p)
+    isolate_checkpoint_io(runner)
     heater = p.objects['heaters'].heaters['extruder']
     heater.set_temp(180)
     p.on_run = lambda command: (_ for _ in ()).throw(RuntimeError('motion failed'))

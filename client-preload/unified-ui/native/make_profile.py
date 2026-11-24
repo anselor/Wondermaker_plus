@@ -22,7 +22,7 @@ lv_obj_set_style_outline_width lv_obj_set_style_opa lv_obj_update_layout
 '''.split()
 # Vendor data read or written by the preload, by ELF symbol. Data has no code
 # window; the addresses hold for the client whose SHA-256 is checked above.
-DATA={'is_rapid_mode':0x384c570,'auto_check_selected':0x385fa88,'current_thr_number':0x385c260,'knife_pairing_failed':0xe64572d}
+DATA={'is_rapid_mode':0x384c570,'auto_check_selected':0x385fa88,'current_thr_number':0x385c260,'knife_pairing_failed':0xe64572d,'calibration_selected':0x386c1c0,'auto_checking_status':0x385fc18}
 # Return addresses of offset-stage command sends, by their profiled call site.
 SENDER_RETURNS={'offset_home':'calibration_sender_10','offset_rapid':'calibration_sender_13','offset_park':'calibration_sender_14'}
 def main():
@@ -36,6 +36,7 @@ def main():
  for name,address in DATA.items():
   if located.get(name)!=address:raise SystemExit('Data symbol moved: '+name)
  if set(NAMES)!=set(symbols):raise SystemExit('Missing symbols: '+str(set(NAMES)-set(symbols)))
+ symbols.update({"warning_callback":0x54c93c})
  symbols.update({"popup_build":0x532da8,"popup_event":0x5303e4,"resume_prepare":0x51a7b4,"runout_purge":0x5328b4,"resume_check":0x61b2c4,"filament_pause":0x61ab5c,"draw_pop":0x5352e0})
  symbols.update({"setup_calibration":0x4b6470,"command_sender":0x614338,"pid_tool_sender_call":0x4b7cb4,"maintenance_event":0x4b4768,"nozzle_flow_event":0x529218,"setup_about":0x4b0510,"filament_guide_event":0x50c9bc,"setup_filament_guide":0x50d044,"guide_load_worker":0x50e83c,"guide_retry_worker":0x50ecf0,"text_key_user_data":0x54d890,"draw_text_keyboard":0x54ec48,"create_text_keys":0x54e654,"text_key_event":0x54db20,"schedule_preview_metadata":0x539474,"loading_popup":0x535958,"preview_metadata":0x538c7c,"preview_event":0x536958,"preview_refresh_event":0x5376d0,"draw_colour_picker":0x4f82a8,"draw_number_keyboard":0x52e418,"number_key_event":0x52da0c,"number_text_event":0x52db58,"main_event":0x519a34,"page_to":0x553b6c,"draw_preview":0x537710,"setup_filament":0x4f6dec,"filament_event":0x4f667c,"material_pick":0x4f86b8,"colour_pick":0x4f8020})
  symbols.update({"calibration_sender_0":0x4b7824,"calibration_sender_1":0x4b7a18,"calibration_sender_2":0x4b7a68,"calibration_sender_3":0x4b7bc8,"calibration_sender_4":0x4b7c04,"calibration_sender_5":0x4b7c40,"calibration_sender_6":0x4b7cb4,"calibration_sender_7":0x4b7cf0,"calibration_sender_8":0x4b7d8c,"calibration_sender_9":0x4b7df4,"calibration_sender_10":0x4b7fb8,"calibration_sender_11":0x4b80b4,"calibration_sender_12":0x4b82e0,"calibration_sender_13":0x4b8428,"calibration_sender_14":0x4b8478,"calibration_sender_15":0x4b8698})
@@ -48,7 +49,7 @@ def main():
  symbols.update({"evdev_frame_dispatch":0x73ca58,"evdev_frame_finish":0x73cdac,
                  "indev_read_zero":0x6c4398,"indev_continue_capture":0x698f90,
                  "indev_continue_loop":0x699124})
- symbols.update({'maintenance_calibration_worker':0x4b7558})
+ symbols.update({'maintenance_calibration_worker':0x4b7558,'guide_calibration_event':0x50b7f8,'home_event':0x526770})
  symbols.update({'main_refresh':0x51ebf8,'main_update_common':0x51dc9c,
                  'main_update_printing':0x51e174,'main_update_tips':0x51e898,
                  'stock_is_printing':0x519600,'main_show_printing':0x51ee18,

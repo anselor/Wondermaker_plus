@@ -287,19 +287,25 @@ class CommandRouting:
         self._check_command_generation(gcmd)
 
 
-    def _check_command_generation(self, gcmd, allow_cancel_hold=False, finish_coupling=False):
+    def _check_command_generation(self, gcmd, allow_cancel_hold=False, finish_coupling=False, coupling_region=False, coupling_owner=None):
         # Prefix to the same run_script RPC as the command. Vendor dispatch
         # aborts the remaining script on command error, while holding its mutex.
         generation = gcmd.get_int("GENERATION", minval=0, maxval=9223372036854775807)
         cancellation = self.material._cancellation()
         active = self.material._print_cancel_active()
+        service = getattr(self.material, '_toolhead_service', None)
+        if coupling_owner is not None and service is not coupling_owner:
+            raise gcmd.error('Coupling command owner changed')
+        regions = getattr(service, '_coupling_regions', None)
+        protected = coupling_region and regions is not None and regions.allows(gcmd)
         finishing = (finish_coupling and active
+            and (regions is None or regions.scope is None)
             and getattr(cancellation, "_coupling_finish_generation", None) == generation
             and getattr(self, "_command_generation", 0) == generation + 1
             and getattr(cancellation, "_print_cancel", {}).get("phase") == "stopping")
         if (gcmd.get("SESSION") != self.material.session_id
-                or (generation != getattr(self, "_command_generation", 0) and not finishing)
-                or (not allow_cancel_hold and active and not finishing)):
+                or (generation != getattr(self, "_command_generation", 0) and not finishing and not protected)
+                or (not allow_cancel_hold and active and not finishing and not protected)):
             if (gcmd.get("SESSION") == self.material.session_id and active
                     and getattr(cancellation, "_coupling_finish_generation", None) == generation
                     and getattr(self, "_command_generation", 0) == generation + 1

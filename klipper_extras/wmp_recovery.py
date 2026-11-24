@@ -44,6 +44,9 @@ class BottomZ:
         self.active = False
         self.calibration = CalibrationCommands(self.printer, self.gcode, config)
         self.identification = None
+        webhooks = self.printer.lookup_object('webhooks', None)
+        if webhooks is not None:
+            webhooks.register_endpoint('wmp/identification/cancel', self.handle_identification_cancel)
         self.gcode.register_command('_WMP_IDENTIFY_HEADS', self.cmd_identify,
                                     desc='Identify physical heads and atomically save the complete mapping')
         self.printer.register_event_handler('klippy:connect', self._connect)
@@ -107,6 +110,10 @@ class BottomZ:
                 'calibration_save_result': dict(self.calibration.save_result),
                 'calibration_attempt_protocol': 1,
                 'calibration_ticket_protocol': 1,
+                'calibration_cancel_protocol': 2,
+                'homing_operation_protocol': 1,
+                'homing_raw_protocol': int(self.calibration.raw_homing.installed),
+                'calibration_checkpoint_protocol': 1,
                 'calibration_next_ticket': str(self.calibration._ticket_counter + 1),
                 'calibration_attempt': self.calibration.attempt_status(),
                 'nozzle_scrub': self.calibration.nozzle_scrub.get_status(),
@@ -114,6 +121,11 @@ class BottomZ:
                 'nozzle_touch': self.calibration.nozzle_touch.get_status(),
                 'identification': self.identification.get_status() if self.identification else
                     {'protocol': 2, 'state': 'idle', 'steps': [], 'failure': '', 'restart_required': False}}
+
+    def handle_identification_cancel(self, request):
+        if self.identification is None:
+            raise request.error('Head identification is not available')
+        self.identification.handle_cancel(request)
 
     def cmd_identify(self, gcmd):
         if self.identification is None:

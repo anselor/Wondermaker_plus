@@ -243,7 +243,7 @@ def test_completed_later_probe_invalidates_old_accepted_receipt(manual, receipt)
 
 
 @pytest.fixture
-def editor(manual, preparation, tmp_path):
+def editor(manual, preparation, tmp_path, monkeypatch):
     _, gcode, prepare, _ = preparation
     spec = importlib.util.spec_from_file_location('editor_owner', ROOT / 'klipper_extras/wmp_recovery.py')
     module = importlib.util.module_from_spec(spec)
@@ -288,6 +288,8 @@ def editor(manual, preparation, tmp_path):
         else: pytest.fail('unexpected command ' + command)
     gcode.request_restart = lambda result: None
     gcode.run_script_from_command = run
+    actor = object()
+    monkeypatch.setattr(module.ProbeEditorCommands, '_current_actor', staticmethod(lambda: actor))
     value = module.ProbeEditorCommands(calibration)
     calibration.probe_editor = value
     def command(action, sequence, **overrides):
@@ -551,6 +553,7 @@ def test_stop_checkpoint_unwinds_retained_dispatcher_before_next_command(editor,
     dispatcher.gcode_handlers = {'_WMP_PROBE_PREPARE_CHECK': value.cmd_prepare_check,
                                 'G28': lambda command: commands.append('G28')}
     value.state, value.stop_requested = 'preparing', True
+    value._preparation_scope = value._capture_preparation_scope(NS(error=ValueError))
     dispatcher.gcode_handlers['NESTED'] = lambda command: dispatcher.run_script_from_command('_WMP_PROBE_PREPARE_CHECK\nG28')
     script = 'NESTED\nG28' if nested else '_WMP_PROBE_PREPARE_CHECK\nG28'
     levels = 2 if nested else 1
@@ -571,6 +574,7 @@ def test_stop_checkpoint_unwinds_retained_dispatcher_before_next_command(editor,
 def test_stop_checkpoint_preserves_machine_fault_instead_of_acknowledging_stop(editor):
     value, command, _, _ = editor
     value.state, value.stop_requested = 'preparing', True
+    value._preparation_scope = value._capture_preparation_scope(NS(error=ValueError))
     def fault(_): raise ValueError('tool attachment uncertain')
     value.calibration._check = fault
     with pytest.raises(ValueError, match='attachment uncertain'):
@@ -802,18 +806,20 @@ def test_later_fault_after_stop_checkpoint_is_not_masked(editor):
     assert 'cleanup failed' in value.error and 'drain' not in sent
 
 
-@pytest.mark.parametrize('fault', ['stop', 'same_text', 'other', 'session'])
+@pytest.mark.parametrize('fault', ['stop', 'same_text', 'other', 'session', 'owner'])
 def test_expected_stop_reporting_is_identity_bound_and_restored(editor, fault):
     value, command, _, _ = editor
     reports = []
     original = reports.append
     value.gcode._respond_error = original
     value.state, value.stop_requested = 'preparing', True
+    value._preparation_scope = value._capture_preparation_scope(NS(error=ValueError))
     def prepare():
         try:
             value.cmd_prepare_check(command('BEGIN', 0))
         except ValueError as stop:
             if fault == 'session': value.calibration.session = 'new'
+            if fault == 'owner': value.printer.lookup_object('wm_material')._command_generation = 1
             if fault in ('other', 'same_text'):
                 try:
                     raise ValueError(str(stop) if fault == 'same_text' else 'real hardware fault')
@@ -944,3 +950,174 @@ def test_probe_review_does_not_require_idle_machine(editor, monkeypatch):
     monkeypatch.setattr(value, '_read_save_review', lambda: (None, None, None, None, None, review))
     value._run_save_review(NS(error=ValueError), value.request, 'REVIEW', '')
     assert value.save_review_confirmable and not value.busy() and sent == []
+
+
+@pytest.mark.parametrize('after_helper', [False, True])
+def test_shared_boundary_observes_preparation_stop_and_preserves_helper_cleanup(editor, manual, after_helper):
+    from wmp_stop_points import check_operation_boundary
+    value, command, sent, _ = editor
+    original_run = value.gcode.run_script_from_command
+    original_lookup = value.printer.lookup_object
+    recovery = NS(calibration=value.calibration)
+    value.calibration.check_cancel = lambda label: None
+    value.printer.lookup_object = lambda name, default=None: recovery if name == 'wmp_recovery' else original_lookup(name, default)
+    def run(script):
+        if after_helper: original_run(script)
+        request, _ = stop_request(value)
+        value.handle_stop(request)
+        check_operation_boundary(value.printer, 'after Y homing')
+        pytest.fail('X homing would run after a pending preparation Stop')
+    value.gcode.run_script_from_command = run
+    value.cmd_run(command('BEGIN', 0))
+    assert value.state == 'aborted' and not value.busy()
+    assert sent[-1] == 'drain'
+    assert manual.finalized == ([None] if after_helper else [])
+    assert 'ACCEPT' not in value.gcode.ready_gcode_handlers
+
+
+def shared_probe_boundary(value):
+    from wmp_stop_points import check_operation_boundary
+    original = value.printer.lookup_object
+    recovery = NS(calibration=value.calibration)
+    value.calibration.check_cancel = lambda label: None
+    value.printer.lookup_object = lambda name, default=None: recovery if name == 'wmp_recovery' else original(name, default)
+    return lambda: check_operation_boundary(value.printer, 'after Y homing')
+
+
+def test_preparation_stop_is_not_consumed_by_foreign_greenlet(editor, monkeypatch):
+    value, command, sent, _ = editor
+    boundary = shared_probe_boundary(value)
+    actor = [object()]
+    monkeypatch.setattr(value, '_current_actor', lambda: actor[0])
+    def run(script):
+        owner = actor[0]
+        actor[0] = object()  # Out-of-band request is allowed on the reactor.
+        value.handle_stop(stop_request(value)[0])
+        boundary()  # An unrelated callback cannot unwind this preparation.
+        assert not value.stop_checkpoint_hit and sent == []
+        actor[0] = owner
+        boundary()
+        pytest.fail('owned preparation did not observe Stop')
+    value.gcode.run_script_from_command = run
+    value.cmd_run(command('BEGIN', 0))
+    assert value.state == 'aborted' and sent == ['drain']
+
+
+@pytest.mark.parametrize('change', ['generation', 'material_session', 'session', 'request', 'material', 'scope', 'receipt', 'manager'])
+def test_preparation_handoff_cannot_drain_abort_or_rewrite_replacement(editor, manual, change):
+    value, command, sent, material = editor
+    boundary = shared_probe_boundary(value)
+    original_run = value.gcode.run_script_from_command
+    original_lookup = value.printer.lookup_object
+    def run(script):
+        original_run(script)
+        value.handle_stop(stop_request(value)[0])
+        if change == 'generation': material._command_generation = 1
+        elif change == 'material_session': material.session_id = 'new'
+        elif change == 'session': value.calibration.session = 'new'
+        elif change == 'request': value.request = 'b'*32
+        elif change in ('material', 'manager'):
+            name = 'wm_material' if change == 'material' else 'openace'
+            replacement = object()
+            value.printer.lookup_object = lambda key, default=None: replacement if key == name else original_lookup(key, default)
+        elif change == 'scope': value._preparation_scope = {'replacement': True}
+        else: value.receipt = object()
+        value.state, value.error = 'replacement', 'replacement result'
+        boundary()
+        if change != 'scope': pytest.fail('lost preparation owner continued past the boundary')
+    value.gcode.run_script_from_command = run
+    with pytest.raises(ValueError, match='request or owner changed'):
+        value.cmd_run(command('BEGIN', 0))
+    assert sent == ['_WMP_PROBE_CALIBRATE']
+    assert manual.finalized == []
+    assert (value.state, value.error) == ('replacement', 'replacement result')
+
+
+@pytest.mark.parametrize('change', ['session', 'request', 'receipt', 'scope', 'manager'])
+def test_preparation_cleanup_revalidates_after_drain_before_helper_abort(editor, manual, change):
+    value, command, sent, _ = editor
+    original_run = value.gcode.run_script_from_command
+    original_lookup = value.printer.lookup_object
+    def run(script):
+        original_run(script)
+        value.handle_stop(stop_request(value)[0])
+    def drain():
+        sent.append('drain')
+        if change == 'session': value.calibration.session = 'new'
+        elif change == 'request': value.request = 'b'*32
+        elif change == 'receipt': value.receipt = object()
+        elif change == 'scope': value._preparation_scope = {'replacement': True}
+        else:
+            replacement = object()
+            value.printer.lookup_object = lambda key, default=None: replacement if key == 'AFC' else original_lookup(key, default)
+        value.state, value.error = 'replacement', 'new result'
+    value.gcode.run_script_from_command = run
+    value.printer.lookup_object('toolhead').wait_moves = drain
+    with pytest.raises(ValueError, match='request or owner changed'):
+        value.cmd_run(command('BEGIN', 0))
+    assert sent == ['_WMP_PROBE_CALIBRATE', 'drain'] and not manual.finalized
+    assert value.state == 'replacement' and value.error == 'new result'
+
+
+@pytest.mark.parametrize('stop_axis', [1, 0])
+def test_probe_preparation_between_axes_uses_retained_native_homing_without_motor_off(editor, stop_axis):
+    from wmp_xy_homing import XYHoming
+    path = ROOT/'analysis/fw_1.1.13_payload/root/home/t13dp/klipper/klippy/extras/homing.py'
+    spec = importlib.util.spec_from_file_location('probe_stop_native_homing', path)
+    stock = importlib.util.module_from_spec(spec);spec.loader.exec_module(stock)
+    value, command, sent, _ = editor
+    shared_probe_boundary(value)
+    calls = []
+    rails = [NS(get_name=lambda: 'stepper_x', get_homing_info=lambda: NS(positive_dir=True)),
+             NS(get_name=lambda: 'stepper_y', get_homing_info=lambda: NS(positive_dir=False))]
+    def home(state):
+        calls.append(('axis', state.get_axes()))
+        if state.get_axes() == [stop_axis]: value.handle_stop(stop_request(value)[0])
+    kin = NS(rails=rails, limits=[(0,300), (0,300)], home=home)
+    objects = {'toolhead': NS(get_kinematics=lambda: kin, wait_moves=lambda: calls.append(('wait',))),
+               'stepper_enable': NS(motor_off=lambda: pytest.fail('normal Stop disabled motors')),
+               'gcode': value.gcode}
+    native = stock.PrinterHoming.__new__(stock.PrinterHoming);native.printer = value.printer
+    objects['homing'] = native
+    original_lookup = value.printer.lookup_object
+    value.printer.lookup_object = lambda key, default=None: objects[key] if key in objects else original_lookup(key, default)
+    value.printer.is_shutdown = lambda: False
+    value.printer.command_error = ValueError
+    value.gcode.create_gcode_command = lambda name, text, params: NS(get=lambda key, default=None: params.get(key, default))
+    xy = XYHoming(value.printer)
+    xy_command = command('BEGIN', 0)
+    xy_command.respond_info = lambda message: None
+    value.gcode.run_script_from_command = lambda script: xy._home(xy_command, stock.Homing, stock.HomingMove)
+    value.cmd_run(command('BEGIN', 0))
+    expected = [('axis', [1]), ('wait',)]
+    if stop_axis == 0: expected += [('axis', [0]), ('wait',)]
+    assert calls == expected + [('wait',)]
+    assert kin.limits[1] == (1., -1.) and value.state == 'aborted'
+    assert sent == []
+
+
+def test_preparation_stop_clears_owned_toolchange_transient(editor):
+    value, command, sent, _ = editor
+    variables = {'changing_tool': 0, 'fail_flag': 0, 'thr_number': 4}
+    extra = {'save_variables': NS(get_status=lambda now: {'variables': variables}),
+             'custom_hall': NS(get_status=lambda now: {'Raw': 5000}),
+             'filament_switch_sensor sensor_b': NS(get_status=lambda now: {'filament_detected': False}),
+             **{'filament_switch_sensor docked%d' % n: NS(get_status=lambda now: {'filament_detected': True}) for n in range(4)},
+             'gcode': value.gcode}
+    lookup = value.printer.lookup_object
+    value.printer.lookup_object = lambda name, default=None: extra[name] if name in extra else lookup(name, default)
+    value.printer.get_reactor = lambda: NS(monotonic=lambda: 0)
+    value.printer.is_shutdown = lambda: False
+    def run(script):
+        sent.append(script)
+        if script == '_WMP_PROBE_CALIBRATE':
+            variables['changing_tool'] = 1
+            value.handle_stop(stop_request(value)[0])
+            value.cmd_prepare_check(command('BEGIN', 0))
+        else:
+            assert script == 'SAVE_VARIABLE VARIABLE=changing_tool VALUE=0'
+            variables['changing_tool'] = 0
+    value.gcode.run_script_from_command = run
+    value.cmd_run(command('BEGIN', 0))
+    assert value.state == 'aborted' and variables['changing_tool'] == 0
+    assert sent[-2:] == ['drain', 'SAVE_VARIABLE VARIABLE=changing_tool VALUE=0']

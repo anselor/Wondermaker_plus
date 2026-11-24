@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 #include "case_light_status.hpp"
+#include "calibration_cancel_notice.hpp"
 #include "gui_status_snapshot.hpp"
 #include "stock_api.hpp"
 #include "../typed_management.hpp"
@@ -23,6 +24,7 @@
 #include "recovery_worker.hpp"
 #include "print_cancel_worker.hpp"
 #include "probe_editor_worker.hpp"
+#include "calibration_cancel_worker.hpp"
 #include "stock_probe_editor.hpp"
 #include "print_cancel_resolution_worker.hpp"
 #include "recovery_resolution_worker.hpp"
@@ -38,6 +40,8 @@
 #include "stock_calibration_status.hpp"
 #include "stock_maintenance_command.hpp"
 #include "stock_calibration_flow.hpp"
+#include "stock_guide_calibration.hpp"
+#include "stock_home_status.hpp"
 #include "nozzle_scrub_coordinator.hpp"
 #include "stock_identification.hpp"
 #include "../standalone_backend.hpp"
@@ -50,7 +54,10 @@ class Runtime {
   CalibrationBinding(Runtime*o=nullptr,const std::string&s={},const std::string&r={}):owner(o),session(s),request(r){} };
  static const CalibrationBinding*&calibration_invocation(){static thread_local const CalibrationBinding*value=nullptr;return value;}
  CalibrationBinding calibration_binding_;
- bool calibration_reserved_=false,calibration_queued_=false,calibration_running_=false,calibration_save_sent_=false;
+ bool guide_calibration_=false;
+ StockHomeStatus home_status_;bool home_active_=false,home_delivery_finished_=false,home_terminal_=false;
+ std::string home_axes_,home_error_;
+ bool calibration_reserved_=false,calibration_queued_=false,calibration_running_=false,calibration_save_sent_=false,calibration_cancel_requested_=false;
 
 #ifdef WMP_NATIVE_TEST
  friend struct RuntimeReceiptTest;
@@ -58,9 +65,14 @@ class Runtime {
 public:
  Runtime(wmp_openace::HttpPort&http,wmp_openace::NativeUi&ui,wmp_openace::UiChannel&channel)
   :http_(http),ui_(ui),channel_(channel),worker_(http,channel),legacy_(ui,channel,false),backend_(channel),native_backend_(backend_,standalone_),app_(native_backend_),stock_preview_(app_){
+   print_preparation_.stop=[this]{route_print_cancel();};
    identification_panel_.back=[this]{if(!identification_blocks_navigation()&&stock_)stock_("system_page");};
    identification_panel_.submit=[this]{submit_identification();};
    calibration_status_.back=[this]{leave_stock_calibration();};
+   calibration_status_.cancel=[this]{request_calibration_cancel();};
+   home_status_.cancel=[this]{request_calibration_cancel();};
+   home_status_.done=[this]{if(home_terminal_){home_status_.close();home_active_=false;}};
+   scrub_.cancel_requested=[this]{return request_calibration_cancel();};
    guide_calibration_status_.back=[this]{
     // Leave the result without declaring setup complete or cancelling motion.
     calibration_flow_=StockCalibrationFlow{};guide_calibration_status_.created(nullptr);
@@ -91,7 +103,7 @@ public:
     }
    };
    mini_.open_filaments=[this](){request(7);};
-   filament_procedure_.cancel=[this](const std::string&id){return standalone_.cancel_filament(id);};
+   filament_procedure_.cancel=[this](const std::string&id){return standalone_.cancel_operation(id);};
    filament_procedure_.recover=[this](const std::string&id){return standalone_.recover_filament(id);};
    filament_procedure_.recover_toolhead=[this](const std::string&id){return standalone_.recover_toolhead(id);};
    nozzle_editor_.submit=[this](const Json&args){const auto data=stock_snapshot();return standalone_.submit({"save_nozzle",data.value("revision",""),data.value("owner",""),args});};
@@ -263,9 +275,163 @@ public:
   for(unsigned i=0;i<16;++i){const auto value=random()&255;request+=hex[value>>4];request+=hex[value&15];}
   {std::lock_guard<std::mutex>lock(mutex_);if(calibration_reserved_){report_rejection("calibration START","Another calibration worker was reserved before admission completed.");return false;}
    scrub_.bind_admitted_locked(request);
-   calibration_binding_={this,session,request};calibration_binding_.ticket=ticket;calibration_binding_.sequenced=!ticket.empty()||data.value("calibration_attempt_protocol",0)==1;calibration_reserved_=true;calibration_queued_=calibration_running_=calibration_save_sent_=false;}
+   calibration_binding_={this,session,request};calibration_binding_.ticket=ticket;calibration_binding_.sequenced=!ticket.empty()||data.value("calibration_attempt_protocol",0)==1;calibration_reserved_=true;calibration_queued_=calibration_running_=calibration_save_sent_=calibration_cancel_requested_=false;}
   if(data.value("owner","")=="standalone")calibration_flow_=StockCalibrationFlow{};
-  calibration_status_.begin(session,request);return true;
+  guide_calibration_=false;calibration_status_.begin(session,request);return true;
+ }
+ bool home_active()const{return home_active_;}
+ bool confirmed_cancel_warning(const std::string&text){
+  const auto data=stock_snapshot();CalibrationBinding binding;
+  {std::lock_guard<std::mutex>lock(mutex_);binding=calibration_binding_;}
+  return confirmed_calibration_cancel_notice(data,binding.session,binding.request,binding.ticket,text);
+ }
+ bool home_external_owner(){const auto data=stock_snapshot();const auto owner=data.value("owner","");return !home_active_&&data.value("fresh",false)&&(owner=="openace"||owner=="AFC");}
+ bool begin_home(unsigned action){
+  auto refuse=[this](const std::string&reason){report_rejection("HOME",reason);std::lock_guard<std::mutex>lock(mutex_);maintenance_refusal_=reason;return false;};
+  if(action<10||action>14)return false;
+  if(home_active_)return refuse("Finish the current homing screen before another request.");
+  const auto data=stock_snapshot();
+  if(!command_worker_||!command_http_||!calibration_cancel_worker_||data.value("owner","")!="standalone"
+     ||data.value("homing_operation_protocol",0)!=1||data.value("calibration_cancel_protocol",0)!=2
+     ||data.value("calibration_ticket_protocol",0)!=1)return refuse("Cancellable homing is unavailable. Check the WM+ backend and connection.");
+  if(!begin_stock_calibration()){request_maintenance_refusal();return false;}
+  auto*layer=stock_function<void*(*)(void*)>(lv_disp_get_layer_sys)(nullptr);
+  if(!home_status_.show(layer)){stock_calibration_enqueue_failed();return refuse("Homing progress could not open. Nothing was sent.");}
+  const char*axes[]={"X","Y","X/Y","Z","X/Y/Z"};
+  const char*commands[]={"G28 X","G28 Y","G28 X Y","G28 Z","G28"};
+  const std::string command=commands[action-10];home_axes_=axes[action-10];home_active_=true;home_terminal_=false;
+  CalibrationBinding binding;
+  {std::lock_guard<std::mutex>lock(mutex_);binding=calibration_binding_;home_delivery_finished_=false;home_error_.clear();calibration_queued_=true;}
+  std::string encoded;constexpr char hex[]="0123456789abcdef";for(unsigned char c:command){encoded+=hex[c>>4];encoded+=hex[c&15];}
+  const auto script="_WMP_HOME_COMMAND HEX="+encoded+" SESSION="+binding.session+" REQUEST="+binding.request+" TICKET="+binding.ticket+" SEQUENCE=0";
+  const bool queued=command_worker_->submit(1,[this,binding,script]{
+   std::string error;
+   try{auto reply=Json::parse(command_http_->post("/printer/gcode/script",Json{{"script",script}}.dump()));
+    if(reply.contains("error"))error="Homing command returned an error. Waiting for its bound result.";
+   }catch(...){error="Homing delivery is unconfirmed. Waiting for printer status; no retry was sent.";}
+   std::lock_guard<std::mutex>lock(mutex_);if(binding.request==calibration_binding_.request){home_delivery_finished_=true;home_error_=error;}
+  });
+  if(!queued){home_status_.close();home_active_=false;stock_calibration_enqueue_failed();return refuse("Homing was not queued. Nothing was sent.");}
+  update_home();return true;
+ }
+ void update_home(){update_home(stock_snapshot());}
+ void update_home(const Json&data){
+  const auto attempt=data.value("calibration_attempt",Json::object());
+  const bool observed_home=calibration_cancel_worker_&&data.value("fresh",false)&&data.value("owner","")=="standalone"
+    &&data.value("homing_raw_protocol",0)==1&&data.value("calibration_cancel_protocol",0)==2
+    &&attempt.value("operation","")=="home"&&attempt.value("state","")=="pending";
+  if(observed_home){
+   // Observation sends no G-code and consumes no ticket. A committed newer
+   // Home can replace an old Home result or lost-response wait; its retired
+   // request cannot later execute under the server's immutable ticket rules.
+   const auto session=attempt.value("session",""),request=attempt.value("request",""),ticket=attempt.value("ticket","");
+   if(session!=data.value("calibration_session","")||session.size()!=32||request.size()!=32
+      ||session.find_first_not_of("0123456789abcdef")!=std::string::npos||request.find_first_not_of("0123456789abcdef")!=std::string::npos
+      ||ticket.empty()||ticket.size()>256||ticket[0]=='0'||ticket.find_first_not_of("0123456789")!=std::string::npos)return;
+   CalibrationBinding previous;{std::lock_guard<std::mutex>lock(mutex_);previous=calibration_binding_;}
+   const bool same=session==previous.session&&request==previous.request;
+   const bool older=session==previous.session&&(ticket.size()<previous.ticket.size()||(ticket.size()==previous.ticket.size()&&ticket<previous.ticket));
+   const bool adopt=!older&&(!home_active_||!same)&&!(same&&home_terminal_);
+   if(adopt){
+    if(!home_active_&&stock_calibration_reserved())return; // Preserve a non-Home worker.
+    auto*layer=stock_function<void*(*)(void*)>(lv_disp_get_layer_sys)(nullptr);
+    if(!home_status_.show(layer))return;
+    {std::lock_guard<std::mutex>lock(mutex_);
+     calibration_binding_={this,session,request};calibration_binding_.ticket=ticket;calibration_binding_.sequenced=true;
+     calibration_reserved_=true;calibration_queued_=calibration_running_=calibration_save_sent_=calibration_cancel_requested_=false;
+     home_delivery_finished_=true;home_error_.clear();}
+    home_active_=true;home_terminal_=false;home_axes_=attempt.value("home_axes","X/Y/Z");
+   }
+  }
+  if(!home_active_)return;
+  if(home_terminal_)return;
+  CalibrationBinding binding;bool delivered=false,cancel_requested=false,cancel_available=false;std::string error,cancel_message;
+  {std::lock_guard<std::mutex>lock(mutex_);binding=calibration_binding_;delivered=home_delivery_finished_;error=home_error_;
+   cancel_requested=calibration_cancel_requested_;cancel_available=calibration_cancel_available_locked(data);
+   if(cancel_requested&&calibration_cancel_worker_)cancel_message=calibration_cancel_worker_->result().value("message","");}
+  const bool fresh=data.value("fresh",false);
+  const bool matches=fresh&&attempt.value("session","")==binding.session&&attempt.value("request","")==binding.request
+    &&attempt.value("ticket","")==binding.ticket&&attempt.value("operation","")=="home";
+  const bool restarted=fresh&&data.value("calibration_session","")!=binding.session;
+  const auto state=matches?attempt.value("state",""):std::string();
+  const auto cleanup=attempt.value("cancel_cleanup",Json::object());
+  const bool stopped=matches&&(state=="complete"||state=="refused"||(state=="failed"&&(!attempt.value("cancel_requested",false)
+    ||cleanup.value("state","")=="complete"||cleanup.value("state","")=="incomplete")));
+  if(delivered&&(stopped||restarted)){
+   std::lock_guard<std::mutex>lock(mutex_);calibration_reserved_=calibration_queued_=calibration_running_=false;home_terminal_=true;
+  }
+  std::string message="Homing in progress. Cancel stops at the next safe boundary.";
+  if(!fresh)message="Printer status is unavailable. Waiting for confirmation; no retry was sent.";
+  else if(restarted)message="Klipper restarted. The homing result could not be confirmed. Home again before moving.";
+  else if(matches&&state=="complete")message="Homing complete.";
+  else if(matches&&(state=="failed"||state=="refused")){
+   message=attempt.value("error","");
+   if(attempt.value("cancel_requested",false)){
+    message+="\n";message+=cleanup.value("state","")=="complete"?"Stopped; position held. No automatic docking was attempted.":"Stop completion is unconfirmed. Inspect the printer before another move.";
+   }
+  }else if(cancel_requested)message=cancel_message.empty()?"Cancellation requested. Waiting for the printer to stop.":cancel_message;
+  else if(!error.empty())message=error;
+  home_status_.update("Home "+home_axes_,message,home_terminal_,cancel_available);
+ }
+ bool begin_guide_calibration(void*start_button){
+  onboarding_=true;
+  const auto selection=GuideCalibrationSelection::read();
+  auto refuse=[this](const std::string&reason){report_rejection("setup calibration START",reason);std::lock_guard<std::mutex>lock(mutex_);maintenance_refusal_=reason;return false;};
+  if(!stock_)return refuse("Calibration navigation is unavailable. Nothing started.");
+  const auto reason=stock_maintenance_reason();if(!reason.empty())return refuse(reason);
+  if(!selection.valid()||!selection.initial_status())return refuse("Select at least one calibration, or use Skip to continue setup.");
+  const auto heads=*nozzle_scrub_vendor().heads;if(heads<1||heads>4)return refuse("Printer head count is unavailable. Nothing started.");
+  selection.copy_selection();
+  // The same Prepare choice replays this guide START click. Its ordinary
+  // admission path binds the chosen brush flow to the shared worker request.
+  if(!scrub_.decided()&&offer_nozzle_scrub(start_button))return true;
+  if(!begin_stock_calibration()){request_maintenance_refusal();return false;}
+  calibration_flow_=StockCalibrationFlow{};guide_calibration_status_.created(nullptr);
+  guide_calibration_=true;selection.start();
+  try{stock_("auto_checking_page");}catch(...){stock_calibration_enqueue_failed();}
+  finish_stock_calibration_start();
+  if(!stock_calibration_reserved()){guide_calibration_=false;return refuse("Calibration worker was not queued. Nothing will be retried automatically.");}
+  return true;
+ }
+ bool refuse_unbound_guide_calibration_send(std::uintptr_t caller){
+  if(!stock_guide_calibration_sender(caller))return false;
+  // These retired guide workers are never part of the shared run. A stale
+  // worker cannot dispatch motion, saves or a restart without an admission.
+  report_rejection("setup calibration command","Retired unbound guide worker; command withheld.");return true;
+ }
+ void enable_calibration_cancel(wmp_openace::HttpPort&transport){
+  if(calibration_cancel_worker_)throw std::runtime_error("Calibration cancellation already configured");
+  calibration_cancel_worker_.reset(new CalibrationCancelWorker(transport));
+ }
+ bool request_calibration_cancel(){
+  Json identity;
+  {std::lock_guard<std::mutex>lock(mutex_);
+   if(!calibration_cancel_worker_||!calibration_reserved_||calibration_save_sent_||calibration_binding_.ticket.empty()
+      ||normalized_.value("owner","")!="standalone"||normalized_.value("calibration_cancel_protocol",0)!=2)return false;
+   identity={{"session",calibration_binding_.session},{"request",calibration_binding_.request},{"ticket",calibration_binding_.ticket}};
+   if(!calibration_cancel_worker_->request(identity))return false;
+   calibration_cancel_requested_=true;
+  }
+  return true;
+ }
+ bool suppress_cancelled_calibration_send(std::uintptr_t caller){
+  const auto*b=calibration_invocation();if(!b||b->owner!=this||b->sequence==0)return false;
+  bool calibration=false;for(auto address:calibration_senders)if(caller==address){calibration=true;break;}
+  if(!calibration)return false;
+  std::lock_guard<std::mutex>lock(mutex_);
+  if(!calibration_cancel_requested_||b->request!=calibration_binding_.request)return false;
+  if(caller==0x4b869c){
+   const auto attempt=normalized_.value("calibration_attempt",Json::object());
+   const auto cleanup=attempt.value("cancel_cleanup",Json::object());
+   // Preserve the existing one early save only after the backend has proved
+   // both completed earlier results and complete cleanup. Never a normal save
+   // after an unconfirmed cancellation request.
+   return !(early_save_available_locked(*b)&&attempt.value("cancel_requested",false)&&cleanup.value("state","")=="complete");
+  }
+  // Future motion/stage sends are withheld. At the reviewed park boundary,
+  // avoid the vendor's quick-stop branch; backend fault/cleanup evidence stays.
+  if(caller==offset_park)*nozzle_scrub_vendor().failed=0;
+  return true;
  }
  void stock_calibration_enqueued(){std::lock_guard<std::mutex>lock(mutex_);if(calibration_reserved_)calibration_queued_=true;}
  void stock_calibration_enqueue_failed(){std::lock_guard<std::mutex>lock(mutex_);if(!calibration_running_)calibration_reserved_=calibration_queued_=false;}
@@ -309,6 +475,7 @@ public:
  void update_stock_calibration(const Json&snapshot){
   auto data=snapshot;
   {std::lock_guard<std::mutex>lock(mutex_);data["maintenance_save_requested"]=calibration_save_sent_;
+   decorate_calibration_cancel_locked(data);
    data["maintenance_worker_returned"]=!calibration_reserved_;data["maintenance_scrub_heads"]=scrub_.result_heads_locked();
    data["maintenance_flagged_heads"]=scrub_.result_flagged_heads_locked();data["maintenance_saved_anyway"]=scrub_.result_saved_anyway_locked();
    data["maintenance_recheck_cancelled"]=scrub_.result_cancelled_locked();data["maintenance_restore_failed"]=scrub_.result_restore_failed_locked();}
@@ -325,11 +492,25 @@ public:
    (void)status;
 #endif
   }
-  calibration_status_.created(nullptr);if(stock_)stock_("auto_check_prepare_page");
+  calibration_status_.created(nullptr);
+  const bool guide=guide_calibration_;guide_calibration_=false;
+  // DONE closes to this flow's own selection page. It never marks setup
+  // complete; Skip continues to the existing explicit filament Finish flow.
+  if(stock_)stock_(guide?"guide_calibration_page":"auto_check_prepare_page");
+ }
+ static std::string calibration_cancel_hold(const Json&data,bool allow_incomplete_retry){
+  if(!data.value("maintenance_cancel_requested",false)
+     ||(data.value("fresh",false)&&data.value("calibration_session","")!=data.value("maintenance_cancel_session","")))return {};
+  const auto attempt=data.value("calibration_attempt",Json::object());const auto cleanup=attempt.value("cancel_cleanup",Json::object());
+  if(!data.value("fresh",false)||attempt.value("request","")!=data.value("maintenance_cancel_request","")
+     ||(cleanup.value("state","")!="complete"&&cleanup.value("state","")!="incomplete"))return "Waiting for calibration cancellation to be confirmed.";
+  if(cleanup.value("state","")=="incomplete"&&!allow_incomplete_retry)return "Calibration cleanup is incomplete. Inspect the printer before continuing setup.";
+  return {};
  }
  std::string stock_maintenance_reason(){return stock_maintenance_reason(stock_snapshot());}
  std::string stock_maintenance_reason(const Json&data){
   if(stock_calibration_reserved())return "Waiting for the calibration worker to finish.";
+  const auto cancelled=calibration_cancel_hold(data,true);if(!cancelled.empty())return cancelled;
 
   // An open editor, review, file copy or terminal result is UI state, not a
   // machine reservation. Hold only actual queued/unresolved physical requests.
@@ -367,12 +548,24 @@ public:
   identification_flow_.observe(data);
   const bool allowed=stock_maintenance_reason(data).empty();
   const bool restart=allowed&&identification_flow_.can_restart(data);
-  identification_panel_.update(data,identification_flow_.message(data),restart||identification_flow_.can_start(data,allowed),restart,!identification_flow_.blocks_navigation(data));
+  const bool cancel=identification_flow_.cancel_visible(data);
+  std::string message=identification_flow_.message(data);
+  if(cancel&&identification_flow_.cancel_requested()&&calibration_cancel_worker_){
+   const auto receipt=calibration_cancel_worker_->result();
+   if(receipt.value("kind","")=="identification"&&receipt.value("binding",Json::object())==identification_flow_.cancel_binding())message=receipt.value("message",message);
+  }
+  identification_panel_.update(data,message,cancel?(calibration_cancel_worker_&&identification_flow_.can_cancel(data)):
+   restart||identification_flow_.can_start(data,allowed),restart,!identification_flow_.blocks_navigation(data),cancel);
  }
  bool identification_blocks_navigation(){const auto data=stock_snapshot();identification_flow_.observe(data);return identification_flow_.blocks_navigation(data);}
  void stock_identification_created(void*page,bool setup=false){if(setup)onboarding_=true;identification_panel_.created(page,setup);update_identification();}
  void submit_identification(){
   const auto data=stock_snapshot();identification_flow_.observe(data);std::string command;
+  if(identification_flow_.cancel_visible(data)){
+   if(calibration_cancel_worker_&&identification_flow_.can_cancel(data)
+      &&calibration_cancel_worker_->request_identification(identification_flow_.cancel_binding()))identification_flow_.cancel(data);
+   update_identification();return;
+  }
   if(stock_maintenance_allowed()&&identification_flow_.restart(data))command="FIRMWARE_RESTART";
   else if(identification_flow_.start(data,stock_maintenance_allowed()))command=identification_flow_.command();
   else return;
@@ -383,7 +576,16 @@ public:
  void set_calibration_sender(std::function<bool(const std::string&)> callback){calibration_sender_=std::move(callback);}
  bool calibration_navigation(const char*name){
   if(!StockCalibrationFlow::target(name))return false;
+  if(stock_calibration_reserved()){
+   std::lock_guard<std::mutex>lock(mutex_);maintenance_refusal_="Wait for the current calibration to finish or cancel it from its progress screen.";return true;
+  }
+  if(std::string(name)=="guide_calibrating_page"){
+   onboarding_=true;report_rejection("setup calibration navigation","Use START on the calibration selection page; retired guide workers are not admitted.");
+   std::lock_guard<std::mutex>lock(mutex_);maintenance_refusal_="Start calibration from its selection page. Nothing was sent.";return true;
+  }
   onboarding_=true; // Protect the marker even if setup fails before the filament page.
+  const auto hold=calibration_cancel_hold(stock_snapshot(),false);
+  if(!hold.empty()){std::lock_guard<std::mutex>lock(mutex_);maintenance_refusal_=hold;return true;}
   std::random_device random;std::string token;constexpr char hex[]="0123456789abcdef";
   for(unsigned i=0;i<16;++i){const auto value=random()&255;token+=hex[value>>4];token+=hex[value&15];}
   if(calibration_flow_.request(name,token)){
@@ -409,6 +611,8 @@ public:
   if(!stock_edit_receipt_.empty())return reject_action("setup FINISH","Settings operation is awaiting a receipt.");
   if(stock_filament_.ace_controls().adoption_unresolved())return reject_action("setup FINISH","Unit adoption is unresolved.");
   const auto data=stock_snapshot();
+  const auto hold=calibration_cancel_hold(data,false);if(!hold.empty())return reject_action("setup FINISH",hold);
+  const auto admission=stock_maintenance_reason(data);if(!admission.empty())return reject_action("setup FINISH",admission);
   calibration_flow_.observe(data);
   if(calibration_flow_.blocked())return reject_action("setup FINISH","Setup calibration flow is blocked.");
   if(!data.value("calibration_failed","").empty())return reject_action("setup FINISH","Calibration failure remains: "+rejection_value(data.value("calibration_failed","")));
@@ -426,8 +630,8 @@ public:
  }
  // Called after the original stock constructor returns, on the LVGL thread.
  void stock_filament_created(void*page){stock_identity_.cancel();stock_picker_.retire();stock_filament_.created(page);}
- void stock_calibration_created(void*page){
-  calibration_status_.created(page);CalibrationBinding binding;
+ void stock_calibration_created(void*page,void*factory_title=nullptr){
+  calibration_status_.created(page,false,factory_title);CalibrationBinding binding;
   {std::lock_guard<std::mutex>lock(mutex_);binding=calibration_binding_;}
   if(!binding.request.empty())calibration_status_.begin(binding.session,binding.request);
   update_stock_calibration();
@@ -951,6 +1155,7 @@ public:
    }
    {std::string message;{std::lock_guard<std::mutex>lock(mutex_);message.swap(off_message_);}if(!message.empty())stock_filament_.message(message);}
    const auto&gui_data=gui_snapshot();
+   if((home_active_&&!home_terminal_)||gui_status_.changed())update_home(gui_data);
    auto snapshot=channel_.latest();int req=requested_.exchange(-1);
    const std::string service_action=req>=30&&req<=33?"nozzle":req>=20&&req<=27?(req<24?"load":"unload"):"";
    if(service_action=="nozzle"){
@@ -1070,6 +1275,7 @@ private:
  std::unique_ptr<PrintCancelResolutionWorker>cancel_resolution_worker_;std::string cancel_hold_shown_,cancel_hold_session_;Json cancel_hold_view_=Json::object();
  StockProbeEditor probe_editor_panel_;
  std::unique_ptr<ProbeEditorWorker>probe_editor_worker_;
+ std::unique_ptr<CalibrationCancelWorker>calibration_cancel_worker_;
  std::unique_ptr<PrintCancelWorker>cancel_worker_;StockRecoveryProgress cancel_progress_;std::atomic<bool>show_cancel_{false},cancel_refused_{false};
  std::unique_ptr<RecoveryWorker>recovery_worker_;StockRecoveryProgress recovery_progress_;std::atomic<bool>show_recovery_{false};
  StockCalibrationStatus calibration_status_,guide_calibration_status_;
@@ -1134,6 +1340,19 @@ private:
  const Json&gui_snapshot(){
   std::lock_guard<std::mutex>lock(mutex_);return gui_status_.observe(normalized_,at_,ui_.now_ms(),status_publication_);
  }
+ bool calibration_cancel_available_locked(const Json&data)const{
+  const auto attempt=data.value("calibration_attempt",Json::object());
+  const bool stopped=attempt.value("request","")==calibration_binding_.request&&attempt.value("state","")!="pending";
+  return calibration_cancel_worker_&&calibration_reserved_&&!calibration_save_sent_&&!calibration_cancel_requested_&&!stopped
+    &&!calibration_binding_.ticket.empty()&&data.value("owner","")=="standalone"&&data.value("calibration_cancel_protocol",0)==2;
+ }
+ void decorate_calibration_cancel_locked(Json&data){
+  data["maintenance_cancel_requested"]=calibration_cancel_requested_;
+  data["maintenance_cancel_request"]=calibration_binding_.request;
+  data["maintenance_cancel_session"]=calibration_binding_.session;
+  data["maintenance_cancel_available"]=calibration_cancel_available_locked(data);
+  if(calibration_cancel_worker_)data["maintenance_cancel_message"]=calibration_cancel_worker_->result().value("message","");
+ }
  Json stock_snapshot(){
   std::lock_guard<std::mutex>lock(mutex_);auto data=normalized_;
   if(!data.is_object())return Json::object();
@@ -1141,6 +1360,7 @@ private:
   data["status_age_ms"]=age;
   data["display_fresh"]=age>=0&&age<=4000&&data.value("printer_state","")=="ready";
   data["fresh"]=data.value("fresh",false)&&age>=0&&age<=2000;
+  decorate_calibration_cancel_locked(data);
   return data;
  }
  void submit_usb_copy()try{

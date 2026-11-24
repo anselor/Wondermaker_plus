@@ -101,9 +101,12 @@ def test_restore_refused_while_another_command_runs():
     printer, gcode, runner, stored, writes = machine()
     bound(runner, 'G28', 'a', 0)
     seen = []
-    gcode.commands['G29'] = lambda gcmd: seen.append(
+    # Hold a non-producing command. G29 now also requires the real scoped
+    # checkpoint/configuration producer, covered by test_calibration_checkpoints.
+    # This test isolates the rule that no in-flight command may restore offsets.
+    gcode.commands['M400'] = lambda gcmd: seen.append(
         pytest.raises(RuntimeError, bound, runner, '_WMP_OFFSETS_RESTORE', 'a', 2))
-    bound(runner, 'G29', 'a', 1)
+    bound(runner, 'M400', 'a', 1)
     assert seen and writes == []
     assert restore_state(runner) == 'none'
 
@@ -142,3 +145,21 @@ def test_owner_reset_failure_does_not_skip_the_others():
         bound(runner, 'G28', 'a', 0)
     assert runner.nozzle_touch.request == 'a' * 32
     assert runner.offset_snapshot.offsets == OFFSETS
+
+
+@pytest.mark.parametrize('value',[float('nan'),float('inf'),float('-inf')])
+def test_nonfinite_offset_is_not_a_restorable_snapshot(value):
+    printer,gcode,runner,stored,writes=machine(dict(OFFSETS,t1_offset=(value,0.,0.)))
+    bound(runner,'G28','a',0)
+    bound(runner,'_WMP_OFFSETS_RESTORE','a',1)
+    assert runner.offset_snapshot.state=='failed' and writes==[]
+
+
+def test_restore_requires_actual_value_readback_not_only_command_success():
+    printer,gcode,runner,stored,writes=machine()
+    bound(runner,'G28','a',0)
+    stored['t1_offset']=(5.,5.,5.)
+    gcode.commands['SAVE_VARIABLE']=lambda cmd:None
+    bound(runner,'_WMP_OFFSETS_RESTORE','a',1)
+    assert runner.offset_snapshot.state=='failed'
+    assert stored['t1_offset']==(5.,5.,5.)

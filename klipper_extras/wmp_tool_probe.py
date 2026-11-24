@@ -16,6 +16,10 @@ import inspect
 import logging
 import sys
 import types
+try:
+    from .wmp_stop_points import check_operation_boundary
+except ImportError:
+    from wmp_stop_points import check_operation_boundary
 
 # sha256 of inspect.getsource(PrinterProbeMultiAxis.run_probe), firmware 1.1.13
 STOCK_RUN_PROBE_SHA256 = '6f41a0d50deb412830efb2fa0ad1f351f385aa0e86c34db9b78b7a9d29cd8fc0'
@@ -89,6 +93,7 @@ def run_probe(self, direction, gcmd, speed_ratio=1.0, samples=None,
     repeats = 0
     positions = []
 
+    check_operation_boundary(self.printer, 'before tool-setter probing', 'tool_probe')
     endstop.multi_probe_begin()
     toolhead.dwell(0.75)
     endstop.home_zero()
@@ -96,6 +101,16 @@ def run_probe(self, direction, gcmd, speed_ratio=1.0, samples=None,
     self.verify_no_crash()
 
     while len(positions) < sample_count:
+        try:
+            check_operation_boundary(self.printer, 'before tool-setter touch', 'tool_probe')
+        except Exception:
+            # A sample retract was queued by _move. Finish that admitted
+            # clearance move before reporting cancellation/closing the probe.
+            try:
+                toolhead.wait_moves()
+            finally:
+                endstop.multi_probe_end()
+            raise
         touch_start = list(toolhead.get_position())
         pos = _touch(self, vendor, speed, axis, sense, max_distance)
         travel = 0. if pos is None else abs(pos[axis] - touch_start[axis])

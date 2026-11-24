@@ -38,13 +38,14 @@ class StockRecoveryProgress {
   if(compact_){stock_function<void(*)(void*,int,int)>(lv_obj_set_size)(label,148,40);
    stock_function<void(*)(void*,int,int,int)>(lv_obj_align)(label,1,6,8);}
  }
- void*button(const char*s,int x){auto*b=stock_function<void*(*)(void*)>(lv_obj_create)(root_);stock_dialog_backdrop(b);place(b,dialog_x_+x,compact_?dialog_y_+dialog_h_-72:0,compact_?160:110,compact_?56:40);
-  auto*l=label(b,s,0,0,compact_?160:110,compact_?56:40);center_caption(b,l,s);
+ void*button(const char*s,int x,int width=110){auto*b=stock_function<void*(*)(void*)>(lv_obj_create)(root_);stock_dialog_backdrop(b);place(b,dialog_x_+x,compact_?dialog_y_+dialog_h_-72:0,compact_?160:width,compact_?56:40);
+  auto*l=label(b,s,0,0,compact_?160:width,compact_?56:40);center_caption(b,l,s);
   stock_function<void(*)(void*,const void*,unsigned)>(lv_obj_set_style_text_font)(l,reinterpret_cast<void*>(compact_?MyriadPro_Bold_24:MyriadPro_Bold_20),0);
   stock_function<void*(*)(void*,void(*)(void*),int,void*)>(lv_obj_add_event_cb)(b,&pressed,7,this);return b;
  }
  bool can_stop()const{const auto state=result_.value("receipt",Json::object()).value("state","");
-  return !cancel_mode_&&result_.value("fresh",false)&&!result_.contains("stop")&&(state=="pending"||state=="running");}
+  return !cancel_mode_&&result_.value("fresh",false)&&!result_.contains("stop")
+   &&result_.value("can_stop",state=="pending"||state=="running");}
  bool can_review()const{
   const auto state=result_.value("receipt",Json::object()).value("state","");
   const auto resolution=result_.value("resolution",Json::object());const auto phase=resolution.value("state","");
@@ -148,8 +149,8 @@ public:
    stock_function<void(*)(void*,int,unsigned)>(lv_obj_set_style_bg_opa)(card,255,0);
   }
   if(!stock_function<void*(*)(void*,void(*)(void*),int,void*)>(lv_obj_add_event_cb)(root_,&deleted,33,this)){close();return false;}
-  title_=label(root_,"",dialog_x_+(compact_?16:12),dialog_y_+(compact_?8:4),compact_?w-32:w-360,compact_?36:30);
-  close_=button("CLOSE",w-(compact_?360:348));review_=button("REVIEW",w-232);stop_=button("STOP",w-(compact_?180:116));
+  title_=label(root_,"",dialog_x_+(compact_?16:12),dialog_y_+(compact_?8:4),compact_?w-32:w-390,compact_?36:30);
+  close_=button("CLOSE",w-(compact_?360:366));review_=button("REVIEW",w-(compact_?232:250),128);stop_=button("STOP",w-(compact_?180:116));
   auto*rule=stock_function<void*(*)(void*)>(lv_obj_create)(root_);stock_dialog_backdrop(rule);place(rule,dialog_x_+12,dialog_y_+(compact_?48:40),w-24,1);
   stock_function<void(*)(void*,std::uint32_t,unsigned)>(lv_obj_set_style_bg_color)(rule,0xff606060U,0);
   stock_function<void(*)(void*,int,unsigned)>(lv_obj_set_style_bg_opa)(rule,255,0);
@@ -180,7 +181,8 @@ public:
   text(title_,retiring&&!recovery_refused?"Discard PLR":cancel_mode_?"Cancel print":"Power Loss Recovery (PLR)");
   auto*close_caption=stock_function<void*(*)(void*,int)>(lv_obj_get_child)(close_,0);
   const bool refused_selection=!retiring&&result.value("state","")=="refused"&&result.value("receipt",Json::object()).empty();
-  const char*close_text=refused_selection?"BACK":retiring&&!recovery_refused&&retire_action=="DISCARD"?"CANCEL":"CLOSE";
+  const bool cancelled_early=!retiring&&result.value("state","")=="cancelled"&&result.value("before_execution",false);
+  const char*close_text=cancelled_early?"DONE":refused_selection?"BACK":retiring&&!recovery_refused&&retire_action=="DISCARD"?"CANCEL":"CLOSE";
   text(close_caption,close_text);center_caption(close_,close_caption,close_text);
   const bool ready=retiring?retire_action=="DISCARD":confirm||discard||can_stop();
   if(retiring)stock_function<void(*)(void*,unsigned)>(retire_action=="DISCARD"?lv_obj_clear_flag:lv_obj_add_flag)(stop_,1);
@@ -206,7 +208,8 @@ public:
   std::string summary;
   // A recorded terminal outcome is history, not a grant to act on stale status.
   // Keep it visible while live observations recover; action gates above stay fresh.
-  if(retiring&&phase=="complete")summary="Saved print discarded.";
+  if(cancelled_early)summary="Recovery cancelled before preparation; nothing moved or heated.";
+  else if(retiring&&phase=="complete")summary="Saved print discarded.";
   else if(!retiring&&phase=="complete")summary="PLR complete.";
   else if(!retiring&&phase=="abandoned")summary="Saved PLR discarded.";
   else if(!result.value("fresh",false))summary="Waiting for printer status...";
@@ -249,7 +252,7 @@ public:
    stages.push_back({{"name","Checking saved print..."},{"state",reviewed?"complete":phase=="reviewing"?"running":"future"}});
    stages.push_back({{"name","Discard saved PLR"},{"state",done?"complete":phase=="pending"?"running":"future"}});
    stages.push_back({{"name","Verify archived result"},{"state",done?"complete":phase=="unknown"?"running":"future"}});
-  }else if(!cancel_mode_){
+  }else if(!cancel_mode_&&!cancelled_early){
    const bool reviewed=!receipt.empty()||result.contains("review");
    const bool refused=result.value("state","")=="refused";
    stages.push_back({{"name",!reviewed&&refused?"review_blocked":"review"},

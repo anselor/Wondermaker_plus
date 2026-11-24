@@ -3,6 +3,7 @@
 #include "stock_progress_panel.hpp"
 #include "stock_header_action.hpp"
 #include <cstring>
+#include <functional>
 namespace wmp_ui { namespace native {
 inline Json print_preparation_view(const Json&data){
  const auto preparation=data.value("print_preparation",Json::object());
@@ -39,6 +40,7 @@ inline Json print_preparation_view(const Json&data){
 class StockPrintPreparation {
  StockProgressPanel progress_;void*root_=nullptr;bool home_=false;std::string dismissed_,id_;
 public:
+ std::function<void()> stop;
  ~StockPrintPreparation(){close();}
  void navigation(const char*name){home_=name&&std::strcmp(name,"main_page")==0;if(!home_)close();}
  void close(){progress_.close();if(stock_object_valid(root_))stock_function<void(*)(void*)>(lv_obj_del)(root_);root_=nullptr;}
@@ -56,13 +58,24 @@ public:
    stock_function<void(*)(void*,std::uint32_t,unsigned)>(lv_obj_set_style_bg_color)(root_,0xff3c3f43U,0);
    stock_function<void(*)(void*,int,unsigned)>(lv_obj_set_style_bg_opa)(root_,255,0);
    if(!stock_function<void*(*)(void*,void(*)(void*),int,void*)>(lv_obj_add_event_cb)(root_,&deleted,33,this)){close();return;}
+   // Keep Stop beside Close in the shared title row.
+   if(!progress_.attach(root_,0,0,width-104,height-124)){close();return;}
+   auto*stop_button=stock_header_action(root_,"STOP",width-350,0,112);
+   if(!stop_button||!stock_function<void*(*)(void*,void(*)(void*),int,void*)>(lv_obj_add_event_cb)(stop_button,&stop_pressed,7,this)){close();return;}
    auto*button=stock_header_action(root_,"CLOSE",width-230,0,112);
    if(!button||!stock_function<void*(*)(void*,void(*)(void*),int,void*)>(lv_obj_add_event_cb)(button,&pressed,7,this)){close();return;}
-   if(!progress_.attach(root_,0,40,width-104,height-164)){close();return;}
   }
-  id_=id;progress_.update(print_preparation_view(data));
+  id_=id;auto view=print_preparation_view(data);
+  view["title_width"]=stock_function<int(*)(void*)>(lv_obj_get_content_width)(root_)-262;
+  progress_.update(view);
  }
 private:
+ static void stop_pressed(void*event)noexcept{try{
+  auto*self=static_cast<StockPrintPreparation*>(stock_function<void*(*)(void*)>(lv_event_get_user_data)(event));
+  auto*target=stock_function<void*(*)(void*)>(lv_event_get_target)(event);
+  if(!self||!stock_object_valid(self->root_)||!stock_object_valid(target)||stock_function<void*(*)(void*)>(lv_obj_get_parent)(target)!=self->root_||!self->stop)return;
+  self->stop();self->dismissed_=self->id_;self->close();
+ }catch(...){} }
  static void deleted(void*event)noexcept{try{
   auto*self=static_cast<StockPrintPreparation*>(stock_function<void*(*)(void*)>(lv_event_get_user_data)(event));
   if(self&&stock_function<void*(*)(void*)>(lv_event_get_target)(event)==self->root_)self->root_=nullptr;

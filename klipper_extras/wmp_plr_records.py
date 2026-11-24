@@ -163,7 +163,7 @@ class RecoveryAttempt:
         self.record.update(changes)
         self.persist(copy.deepcopy(self.record))
 
-    def run(self, request, stages, cancelled=lambda: False):
+    def run(self, request, stages, cancelled=lambda: False, owner=None, started=None):
         if self.busy:
             raise ValueError("Recovery attempt is running")
         self._validate_request(request)
@@ -175,34 +175,60 @@ class RecoveryAttempt:
                 or any(not isinstance(name, str) or not re.fullmatch(r"[a-z_]{1,48}", name) for name in names)
                 or any(len(stage) != 3 or not callable(stage[1]) or not callable(stage[2]) for stage in stages)):
             raise ValueError("Invalid recovery stages")
-        self.busy = True
-        self.record = {"version": 1, "request": copy.deepcopy(request), "state": "pending",
-                       "stages": [{"name": name, "state": "pending"} for name in names], "error": ""}
-        try:
-            self._save()
-            for index, (name, dispatch, verify) in enumerate(stages):
-                if cancelled():
-                    self._save(state="stopped", error="Recovery stopped before " + name)
-                    return copy.deepcopy(self.record)
-                self.record["stages"][index]["state"] = "running"
-                self._save(state="running")
-                dispatch()
-                if verify() is not True:
-                    raise ValueError("Recovery completion was not confirmed: " + name)
-                self.record["stages"][index]["state"] = "complete"
-                self._save()
-            self._save(state="complete")
-            return copy.deepcopy(self.record)
-        except Exception as error:
-            self.record.update(state="unknown", error=str(error))
+        expected = copy.deepcopy(request)
+        record = {"version": 1, "request": copy.deepcopy(expected), "state": "pending",
+                  "stages": [{"name": name, "state": "pending"} for name in names], "error": ""}
+        self.busy, self.record = True, record
+        def retained():
+            return self.record is record and record.get('request') == expected
+        def owned():
+            if not retained():
+                return False
             try:
-                self.persist(copy.deepcopy(self.record))
+                return (owner is None or owner() is True) and retained()
             except Exception:
-                # The previous on-disk pending/running record also restores as
-                # unknown. Keep the original failure rather than masking it.
-                pass
+                return False
+        def guard():
+            if not owned():
+                raise ValueError('Recovery attempt ownership changed')
+        def save(**changes):
+            guard()
+            self._save(**changes)
+            guard()
+        try:
+            if started is not None:
+                started(record)
+            save()
+            for index, (name, dispatch, verify) in enumerate(stages):
+                guard()
+                stopping = cancelled()
+                guard()
+                if stopping:
+                    save(state="stopped", error="Recovery stopped before " + name)
+                    return copy.deepcopy(record)
+                record["stages"][index]["state"] = "running"
+                save(state="running")
+                dispatch()
+                guard()
+                confirmed = verify()
+                guard()
+                if confirmed is not True:
+                    raise ValueError("Recovery completion was not confirmed: " + name)
+                record["stages"][index]["state"] = "complete"
+                save()
+            save(state="complete")
+            return copy.deepcopy(record)
+        except Exception as error:
+            if owned():
+                record.update(state="unknown", error=str(error))
+                try:
+                    self.persist(copy.deepcopy(record))
+                except Exception:
+                    # Retain the original error. Interrupted disk evidence is
+                    # still pending/running and restores as unknown.
+                    pass
             raise
         finally:
-            self.busy = False
-
-
+            # An old stack cannot clear a replacement attempt's busy flag.
+            if retained():
+                self.busy = False

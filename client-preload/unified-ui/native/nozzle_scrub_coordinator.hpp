@@ -97,6 +97,7 @@ class NozzleScrubCoordinator {
   if(brush&&!bound_locked()){request_.clear();flow_.close();*nozzle_scrub_vendor().rapid=0;}
  }
 public:
+ std::function<bool()> cancel_requested;
  // snapshot and now are Runtime's status snapshot and clock (seconds).
  // reserved and run_request are Runtime's calibration reservation and the
  // request of its binding, both guarded by mutex.
@@ -253,6 +254,7 @@ public:
   const int action=action_.exchange(ActionNone);
   {std::lock_guard<std::mutex>lock(mutex_);if(shown_==ScreenNone&&flow_.facts().state==ScrubState::Idle)return;}
   const auto data=snapshot_();const double now=now_();
+  const bool external=action==ActionCancel&&data.value("calibration_cancel_protocol",0)==2&&cancel_requested&&cancel_requested();
   // Any touch on the screen resets the display's inactive time, which the
   // client counts in its own (wall-clock) LVGL tick. A touch is a decrease of
   // that value since the previous GUI tick; it is reported at the previous
@@ -265,6 +267,7 @@ public:
   ScrubView view;bool start=false,brush=false,hold=false,bound=false;
   {std::lock_guard<std::mutex>lock(mutex_);
    if(touch)flow_.touched(touched_at);
+   if((external||data.value("maintenance_cancel_requested",false))&&data.value("maintenance_cancel_request",run_request_)==run_request_)flow_.cancel_out_of_band(now);
    flow_.observe(data,now);
    // The restore outcome of the result request, before the save's restart loses it.
    if(!result_request_.empty()&&data.value("fresh",false)&&data.contains("nozzle_touch")&&data["nozzle_touch"].is_object()){
@@ -272,11 +275,13 @@ public:
     if(touch.contains("request")&&touch["request"]==result_request_&&touch.contains("restore")&&touch["restore"].is_string())result_restore_=touch["restore"].get<std::string>();
    }
    if(action==ActionConfirm){start=flow_.confirm(now);brush=flow_.brush();}
-   else if(action==ActionCancel)flow_.cancel(now);
+   else if(action==ActionCancel&&!external&&(flow_.facts().state==ScrubState::Prepare||data.value("calibration_cancel_protocol",0)!=2))flow_.cancel(now);
   }
   if(start)start_from_prepare(brush);
   {std::lock_guard<std::mutex>lock(mutex_);
    view=nozzle_scrub_view(flow_.facts());hold=flow_.hold();bound=bound_locked();}
+  if(data.value("calibration_cancel_protocol",0)==2&&(view.state==ScrubState::Calibrate||view.state==ScrubState::Remeasure))view.cancel_visible=data.value("maintenance_cancel_available",false);
+  if(view.state==ScrubState::Cancelling&&!data.value("maintenance_cancel_message","").empty())view.body=data.value("maintenance_cancel_message","");
   bool cancel=false,close=false;
   if(view.state==ScrubState::Idle)dismiss();
   else if(view.state==ScrubState::Prepare){
@@ -303,11 +308,13 @@ public:
    // The worker returned. A failure stays on screen until BACK.
    if(!bound&&!(view.state==ScrubState::Failed&&shown_==ScreenShown))close=true;
   }
+  const bool auto_external=cancel&&view.state!=ScrubState::Prepare&&data.value("calibration_cancel_protocol",0)==2&&cancel_requested&&cancel_requested();
   if(cancel||close){
    std::lock_guard<std::mutex>lock(mutex_);
+   if(auto_external)flow_.cancel_out_of_band(now);
    // close with the flow still holding happens only after its worker has
    // returned (runtime shutdown); queued commands then have no sender left.
-   if(cancel||flow_.hold())flow_.cancel(now);
+   if(!auto_external&&(cancel||flow_.hold()))flow_.cancel(now);
    if(close){flow_.close();request_.clear();}
   }
   if(close||(cancel&&view.state==ScrubState::Prepare))dismiss();

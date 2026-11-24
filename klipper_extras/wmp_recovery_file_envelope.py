@@ -15,6 +15,14 @@ MAX_LINE = 8192
 NUMBER = r'[+-]?(?:\d+(?:\.\d*)?|\.\d+)'
 PARAM = re.compile(r'([A-Z])(' + NUMBER + r')')
 
+# Membership scans do not need coordinates. Validate the common ordered move
+# in C's regex engine rather than allocate a float/dictionary per parameter.
+# Restrict to short ASCII lines: <=256 characters bounds every decimal below
+# float overflow; all other syntax still goes through classified_command.
+_MEMBERSHIP_MOVE = re.compile(
+    r'[Gg][01]' + ''.join(r'(?:\s+' + key + NUMBER + r')?' for key in 'XYZEF'),
+    re.ASCII)
+
 
 def canonical(value):
     return json.dumps(value, sort_keys=True, separators=(',', ':'), allow_nan=False).encode()
@@ -101,6 +109,9 @@ class ToolUsage:
                 raise ValueError('File exceeds bounded supported tool scan')
             line = raw.split(b';', 1)[0].decode('ascii').strip()
             if not line: return
+            if (self.started and not self.ended and len(line) <= 256
+                    and _MEMBERSHIP_MOVE.fullmatch(line)):
+                return
             command, values = classified_command(line, self.started, self.ended)
             if command == 'START_PRINT':
                 self.started = True
@@ -220,6 +231,10 @@ def analyze(stream, execution, context, matrix, fade_target, proof, yield_hook=N
     return {'version':1, 'job_id':execution['job_id'], 'file_sha256':digest.hexdigest(), 'max_z':float(math.ceil(ceiling))}
 
 # Reviewed stock-transform and delivered macro effects, not arbitrary names.
+# Tool-service revisions add drained cooperative Stop boundaries and route XY
+# through the same fixed-corner helper directly, outside native G28's motor-off
+# catch. Completed tool changes keep their existing frame/mapping/return effects.
+# Only those exact reviewed bodies qualify; any further change still refuses.
 TRANSFORMS = {'bed_mesh': 'a003072f5b0884fdc94cc53c7cb3a8ee970e66591d8a3dbeb83abad4e1b530f7',
  'gcode_move': 'c65edf115d2170182959fa3f06fb554e6d05fba7875409fd9fec7f52d20873ff'}
 # Shared travel changes feed rate and XY only; its body must also be qualified.
@@ -246,18 +261,18 @@ MACROS = {'_WMP_XY_TRAVEL': 'e2692203ee8cb089b130c601c7dd3795827cb1312c0d66985f3
  'UNLOCK_TOOL_FINISH': 'a290e3b161cd9cbc097f6c29e5a16f880f1526ac664464ff09ab54e644300dd2',
  'WIPE_NOZZLE': '1d1c1a194372037785d7e227f5d01d7a13a80ae1740cc60dfb520ec43b622473',
  '_CHANGE_TOOL': 'b1ccde7a4e349193a7ef3c7442014b10f4ff44e4aeca7a4106275f692bae0ff9',
- '_CHANGING_TOOL': 'b00bad338d3dd4c6cc08c3f02a0f2afb48d03dae279a922edd99a54ce815aede',
+ '_CHANGING_TOOL': '163e5b3fc3ae2ca3a38549c681307056b0d07c5c1c22c84566463eec5251a28f',
  '_CHECK_AND_LOCK': '887f1ea2574052299ec08f54c87615a6838bf9f3be7b675cf57ff367bd312ccf',
  '_CHECK_AND_UNLOCK': '4c089f602e3059bcb6a82834c3ec7944acd8c26c0e687f34d7b28dbcfcbb7186',
- '_CHECK_CHANGE_TOOL': '7b32827f578cb59916c1c8a239efff2882dd422d0fd8e5d905bfa384357c39a7',
+ '_CHECK_CHANGE_TOOL': '8829f380066d3ebfd139dd804ce3a699aeb44301583e7b1ef6a0808005e3259a',
  '_CHECK_CHANGE_TOOL_AGAIN': '1a13bb77f05507db06c53210d5abb8d66bee038a4d24af99c574ce6ba2e24eaa',
  '_CHECK_T_SEQUENCE': '46ce7be73d491ddb0f1df2994d341624cf5f23e8b8d25470f52daecc3b8c5b23',
  '_ENABLE_SENSOR': 'd6fec5f6362847e2fe7f5411d10c9a382500e44f8796c3ea6549f1cdb3af1889',
  '_LOCK_CHECK': 'f0ddd66e7c1ffebe267dfb04b5c02409b6ac6d7e771fdcbfb95ad7f892b8a7c5',
- '_LOCK_TOOL': '90e973e4dfd7d04a1cd467f509517d5f5edb12ac7cb8c35fc816b931b3683960',
+ '_LOCK_TOOL': '88edbb41e11f365d34bd18c7dad0fcbf7a693016305890e55cba11e504e1b4a1',
  '_LOCK_TOOL_FINISH': 'aca105d157c4b38e7a570edaa54f0c5eaaec96ba494da2b2d95ef4aa3fea8133',
  '_OFFSET_SET': 'b9c8f8c2f06456c3909f306ee02618a7b66ebcb4c5e4c6ebe601dc7232f1bbb9',
- '_UNLOCK_TOOL': 'e544b9037aea6d45ce744842ffee11bd3bfb83164dc9b6aae14aa82de81fd400',
+ '_UNLOCK_TOOL': 'ed45314510a9d733662b3431a03393761b12bfd6cef3bead687cc218feca9b15',
  '_WAIT_TOOL_TEMPERATURE': 'e473d8f078be682a9f15c413a7c77d707773d07f56c04a52181688edba957d72',
  '_WMP_ABORT_DOCKING': 'f10414b038b0e38918d7f05bf089c2e10286c86fcf7a507ba59a409e794b3b44',
  '_WMP_CALIBRATION_CLEARANCE': '198fbd7b8a9dc0e1fc1ed3fd429e2fe45430ec28a8d8fe1e8a0b14094193de1c',
@@ -267,8 +282,9 @@ MACROS = {'_WMP_XY_TRAVEL': 'e2692203ee8cb089b130c601c7dd3795827cb1312c0d66985f3
  # Clearance refusal now pauses at a typed, non-extruding stage boundary.
  # Successful stock movement/offset effects are unchanged; explicit retries
  # preserve the original return context and never replay completed wiping.
- '_WMP_TOOL_RETURN_BEGIN': '8c794eec2350652e75ea46ace1eb3f0f832682a25914708b1dddf271b16e1a75',
- '_WMP_TOOL_RETURN_FINISH': '66a330b655f72f0073a97f5c8027d3ce3ddd978c89b7049a2048cbb131119873',
+ # Separate completed-success bookkeeping changes no movement or heater effects.
+ '_WMP_TOOL_RETURN_BEGIN': '11af5d268c8d0ad6ed4e49c0aaaaf74b5f5e3241d0924b9dc3046e7b0b6cf84f',
+ '_WMP_TOOL_RETURN_FINISH': '6c52142a076c282fb105defb09e7c8649c0635440980a6d7f304f1c524e6ed50',
  '_check_current_extruder_value': '13de8759f4b80eeb054ef0e77b6a49634a66dcf6fe1788477c39ce47bd5602a2',
  '_check_hall_sensor': '1c674898d630f7826dab40ecdaf6e5ac6def92d12f17f8e9a4a2662614900778',
  '_check_tool_exist': '9863f9466d26cae0b6f63d4c78315cd25c026b764162f9ad370f493525aa9862',

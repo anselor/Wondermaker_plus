@@ -138,3 +138,45 @@ def test_pause_arriving_during_pickup_stops_further_motion(files):
     pick = hardware.commands.index('_CHANGE_TOOL T=0')
     assert hardware.commands[pick + 1:] == ['M400', 'SAVE_VARIABLE VARIABLE=is_nozzle_setting VALUE=0']
     assert snapshot(files) == before
+
+
+@pytest.mark.parametrize('loss', ['before_cleanup', 'during_clear', 'during_readback', 'unavailable'])
+def test_replaced_owner_never_receives_identification_cleanup_or_shutdown(files, loss):
+    hardware = Hardware();hardware.fail_command = '_CHANGE_TOOL T=1'
+    owned = [True];clearing = [False]
+    def authorized():
+        if loss == 'unavailable': raise ValueError('ownership evidence unavailable')
+        return owned[0]
+    def execute(command):
+        if command == hardware.fail_command and loss == 'before_cleanup': owned[0] = False
+        if command == 'SAVE_VARIABLE VARIABLE=is_nozzle_setting VALUE=0':
+            clearing[0] = True
+            if loss == 'during_clear': owned[0] = False
+        hardware.execute(command)
+    def observe():
+        result = hardware.observe()
+        if clearing[0] and loss == 'during_readback': owned[0] = False
+        return result
+    operation = module.IdentificationSession(module.MappingTransaction(files, 4),
+        observe, execute, hardware.shutdowns.append, cleanup_owned=authorized)
+    before = snapshot(files)
+    with pytest.raises(RuntimeError, match='injected command failure'): operation.run()
+    assert not hardware.shutdowns
+    assert operation.status()['mode_cleanup'] == 'unconfirmed'
+    assert operation.mode_may_be_set
+    assert snapshot(files) == before
+    if loss in ('before_cleanup', 'unavailable'):
+        assert hardware.state['identifying']
+        assert hardware.commands[-1] == '_CHANGE_TOOL T=1'
+    else:
+        assert hardware.commands[-1] == 'SAVE_VARIABLE VARIABLE=is_nozzle_setting VALUE=0'
+
+
+def test_owned_mode_clear_failure_retains_original_shutdown(files):
+    hardware = Hardware();hardware.fail_command = '_CHANGE_TOOL T=1';hardware.mode_clear_error = True
+    operation = module.IdentificationSession(module.MappingTransaction(files, 4),
+        hardware.observe, hardware.execute, hardware.shutdowns.append, cleanup_owned=lambda: True)
+    with pytest.raises(RuntimeError, match='injected command failure'): operation.run()
+    assert len(hardware.shutdowns) == 1
+    assert operation.status()['mode_cleanup'] == 'failed'
+    assert hardware.state['identifying']

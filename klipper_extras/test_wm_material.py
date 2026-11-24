@@ -39,6 +39,21 @@ import pytest
 from wm_material import WMMaterial
 
 
+@pytest.fixture(autouse=True)
+def filament_command_actor(monkeypatch):
+    # This hardware harness is synchronous; explicit actor-switch tests below
+    # model reactor callbacks without requiring Klipper's greenlet extension.
+    from wmp_filament_service import FilamentService
+    from wmp_toolhead_service import ToolheadService
+    from wmp_plr_attempt import RecoveryLifecycle
+    from wmp_stop_points import StopPoints
+    actor = object()
+    monkeypatch.setattr(FilamentService, '_current_actor', staticmethod(lambda: actor))
+    monkeypatch.setattr(ToolheadService, '_current_actor', staticmethod(lambda: actor))
+    monkeypatch.setattr(RecoveryLifecycle, '_current_actor', staticmethod(lambda: actor))
+    monkeypatch.setattr(StopPoints, '_current_actor', staticmethod(lambda: actor))
+
+
 class FakeCommand:
     def __init__(self, **args):
         self.args = args
@@ -1663,6 +1678,7 @@ def toolhead_material(service_material):
     from contextlib import nullcontext
     material, objects, state = service_material
     material.toolhead_operation = {}
+    material.printer.is_shutdown = lambda: False
     material._toolhead_requests = set()
     scripts, callbacks = [], []
     objects['gcode_macro _CHANGE_TOOL'] = object()
@@ -1685,7 +1701,7 @@ def test_toolhead_take_uses_physical_macro_and_waits_for_callback(toolhead_mater
     assert material.toolhead_operation['phase'] == 'checking'
     assert [s['phase'] for s in material.toolhead_operation['steps']] == ['checking', 'moving', 'verifying']
     callbacks.pop()(1)
-    assert '_CHANGE_TOOL T=2' in scripts
+    assert '_CHANGE_TOOL T=2' in scripts, material.toolhead_operation.get('message')
     assert not any(s in ('T0', 'T1', 'T2', 'T3') for s in scripts)
     assert scripts[0] == 'SAVE_VARIABLE VARIABLE=current_extruder VALUE=2'
     assert material.toolhead_operation['state'] == 'complete'
@@ -2519,6 +2535,7 @@ def test_filament_service_mount_failure_turns_early_heating_off(service_material
     material, objects, state = service_material
     material._material_status()._attachment = lambda now: {'state': 'empty', 'head': ''}
     plan = material._filament_plan(2, 'load', 1)
+    material.filament_operation = dict(id='mount-failure',session=material.session_id,head='h2',action='load',state='running')
     heater = {'temperature': 25, 'target': 0, 'can_extrude': False}
     objects['extruder2'] = SimpleNamespace(get_status=lambda now: dict(heater))
     calls = []
@@ -2735,7 +2752,7 @@ def test_paused_load_preserves_origin_and_only_allows_resume_after_full_completi
     plan = material._filament_plan(2, 'load', 1)
     before = deepcopy(objects['gcode_move'].saved_states)
     material._pause_origin.update(serviced=True, ready=False)
-    material.filament_operation = {'state': 'running', 'head': 'h2', 'pause_origin': plan['pause_origin']}
+    material.filament_operation = {'id': 'paused-service', 'session': material.session_id, 'action': plan['action'], 'state': 'running', 'head': 'h2', 'pause_origin': plan['pause_origin']}
     heater = {'temperature': 250, 'target': 0, 'can_extrude': True}
     objects['extruder2'] = SimpleNamespace(get_status=lambda now: dict(heater))
     calls, feeds = [], []
@@ -3523,7 +3540,7 @@ def test_cross_head_paused_load_returns_origin_without_touching_z(paused_origin_
     assert plan['service']['restore_offset'] == pytest.approx([0.5, 0.3, 0.25])
     assert plan['service']['return_offset'] == [0.2, -0.1, 0.05]
     material._pause_origin.update(serviced=True, ready=False)
-    material.filament_operation = {'state': 'running', 'head': 'h3', 'pause_origin': plan['pause_origin']}
+    material.filament_operation = {'id': 'paused-service', 'session': material.session_id, 'action': plan['action'], 'state': 'running', 'head': 'h3', 'pause_origin': plan['pause_origin']}
     if failure in ('none', 'unrelated'):
         material._filament_service()._execute_filament(FakeCommand(), 3, action, plan)
         assert mounted['head'] == 'h2'
@@ -4711,6 +4728,7 @@ def test_execution_timer_reuses_handle_and_stops(execution_snapshot_machine):
 def execution_review_machine(completed_execution):
     from pathlib import Path
     material, objects, states = completed_execution
+    objects['wm_material'] = material
     material.printer.state = 'standby'
     states['print_stats']['state'] = 'standby'
     states['toolhead'].update(axis_minimum=[0., 0., 0.], axis_maximum=[300., 300., 300.])
@@ -5828,7 +5846,10 @@ def test_recovery_file_stage_failure_retains_attempt_without_start(recovery_refe
     with pytest.raises((ValueError, RuntimeError)):
         material._run_recovery_stages(request, review, material._recovery_initial_stages(review))
     receipt = material._recovery_attempt.record
-    assert receipt['state'] == 'unknown'
+    # After manager handoff, preserve the last owned journal rather than
+    # rewriting it or cleaning the replacement owner's machine.
+    assert receipt['state'] == ('running' if failure == 'owner_after_load' else 'unknown')
+    if failure == 'owner_after_load': assert 'cleanup' not in receipt
     assert receipt['stages'][-1] == {'name': 'select_file', 'state': 'running'}
     assert {'name': 'restore_parser', 'state': 'complete'} in receipt['stages']
     assert sd.work_timer is None and not sd.is_active()
@@ -10155,7 +10176,7 @@ def test_fault_load_actual_completion_keeps_print_origin_and_marks_required(faul
     plan = material._filament_plan(2, 'load', 1)
     record = material._toolchange_pause
     original = dict(record['context'])
-    material.filament_operation = {'state': 'running', 'head': 'h2', 'pause_origin': plan['pause_origin']}
+    material.filament_operation = {'id': 'paused-service', 'session': material.session_id, 'action': plan['action'], 'state': 'running', 'head': 'h2', 'pause_origin': plan['pause_origin']}
     heater = {'temperature': 250, 'target': 0, 'can_extrude': True}
     objects['extruder2'] = SimpleNamespace(get_status=lambda now: dict(heater))
     calls = []
@@ -10174,12 +10195,12 @@ def test_fault_load_actual_completion_keeps_print_origin_and_marks_required(faul
     # Exercise the real unload/load execution entrypoints in the same fault
     # pause. A successful unload is not permission to resume without material.
     unload = material._filament_plan(2, 'unload', 1)
-    material.filament_operation = {'state': 'running', 'head': 'h2', 'pause_origin': unload['pause_origin']}
+    material.filament_operation = {'id': 'paused-service', 'session': material.session_id, 'action': unload['action'], 'state': 'running', 'head': 'h2', 'pause_origin': unload['pause_origin']}
     material._filament_service()._execute_filament(FakeCommand(), 2, 'unload', unload)
     with pytest.raises(ValueError, match='Load or check filament in Head 3'):
         material._toolchange_repair()._check_fault_service_complete(record, 1)
     reload = material._filament_plan(2, 'load', 1)
-    material.filament_operation = {'state': 'running', 'head': 'h2', 'pause_origin': reload['pause_origin']}
+    material.filament_operation = {'id': 'paused-service', 'session': material.session_id, 'action': reload['action'], 'state': 'running', 'head': 'h2', 'pause_origin': reload['pause_origin']}
     material._filament_service()._execute_filament(FakeCommand(), 2, 'load', reload)
     material._toolchange_repair()._check_fault_service_complete(record, 1)
     assert record['context'] == original and record['logical_e'] == 42.
@@ -10494,3 +10515,839 @@ def test_runout_ownership_requires_all_guarded_sensors_and_standalone():
         owners[owner] = object()
         assert not state._runout_owned()
         owners.clear()
+
+
+@pytest.mark.parametrize('phase', ['homing', 'docking', 'mounting', 'positioning'])
+def test_filament_cancel_between_service_stages_preserves_head_frame(service_material, phase):
+    from types import SimpleNamespace
+    from wmp_filament_types import FilamentCancelled
+    from wmp_stop_points import check_operation_boundary
+    material, objects, state = service_material
+    objects['wm_material'] = material
+    attachment = {'state':'attached','head':'h0'}
+    material._material_status()._attachment = lambda now:dict(attachment)
+    state['toolhead']['homed_axes'] = '' if phase=='homing' else 'xyz'
+    state['save_variables']['variables'].update(current_extruder=0, fail_flag=0,
+                                               t2_offset=[.3,.2,.1])
+    heater={'temperature':25,'target':0,'can_extrude':False}
+    objects['extruder2']=SimpleNamespace(get_status=lambda now:dict(heater))
+    plan=material._filament_plan(2,'load',1)
+    material.filament_operation=dict(id='cancel-test',session=material.session_id,head='h2',action='load',state='running')
+    calls=[];frame=[0.,0.,0.]
+    def cancel():material._handle_filament_cancel(cancellation_request(material))
+    def run(script):
+        calls.append(script)
+        if script.startswith('G28 X Y'):
+            if phase=='homing':
+                cancel()
+                check_operation_boundary(material.printer,'after Y homing')
+                pytest.fail('homing proceeded to X after Cancel')
+            state['toolhead']['homed_axes']='xyz'
+        elif script.startswith('_UNLOCK_TOOL '):
+            attachment.update(state='empty',head='')
+            state['save_variables']['variables']['current_extruder']=99
+            if phase=='docking':cancel()
+        elif script.startswith('_LOCK_TOOL '):
+            attachment.update(state='attached',head='h2')
+            if phase=='mounting':cancel()
+        elif script.startswith('_WMP_XY_TRAVEL X=-13'):
+            if phase=='positioning':cancel()
+        for line in script.splitlines():
+            if line.startswith('SET_HEATER_TEMPERATURE '):heater['target']=float(line.split('TARGET=')[1])
+            elif line.startswith('SET_GCODE_OFFSET '):
+                args=dict(word.split('=') for word in line.split()[1:])
+                assert args['MOVE']=='0'
+                frame[:]=[float(args[key]) for key in ('X','Y','Z')]
+            elif line.startswith('ACTIVATE_EXTRUDER '):state['toolhead']['extruder']='extruder2'
+            elif line.startswith('SAVE_VARIABLE VARIABLE=current_extruder '):state['save_variables']['variables']['current_extruder']=int(line.split('VALUE=')[1])
+    objects['gcode']=SimpleNamespace(run_script_from_command=run)
+    with pytest.raises(FilamentCancelled):
+        material._filament_service()._execute_filament(FakeCommand(),2,'load',plan)
+    operation=material.filament_operation
+    assert operation['state']=='failed' and operation['cancelled'] is True
+    assert calls[-2:] == ['M400','SET_HEATER_TEMPERATURE HEATER=extruder2 TARGET=0']
+    assert heater['target']==0 and material._filament_service()._boundary_scope is None
+    if phase=='homing':
+        assert calls[0]=='G28 X Y\nM400' and not any('_LOCK_TOOL' in line or '_UNLOCK_TOOL' in line for line in calls)
+    elif phase=='docking':
+        assert state['save_variables']['variables']['current_extruder']==99 and attachment['state']=='empty'
+        assert not any('_LOCK_TOOL' in line for line in calls)
+    else:
+        assert state['save_variables']['variables']['current_extruder']==2 and attachment['head']=='h2'
+        assert state['toolhead']['extruder']=='extruder2' and frame==[.3,.2,.1]
+        if phase=='mounting':assert not any('_WMP_XY_TRAVEL' in line for line in calls)
+
+
+def test_filament_stop_boundary_ignores_foreign_reactor_actor(service_material):
+    from types import SimpleNamespace
+    from wmp_filament_types import FilamentCancelled
+    from wmp_stop_points import check_operation_boundary
+    material,objects,state=service_material
+    objects['wm_material']=material
+    service=material._filament_service();actor=[object()]
+    service._current_actor=lambda:actor[0]
+    material.filament_operation=dict(id='cancel-test',session=material.session_id,head='h2',state='running',action='load')
+    def execute(*args):
+        material._handle_filament_cancel(cancellation_request(material))
+        command=actor[0];actor[0]=object()
+        check_operation_boundary(material.printer,'after Y homing')
+        assert 'cancel_phase' not in material.filament_operation
+        actor[0]=command
+        check_operation_boundary(material.printer,'after Y homing')
+        pytest.fail('command actor failed to stop')
+    service._execute_filament_impl=execute
+    with pytest.raises(FilamentCancelled,match='after Y homing'):
+        service._execute_filament(FakeCommand(),2,'load',{})
+    assert service._boundary_scope is None
+
+
+def test_replaced_filament_owner_receives_no_old_cleanup_commands(service_material):
+    from types import SimpleNamespace
+    from wmp_stop_points import check_operation_boundary
+    material,objects,state=service_material
+    objects['wm_material']=material
+    state['toolhead']['homed_axes']=''
+    material.filament_operation=dict(id='cancel-test',session=material.session_id,head='h2',state='running',action='load')
+    plan=material._filament_plan(2,'load',1)
+    replacement=dict(id='replacement',session=material.session_id,head='h1',state='running',action='load')
+    calls=[]
+    def run(script):
+        calls.append(script)
+        material.filament_operation=dict(replacement)
+        check_operation_boundary(material.printer,'after Y homing')
+    objects['gcode']=SimpleNamespace(run_script_from_command=run)
+    with pytest.raises(ValueError,match='owner changed'):
+        material._filament_service()._execute_filament(FakeCommand(),2,'load',plan)
+    assert calls==['G28 X Y\nM400']
+    assert material.filament_operation==replacement
+
+
+@pytest.mark.parametrize('stage,code',[('docking',-3),('mounting',-2)])
+def test_filament_owned_tool_fault_keeps_cooldown_but_not_cancel_outcome(service_material,stage,code):
+    from types import SimpleNamespace
+    material,objects,state=service_material
+    material._command_generation=0
+    material._material_status()._attachment=lambda now:{'state':'attached','head':'h0'}
+    heater={'temperature':25,'target':0,'can_extrude':False}
+    objects['extruder2']=SimpleNamespace(get_status=lambda now:dict(heater))
+    plan=material._filament_plan(2,'load',1)
+    material.filament_operation=dict(id='cancel-test',session=material.session_id,head='h2',state='running',action='load')
+    calls=[]
+    def run(script):
+        calls.append(script)
+        if script.startswith('SET_HEATER_TEMPERATURE '):heater['target']=float(script.split('TARGET=')[1])
+        selected=script.startswith('_UNLOCK_TOOL ') if stage=='docking' else script.startswith('_LOCK_TOOL ')
+        if selected:
+            material._handle_filament_cancel(cancellation_request(material))
+            state['save_variables']['variables']['fail_flag']=code
+            material._command_generation+=1
+            error=ValueError('coupling fault remains primary')
+            error.wmp_toolchange_fault=(code,'coupling_stroke')
+            raise error
+    objects['gcode']=SimpleNamespace(run_script_from_command=run)
+    with pytest.raises(ValueError,match='coupling fault remains primary'):
+        material._filament_service()._execute_filament(FakeCommand(),2,'load',plan)
+    assert material.filament_operation['state']=='failed'
+    assert material.filament_operation['cancelled'] is False and heater['target']==0
+    assert state['save_variables']['variables']['fail_flag']==code
+    assert calls[-2:]==['M400','SET_HEATER_TEMPERATURE HEATER=extruder2 TARGET=0']
+
+
+def test_filament_replacement_during_cleanup_wait_keeps_new_target(service_material):
+    from types import SimpleNamespace
+    from wmp_filament_types import FilamentCancelled
+    material,objects,state=service_material
+    heater={'temperature':25,'target':0,'can_extrude':False}
+    objects['extruder2']=SimpleNamespace(get_status=lambda now:dict(heater))
+    plan=material._filament_plan(2,'load',1)
+    material.filament_operation=dict(id='cancel-test',session=material.session_id,head='h2',state='running',action='load')
+    replacement=dict(id='replacement',session=material.session_id,head='h1',state='running',action='load')
+    calls=[]
+    def prepare(head,context):
+        heater['target']=250
+        material._handle_filament_cancel(cancellation_request(material))
+        material._filament_checkpoint('preparing')
+    material._filament_planning()._prepare_service=prepare
+    def run(script):
+        calls.append(script)
+        assert script=='M400'
+        material.filament_operation=dict(replacement)
+        heater['target']=222
+    objects['gcode']=SimpleNamespace(run_script_from_command=run)
+    with pytest.raises(FilamentCancelled):
+        material._filament_service()._execute_filament(FakeCommand(),2,'load',plan)
+    assert calls==['M400'] and heater['target']==222
+    assert material.filament_operation==replacement
+
+
+def test_nested_filament_stop_uses_stock_command_error_without_shutdown(service_material):
+    import importlib.util
+    from types import SimpleNamespace
+    from wmp_stop_points import check_operation_boundary
+    path=Path(__file__).resolve().parents[1]/'analysis/fw_1.1.13_payload/root/home/t13dp/klipper/klippy/gcode.py'
+    if not path.is_file():pytest.skip('retained stock dispatcher required')
+    spec=importlib.util.spec_from_file_location('stock_filament_stop_dispatch',path)
+    vendor=importlib.util.module_from_spec(spec);spec.loader.exec_module(vendor)
+    material,objects,state=service_material
+    objects['wm_material']=material
+    material.printer.command_error=vendor.CommandError;material.printer.quick_stop_flag=False
+    material.printer.invoke_shutdown=lambda message:pytest.fail('normal Cancel shut down: '+message)
+    events=[];material.printer.send_event=lambda name:events.append(name)
+    state['toolhead']['homed_axes']=''
+    plan=material._filament_plan(2,'load',1)
+    material.filament_operation=dict(id='cancel-test',session=material.session_id,head='h2',state='running',action='load')
+    dispatcher=vendor.GCodeDispatch.__new__(vendor.GCodeDispatch)
+    dispatcher.printer=material.printer
+    dispatcher.respond_info=dispatcher.respond_raw=dispatcher._respond_error=lambda message:None
+    dispatcher.gcode_handlers={'_WMP_FILAMENT_BOUNDARY':lambda command:check_operation_boundary(material.printer,'after Y homing')}
+    dispatcher.cmd_default=lambda command:pytest.fail('unexpected nested command')
+    heater={'target':0,'temperature':25,'can_extrude':False};calls=[]
+    objects['extruder2']=SimpleNamespace(get_status=lambda now:dict(heater))
+    def run(script):
+        calls.append(script)
+        if script.startswith('G28'):
+            material._handle_filament_cancel(cancellation_request(material))
+            dispatcher.run_script_from_command('_WMP_FILAMENT_BOUNDARY')
+            pytest.fail('continued beyond nested stop')
+        if script.startswith('SET_HEATER_TEMPERATURE '):heater['target']=float(script.split('TARGET=')[1])
+    objects['gcode']=SimpleNamespace(run_script_from_command=run)
+    with pytest.raises(vendor.CommandError,match='Filament operation cancelled; stopped after Y homing'):
+        material._filament_service()._execute_filament(FakeCommand(),2,'load',plan)
+    assert events==['gcode:command_error']
+    assert material.filament_operation['cancelled'] is True and material.filament_operation['state']=='failed'
+    assert calls[-2:]==['M400','SET_HEATER_TEMPERATURE HEATER=extruder2 TARGET=0']
+
+
+# Standalone tool service uses the same macro/homing stop points as filament
+# service, but owns neither a heater change nor an automatic cancellation park.
+def toolhead_cancel_request(material, **updates):
+    op = material.toolhead_operation
+    params = {key: op[key] for key in ('id', 'session', 'head', 'action')}
+    params.update(updates)
+    return CancelWebRequest(**params)
+
+
+def test_toolhead_cancel_before_callback_never_moves(toolhead_material):
+    material, objects, state, scripts, callbacks = toolhead_material
+    material.cmd_TOOLHEAD_ACTION(toolhead_command(material))
+    request = toolhead_cancel_request(material)
+    material._handle_toolhead_cancel(request)
+    assert request.response['state'] == 'requested' and scripts == []
+    callbacks.pop()(1.)
+    assert scripts == []
+    assert material.toolhead_operation['state'] == 'refused'
+    assert material.toolhead_operation['cancelled'] is True
+    assert material.toolhead_operation['cancel_cleanup'] == 'not_started'
+
+
+@pytest.mark.parametrize('defect', ['id', 'session', 'head', 'action', 'generation', 'owner', 'terminal'])
+def test_toolhead_cancel_rejects_changed_binding(toolhead_material, defect):
+    material, objects, state, scripts, callbacks = toolhead_material
+    material.cmd_TOOLHEAD_ACTION(toolhead_command(material))
+    request = toolhead_cancel_request(material, **({defect: 'wrong'} if defect in ('id', 'session', 'head', 'action') else {}))
+    if defect == 'generation': material._command_generation = getattr(material, '_command_generation', 0) + 1
+    if defect == 'owner': objects['openace'] = object()
+    if defect == 'terminal': material.toolhead_operation['state'] = 'complete'
+    with pytest.raises(ValueError): material._handle_toolhead_cancel(request)
+    assert not material.toolhead_operation.get('cancel_requested') and scripts == []
+
+
+@pytest.mark.parametrize('action', ['take', 'dock'])
+@pytest.mark.parametrize('phase', ['after X homing', 'after tool docking', 'before tool wiping'])
+def test_toolhead_cancel_shared_boundary_holds_without_additional_motion(toolhead_material, action, phase):
+    from wmp_stop_points import check_operation_boundary
+    material, objects, state, scripts, callbacks = toolhead_material
+    objects['wm_material'] = material
+    material.cmd_TOOLHEAD_ACTION(toolhead_command(material, ACTION=action))
+    def run(line):
+        scripts.append(line)
+        if line.startswith(('_CHANGE_TOOL ', 'PARK_CURRENT_TOOL')):
+            material._handle_toolhead_cancel(toolhead_cancel_request(material))
+            check_operation_boundary(material.printer, phase)
+            scripts.append('UNREACHABLE NEXT MOTION')
+    objects['gcode'].run_script_from_command = run
+    callbacks.pop()(1.)
+    op = material.toolhead_operation
+    assert op['state'] == 'unknown' and op['cancelled'] is True
+    assert op['cancel_phase'] == phase and op['cancel_cleanup'] == 'held'
+    assert scripts[-1] == 'M400' and 'UNREACHABLE NEXT MOTION' not in scripts
+    assert not any(line.startswith(('G0', 'G1', 'M84', 'SET_HEATER_TEMPERATURE')) for line in scripts)
+    with pytest.raises(ValueError): material._handle_toolhead_cancel(toolhead_cancel_request(material))
+
+
+def test_toolhead_cancel_foreign_actor_does_not_unwind(toolhead_material, monkeypatch):
+    material, objects, state, scripts, callbacks = toolhead_material
+    service = material._toolheads()
+    actor, foreign = object(), object()
+    current = [actor]
+    monkeypatch.setattr(service, '_current_actor', lambda: current[0])
+    material.cmd_TOOLHEAD_ACTION(toolhead_command(material))
+    def run(line):
+        scripts.append(line)
+        if line.startswith('_CHANGE_TOOL '):
+            material._handle_toolhead_cancel(toolhead_cancel_request(material))
+            current[0] = foreign
+            assert service.wait_owner() is None
+            service.check_operation_boundary('foreign callback')
+            current[0] = actor
+            assert service.wait_owner() is service
+            service.check_operation_boundary('after mount')
+    objects['gcode'].run_script_from_command = run
+    callbacks.pop()(1.)
+    assert material.toolhead_operation['cancel_phase'] == 'after mount'
+
+
+@pytest.mark.parametrize('change', ['replacement', 'session', 'generation', 'owner'])
+def test_toolhead_cancel_loses_cleanup_authority_on_context_change(toolhead_material, change):
+    material, objects, state, scripts, callbacks = toolhead_material
+    service = material._toolheads()
+    material.cmd_TOOLHEAD_ACTION(toolhead_command(material))
+    original = material.toolhead_operation
+    def run(line):
+        scripts.append(line)
+        if line.startswith('_CHANGE_TOOL '):
+            material._handle_toolhead_cancel(toolhead_cancel_request(material))
+            if change == 'replacement': material.toolhead_operation = {'id': 'new', 'state': 'running'}
+            if change == 'session': material.session_id = 'new'
+            if change == 'generation': material._command_generation = getattr(material, '_command_generation', 0) + 1
+            if change == 'owner': objects['AFC'] = object()
+            service.check_operation_boundary('after mount')
+    objects['gcode'].run_script_from_command = run
+    callbacks.pop()(1.)
+    assert 'M400' not in scripts
+    assert not original.get('cancelled')
+    if change == 'replacement': assert material.toolhead_operation == {'id': 'new', 'state': 'running'}
+    else: assert material.toolhead_operation['state'] == 'unknown'
+
+
+def test_toolhead_cancel_preserves_real_sensor_fault(toolhead_material):
+    material, objects, state, scripts, callbacks = toolhead_material
+    material.cmd_TOOLHEAD_ACTION(toolhead_command(material))
+    def run(line):
+        scripts.append(line)
+        if line.startswith('_CHANGE_TOOL '):
+            material._handle_toolhead_cancel(toolhead_cancel_request(material))
+            state['save_variables']['variables']['fail_flag'] = -2
+            material._toolheads().check_operation_boundary('after mount')
+    objects['gcode'].run_script_from_command = run
+    callbacks.pop()(1.)
+    assert material.toolhead_operation['state'] == 'unknown'
+    assert not material.toolhead_operation.get('cancelled')
+    assert 'fault' in material.toolhead_operation['message']
+    assert 'M400' not in scripts
+
+
+@pytest.mark.parametrize('change', ['generation', 'fault'])
+def test_toolhead_cancel_rechecks_authority_after_draining(toolhead_material, change):
+    material, objects, state, scripts, callbacks = toolhead_material
+    material.cmd_TOOLHEAD_ACTION(toolhead_command(material))
+    generation = getattr(material, '_command_generation', 0)
+    def run(line):
+        scripts.append(line)
+        if line.startswith('_CHANGE_TOOL '):
+            material._handle_toolhead_cancel(toolhead_cancel_request(material))
+            material._toolheads().check_operation_boundary('after mount')
+        if line == 'M400':
+            if change == 'generation': material._command_generation = generation + 1
+            else: state['save_variables']['variables']['fail_flag'] = -2
+    objects['gcode'].run_script_from_command = run
+    callbacks.pop()(1.)
+    assert scripts[-1] == 'M400'
+    assert material.toolhead_operation['state'] == 'unknown'
+    assert not material.toolhead_operation.get('cancelled')
+    if change == 'generation': assert material._command_generation == generation + 1
+
+
+def test_nested_toolhead_cancel_uses_stock_command_error_without_shutdown(toolhead_material):
+    import importlib.util
+    from wmp_stop_points import check_operation_boundary
+    path = Path(__file__).resolve().parents[1] / 'analysis/fw_1.1.13_payload/root/home/t13dp/klipper/klippy/gcode.py'
+    if not path.is_file(): pytest.skip('retained stock dispatcher required')
+    spec = importlib.util.spec_from_file_location('stock_toolhead_stop_dispatch', path)
+    vendor = importlib.util.module_from_spec(spec);spec.loader.exec_module(vendor)
+    material, objects, state, scripts, callbacks = toolhead_material
+    objects['wm_material'] = material
+    material.printer.command_error = vendor.CommandError
+    material.printer.quick_stop_flag = False
+    material.printer.invoke_shutdown = lambda message: pytest.fail('normal Cancel shut down: ' + message)
+    events = [];material.printer.send_event = lambda name: events.append(name)
+    dispatcher = vendor.GCodeDispatch.__new__(vendor.GCodeDispatch)
+    dispatcher.printer = material.printer
+    dispatcher.respond_info = dispatcher.respond_raw = dispatcher._respond_error = lambda message: None
+    dispatcher.gcode_handlers = {'_BOUNDARY': lambda command: check_operation_boundary(material.printer, 'after tool docking')}
+    dispatcher.cmd_default = lambda command: pytest.fail('unexpected command')
+    material.cmd_TOOLHEAD_ACTION(toolhead_command(material))
+    def run(line):
+        scripts.append(line)
+        if line.startswith('_CHANGE_TOOL '):
+            material._handle_toolhead_cancel(toolhead_cancel_request(material))
+            dispatcher.run_script_from_command('_BOUNDARY')
+            pytest.fail('continued after stop')
+    objects['gcode'].run_script_from_command = run
+    callbacks.pop()(1.)
+    assert events == ['gcode:command_error']
+    assert material.toolhead_operation['cancelled'] is True and scripts[-1] == 'M400'
+
+
+@pytest.mark.parametrize('change', ['cancel', 'owner'])
+def test_toolhead_cancel_breaks_owned_heater_wait_without_changing_target(toolhead_material, change):
+    from types import SimpleNamespace
+    material, objects, state, scripts, callbacks = toolhead_material
+    polls = []
+    heater = SimpleNamespace(name='extruder2', get_name=lambda: 'extruder2', check_busy=lambda now: True)
+    objects['heaters'] = SimpleNamespace(_wait_for_temperature=lambda heater: pytest.fail('used unmanaged wait'), _get_temp=lambda now: 'T:100 /220')
+    objects['gcode'].register_command = lambda *args, **kwargs: None
+    objects['gcode'].respond_raw = lambda message: None
+    objects['toolhead'].get_last_move_time = lambda: 0
+    material.printer.get_start_args = lambda: {}
+    material.printer.quick_stop_flag = False
+    def pause(now):
+        polls.append(now)
+        if change == 'cancel': material._handle_toolhead_cancel(toolhead_cancel_request(material))
+        else: objects['AFC'] = object()
+        return now
+    material.printer.pause = pause
+    material._install_wait_wrappers()
+    material.cmd_TOOLHEAD_ACTION(toolhead_command(material))
+    def run(line):
+        scripts.append(line)
+        if line.startswith('_CHANGE_TOOL '): objects['heaters']._wait_for_temperature(heater)
+    objects['gcode'].run_script_from_command = run
+    callbacks.pop()(1.)
+    assert len(polls) == 1
+    assert not any(line.startswith(('SET_HEATER_TEMPERATURE', 'M104', 'M109')) for line in scripts)
+    assert material.toolhead_operation['state'] == 'unknown'
+    if change == 'cancel':
+        assert material.toolhead_operation['cancelled'] is True
+        assert material.toolhead_operation['cancel_phase'] == 'during heater wait'
+        assert scripts[-1] == 'M400'
+    else:
+        assert not material.toolhead_operation.get('cancelled')
+        assert 'M400' not in scripts
+
+
+def test_toolhead_cancel_rechecks_owner_after_cleanup_mutex_acquisition(toolhead_material):
+    from contextlib import contextmanager
+    material, objects, state, scripts, callbacks = toolhead_material
+    acquisitions = []
+    @contextmanager
+    def mutex():
+        acquisitions.append(True)
+        if len(acquisitions) == 2:
+            material._command_generation = getattr(material, '_command_generation', 0) + 1
+        yield
+    objects['gcode'].get_mutex = mutex
+    material.cmd_TOOLHEAD_ACTION(toolhead_command(material))
+    def run(line):
+        scripts.append(line)
+        if line.startswith('_CHANGE_TOOL '):
+            material._handle_toolhead_cancel(toolhead_cancel_request(material))
+            material._toolheads().check_operation_boundary('after mount')
+    objects['gcode'].run_script_from_command = run
+    callbacks.pop()(1.)
+    assert len(acquisitions) == 2 and 'M400' not in scripts
+    assert not material.toolhead_operation.get('cancelled')
+    assert material.toolhead_operation['state'] == 'unknown'
+
+
+def test_recovery_nested_xy_stop_does_not_continue_into_the_next_axis(native_recovery_request):
+    from wmp_stop_points import check_operation_boundary
+    fixture, request, _ = native_recovery_request
+    material, objects, states, calls, review, _, timers, body, mutex = fixture
+    objects['wm_material'] = material
+    dispatch = objects['gcode'].run_script_from_command
+    def run(script):
+        if script == 'G28 X Y\nM400':
+            material._handle_recovery_stop(CancelWebRequest(session=material.session_id, id=request['id']))
+            check_operation_boundary(material.printer, 'after Y homing')
+            calls.append('unexpected next X home')
+        dispatch(script)
+    objects['gcode'].run_script_from_command = run
+    with pytest.raises(ValueError, match='Recovery preparation stopped'):
+        material.cmd_RECOVERY_CONTINUE(FakeCommand(REQUEST=json.dumps(request).encode().hex()))
+    assert 'unexpected next X home' not in calls and timers == [] and body == []
+    record = material._recovery_attempt.record
+    assert record['state'] == 'unknown' and record['cleanup']['state'] == 'complete'
+    before = list(calls)
+    material._restore_recovery_attempt()
+    assert material._recovery_attempt.record['state'] == 'unknown'
+    assert 'after Y homing' in material._recovery_attempt.record['error']
+    assert calls == before and timers == [] and body == []
+
+
+
+@pytest.mark.parametrize('stop_axis', [1, 0])
+@pytest.mark.parametrize('handoff', [False, True])
+def test_recovery_stop_between_native_axes_preserves_bottom_reference_and_motors(native_recovery_request, stop_axis, handoff):
+    import importlib.util
+    from types import SimpleNamespace as NS
+    from wmp_xy_homing import XYHoming
+    source = Path(__file__).resolve().parents[1]/'analysis/fw_1.1.13_payload/root/home/t13dp/klipper/klippy/extras/homing.py'
+    spec = importlib.util.spec_from_file_location('plr_cancel_native_home', source)
+    native = importlib.util.module_from_spec(spec);spec.loader.exec_module(native)
+    fixture, request, _ = native_recovery_request
+    material, objects, states, calls, review, _, timers, body, mutex = fixture
+    axes, waits = [], []
+    rails = [NS(get_name=lambda: 'stepper_x', get_homing_info=lambda: NS(positive_dir=True)),
+             NS(get_name=lambda: 'stepper_y', get_homing_info=lambda: NS(positive_dir=False))]
+    def home(state):
+        axes.append(state.get_axes())
+        if state.get_axes() == [stop_axis]:
+            if handoff: objects['wm_material'] = object()
+            else: material._handle_recovery_stop(CancelWebRequest(session=material.session_id, id=request['id']))
+    kin = NS(rails=rails, home=home, limits=[(0,300), (0,300)])
+    objects['toolhead'].get_kinematics = lambda: kin
+    objects['toolhead'].wait_moves = lambda: waits.append('wait')
+    objects['stepper_enable'] = NS(motor_off=lambda: pytest.fail('normal Recovery Stop disabled motors'))
+    printer = material.printer;printer.command_error = ValueError
+    homing = native.PrinterHoming.__new__(native.PrinterHoming);homing.printer = printer
+    objects['homing'] = homing
+    objects['gcode'].register_command = lambda *args, **kwargs: None
+    objects['gcode'].create_gcode_command = lambda name, text, params: NS(get=lambda key, default=None: params.get(key, default))
+    xy = XYHoming(printer)
+    dispatch = objects['gcode'].run_script_from_command
+    def run(script):
+        if script == 'G28 X Y\nM400': xy._home(NS(error=ValueError, respond_info=lambda message: None), native.Homing, native.HomingMove)
+        else: dispatch(script)
+    objects['gcode'].run_script_from_command = run
+    error = 'XY homing interrupted' if handoff else 'Recovery preparation stopped after ' + ('Y' if stop_axis == 1 else 'X')
+    with pytest.raises(ValueError, match=error):
+        material.cmd_RECOVERY_CONTINUE(FakeCommand(REQUEST=json.dumps(request).encode().hex()))
+    assert axes == ([[1]] if stop_axis == 1 else [[1], [0]])
+    assert len(waits) == len(axes) and kin.limits[1] == (1., -1.)
+    assert states['toolhead']['position'][2] == 300. and timers == [] and body == []
+    receipt = material._recovery_attempt.record
+    if handoff:
+        assert receipt['state'] == 'running' and 'cleanup' not in receipt
+    else:
+        assert receipt['state'] == 'unknown' and receipt['cleanup']['state'] == 'complete'
+    assert all(s['state'] == 'pending' for s in receipt['stages'] if s['name'] in ('select_head', 'heating', 'prime', 'start_file'))
+
+
+def test_recovery_boundary_stop_ignores_foreign_callback_but_accepts_its_intent(native_recovery_request, monkeypatch):
+    from wmp_stop_points import check_operation_boundary
+    fixture, request, _ = native_recovery_request
+    material, objects, states, calls, review, _, timers, body, mutex = fixture
+    service = material._recovery_lifecycle()
+    actor = [object()];monkeypatch.setattr(service, '_current_actor', lambda: actor[0])
+    dispatch = objects['gcode'].run_script_from_command
+    def run(script):
+        if script == 'G28 X Y\nM400':
+            owner = actor[0];actor[0] = object()
+            material._handle_recovery_stop(CancelWebRequest(session=material.session_id, id=request['id']))
+            check_operation_boundary(material.printer, 'foreign callback')
+            assert service._execution_scope['cancel_phase'] == ''
+            actor[0] = owner
+            check_operation_boundary(material.printer, 'after Y homing')
+            pytest.fail('owned homing did not observe Stop')
+        dispatch(script)
+    objects['gcode'].run_script_from_command = run
+    with pytest.raises(ValueError, match='Recovery preparation stopped'):
+        material.cmd_RECOVERY_CONTINUE(FakeCommand(REQUEST=json.dumps(request).encode().hex()))
+    assert 'after Y homing' in material._recovery_attempt.record['error']
+    assert timers == [] and body == []
+
+
+@pytest.mark.parametrize('change', ['generation', 'session', 'material', 'runner', 'record', 'manager', 'review', 'worker'])
+def test_recovery_lost_boundary_owner_never_cleans_or_rewrites_replacement(native_recovery_request, change):
+    import copy
+    from wm_material import RecoveryAttempt
+    from types import SimpleNamespace as NS
+    from wmp_stop_points import check_operation_boundary
+    fixture, request, _ = native_recovery_request
+    material, objects, states, calls, review, _, timers, body, mutex = fixture
+    service = material._recovery_lifecycle()
+    dispatch = objects['gcode'].run_script_from_command
+    changed, replacement = [], []
+    def run(script):
+        if script == 'G28 X Y\nM400':
+            material._handle_recovery_stop(CancelWebRequest(session=material.session_id, id=request['id']))
+            old = material._recovery_attempt
+            if change == 'generation': material._command_generation = getattr(material, '_command_generation', 0) + 1
+            elif change == 'session': material.session_id = 'new-session'
+            elif change == 'material': objects['wm_material'] = object()
+            elif change == 'runner':
+                new = RecoveryAttempt(lambda value: pytest.fail('old owner wrote new runner'))
+                new.record = dict(version=1, request=dict(old.record['request'], id='new'), state='running', stages=[], error='new')
+                material._recovery_attempt = new;replacement.append((new, copy.deepcopy(new.record)))
+            elif change == 'record':
+                new = copy.deepcopy(old.record);new['request']['id'] = 'replacement'
+                old.record = new;replacement.append((old, copy.deepcopy(new)))
+            elif change == 'manager': objects['AFC'] = object()
+            elif change == 'review': material._plr_review_component = NS(_recovery_pending_worker=None)
+            else:
+                pending = {'armed': False, 'timer': object(), 'sd': objects['virtual_sdcard'], 'session': material.session_id,
+                           'request': dict(old.record['request'], id='new-worker')}
+                material._recovery_pending_worker = pending;changed.append(pending)
+            boundary = len(calls)
+            try:
+                if change == 'material': service.check_operation_boundary('after Y homing')
+                else: check_operation_boundary(material.printer, 'after Y homing')
+            finally: changed.append(boundary)
+            pytest.fail('recovery continued after owner change')
+        dispatch(script)
+    objects['gcode'].run_script_from_command = run
+    with pytest.raises(ValueError, match='ownership changed'):
+        material.cmd_RECOVERY_CONTINUE(FakeCommand(REQUEST=json.dumps(request).encode().hex()))
+    assert len(calls) == changed[-1] and timers == [] and body == []
+    if replacement:
+        runner, before = replacement[0]
+        assert runner.record == before
+    if change == 'worker': assert material._recovery_pending_worker is changed[0]
+
+
+def test_recovery_fault_takes_precedence_over_stop_at_nested_boundary(native_recovery_request):
+    from wmp_stop_points import check_operation_boundary
+    fixture, request, _ = native_recovery_request
+    material, objects, states, calls, review, _, timers, body, mutex = fixture
+    dispatch = objects['gcode'].run_script_from_command
+    def run(script):
+        if script == 'G28 X Y\nM400':
+            material._handle_recovery_stop(CancelWebRequest(session=material.session_id, id=request['id']))
+            objects['save_variables'].values['variables']['fail_flag'] = -3
+            check_operation_boundary(material.printer, 'after Y homing')
+        dispatch(script)
+    objects['gcode'].run_script_from_command = run
+    with pytest.raises(ValueError, match='printer fault'):
+        material.cmd_RECOVERY_CONTINUE(FakeCommand(REQUEST=json.dumps(request).encode().hex()))
+    assert 'Recovery preparation stopped' not in material._recovery_attempt.record['error']
+    assert timers == [] and body == []
+
+
+def test_old_recovery_cleanup_cannot_disarm_replacement_worker(native_recovery_request):
+    fixture, request, _ = native_recovery_request
+    material, objects, states, calls, review, _, timers, body, mutex = fixture
+    reactor = material.printer.get_reactor()
+    original = reactor.unregister_timer
+    replacement = []
+    def replace(timer):
+        original(timer)
+        pending = {'armed': True, 'timer': object(), 'sd': objects['virtual_sdcard'], 'session': material.session_id,
+                   'request': dict(material._recovery_attempt.record['request'], id='replacement')}
+        replacement.append(pending)
+        material._recovery_pending_worker = pending
+        objects['virtual_sdcard'].work_timer = pending['timer']
+    reactor.unregister_timer = replace
+    def activation(request): raise RuntimeError('activation failed')
+    material._recovery_worker()._recovery_activate_worker = activation
+    with pytest.raises(ValueError, match='activation failed'):
+        material.cmd_RECOVERY_CONTINUE(FakeCommand(REQUEST=json.dumps(request).encode().hex()))
+    assert len(replacement) == 1 and material._recovery_pending_worker is replacement[0]
+    assert replacement[0]['armed'] is True and objects['virtual_sdcard'].work_timer is replacement[0]['timer']
+    assert not any('TARGET=0' in script for script in calls)
+    assert states['extruder2']['target'] == 220.5 and states['heater_bed']['target'] == 55.
+    assert body == []
+
+
+def test_recovery_submission_handoff_is_not_rewritten_by_old_command(native_recovery_request):
+    from wmp_stop_points import check_operation_boundary
+    fixture, request, _ = native_recovery_request
+    material, objects, states, calls, review, _, timers, body, mutex = fixture
+    dispatch = objects['gcode'].run_script_from_command
+    replacement = {'request': {'id': 'new-submission'}, 'state': 'new', 'message': 'new result'}
+    def run(script):
+        if script == 'G28 X Y\nM400':
+            material._recovery_submission = replacement
+            material._recovery_stop_request = {'id': 'new-stop'}
+            check_operation_boundary(material.printer, 'after Y homing')
+        dispatch(script)
+    objects['gcode'].run_script_from_command = run
+    with pytest.raises(ValueError, match='ownership changed'):
+        material.cmd_RECOVERY_CONTINUE(FakeCommand(REQUEST=json.dumps(request).encode().hex()))
+    assert material._recovery_submission is replacement and replacement['message'] == 'new result'
+    assert material._recovery_stop_request == {'id': 'new-stop'} and material._recovery_command_active is True
+    assert timers == [] and body == []
+
+
+def test_reviewed_recovery_ticket_can_stop_before_continue_is_dispatched(native_recovery_request):
+    fixture, selection, _ = native_recovery_request
+    material, objects, states, calls, review, _, timers, body, mutex = fixture
+    mutex[0] = False
+    web = recovery_review_web_request(selection);web.params['ticket_protocol'] = '1'
+    material._handle_recovery_review(web)
+    issued, ticket = web.response['request'], web.response['ticket']
+    prior = material._recovery_attempt.record
+    journal = Path(material._recovery_attempt_path())
+    before = journal.read_bytes() if journal.exists() else None
+    stop = CancelWebRequest(session=material.session_id, id=issued['id'], ticket=ticket['token'])
+    material._handle_recovery_stop(stop)
+    assert stop.response['state'] == 'requested' and calls == [] and timers == []
+    mutex[0] = True
+    command = ticket_command(issued, ticket)
+    material.cmd_RECOVERY_CONTINUE(command)
+    assert json.loads(command.message)['before_execution'] is True
+    assert material._recovery_submission['state'] == 'cancelled'
+    assert material._recovery_attempt.record is prior
+    assert (journal.read_bytes() if journal.exists() else None) == before
+    assert calls == [] and timers == [] and body == []
+    with pytest.raises(ValueError, match='consumed|superseded'):
+        material.cmd_RECOVERY_CONTINUE(ticket_command(issued, ticket))
+    assert calls == []
+
+
+@pytest.mark.parametrize('changed', ['token', 'missing_token', 'session', 'id', 'superseded'])
+def test_early_recovery_stop_rejects_other_ticket(native_recovery_request, changed):
+    fixture, selection, _ = native_recovery_request
+    material, objects, states, calls, review, _, timers, body, mutex = fixture
+    mutex[0] = False
+    web = recovery_review_web_request(selection)
+    web.params['ticket_protocol'] = '1'
+    material._handle_recovery_review(web)
+    request, ticket = web.response['request'], web.response['ticket']
+    args = dict(session=material.session_id, id=request['id'], ticket=ticket['token'])
+    if changed == 'token': args['ticket'] = '0' * 64
+    if changed == 'missing_token': args.pop('ticket')
+    if changed == 'session': args['session'] = 'other-session'
+    if changed == 'id': args['id'] = 'other-request'
+    if changed == 'superseded':
+        newer = recovery_review_web_request(dict(selection, id='new-selection'))
+        newer.params['ticket_protocol'] = '1'
+        material._handle_recovery_review(newer)
+    with pytest.raises(ValueError):
+        material._handle_recovery_stop(CancelWebRequest(**args))
+    assert not any(slot.get('cancel_requested') for slot in
+                   material._recovery_tickets['continue']['slots'].values())
+    assert calls == [] and timers == [] and body == []
+
+
+def test_recovery_stop_during_consumed_ticket_review_prevents_admission(native_recovery_request):
+    fixture, selection, _ = native_recovery_request
+    material, objects, states, calls, review, _, timers, body, mutex = fixture
+    mutex[0] = False
+    web = recovery_review_web_request(selection)
+    web.params['ticket_protocol'] = '1'
+    material._handle_recovery_review(web)
+    request, ticket = web.response['request'], web.response['ticket']
+    controller = material._recovery_review_service()
+    original = controller._recovery_request_review
+    prior = material._recovery_attempt.record
+    def reviewing(encoded):
+        result = original(encoded)
+        for _ in range(2):
+            material._handle_recovery_stop(CancelWebRequest(
+                session=material.session_id, id=request['id'], ticket=ticket['token']))
+        return result
+    controller._recovery_request_review = reviewing
+    def unexpected_admission(*args):
+        pytest.fail('Cancelled review must not begin physical admission')
+    material._begin_explicit_physical_action = unexpected_admission
+    mutex[0] = True
+    command = ticket_command(request, ticket)
+    material.cmd_RECOVERY_CONTINUE(command)
+    assert json.loads(command.message)['before_execution'] is True
+    assert material._recovery_submission['state'] == 'cancelled'
+    assert material._recovery_attempt.record is prior
+    assert calls == [] and timers == [] and body == []
+    with pytest.raises(ValueError):
+        material._handle_recovery_stop(CancelWebRequest(
+            session=material.session_id, id=request['id'], ticket=ticket['token']))
+
+
+def test_repeated_early_stop_retains_only_current_ticket_and_allows_new_selection(native_recovery_request):
+    fixture, selection, _ = native_recovery_request
+    material, objects, states, calls, review, _, timers, body, mutex = fixture
+    mutex[0] = False
+    def issue(selected):
+        web = recovery_review_web_request(selected)
+        web.params['ticket_protocol'] = '1'
+        material._handle_recovery_review(web)
+        return web.response['request'], web.response['ticket']
+    request, ticket = issue(selection)
+    for _ in range(2):
+        material._handle_recovery_stop(CancelWebRequest(
+            session=material.session_id, id=request['id'], ticket=ticket['token']))
+    assert issue(selection) == (request, ticket)
+    assert material._recovery_tickets['continue']['slots']['continue']['cancel_requested'] is True
+    newer, newer_ticket = issue(dict(selection, id='explicit-retry'))
+    slots = material._recovery_tickets['continue']['slots']
+    assert len(slots) == 1 and not slots['continue'].get('cancel_requested')
+    with pytest.raises(ValueError):
+        material._handle_recovery_stop(CancelWebRequest(
+            session=material.session_id, id=request['id'], ticket=ticket['token']))
+    consumed = []
+    material._recovery_review_service()._consume_recovery_request = lambda encoded, cancelled: consumed.append(cancelled()) or {}
+    mutex[0] = True
+    material.cmd_RECOVERY_CONTINUE(ticket_command(newer, newer_ticket))
+    assert consumed == [False]
+    assert material._recovery_tickets['continue']['slots'] == {}
+    assert calls == [] and timers == [] and body == []
+
+
+def _confirmed_released_transient(objects, variables, events):
+    from types import SimpleNamespace as NS
+    variables.update(changing_tool=1, fail_flag=0, thr_number=4)
+    status = {'custom_hall': {'Raw': 5000},
+              'filament_switch_sensor sensor_b': {'filament_detected': False},
+              **{'filament_switch_sensor docked%d' % n: {'filament_detected': True} for n in range(4)}}
+    for name, value in status.items():
+        objects[name] = NS(get_status=lambda now, value=value: value)
+    objects['toolhead'].wait_moves = lambda: events.append('drain-toolchange')
+
+
+def test_toolhead_cancel_clears_transient_after_verified_release(toolhead_material):
+    from wmp_stop_points import check_operation_boundary
+    material, objects, state, scripts, callbacks = toolhead_material
+    objects['wm_material'] = material
+    material.cmd_TOOLHEAD_ACTION(toolhead_command(material, ACTION='dock'))
+    variables = state['save_variables']['variables']
+    def run(line):
+        scripts.append(line)
+        if line == 'PARK_CURRENT_TOOL':
+            _confirmed_released_transient(objects, variables, scripts)
+            variables['current_extruder'] = 99
+            material._handle_toolhead_cancel(toolhead_cancel_request(material))
+            check_operation_boundary(material.printer, 'after verified tool docking')
+        elif line == 'SAVE_VARIABLE VARIABLE=changing_tool VALUE=0':
+            variables['changing_tool'] = 0
+    objects['gcode'].run_script_from_command = run
+    callbacks.pop()(1.)
+    assert material.toolhead_operation['cancelled']
+    assert material.toolhead_operation['toolchange_cleanup'] == 'cleared'
+    assert variables['changing_tool'] == 0
+    assert scripts[-3:] == ['M400', 'drain-toolchange', 'SAVE_VARIABLE VARIABLE=changing_tool VALUE=0']
+
+
+def test_print_cancel_clears_transient_before_other_housekeeping(managed_cancel_cleanup):
+    fixture, binding, cleanup, _ = managed_cancel_cleanup
+    material, objects, states, *_ = fixture
+    variables = objects['save_variables'].values['variables']
+    _confirmed_released_transient(objects, variables, cleanup)
+    run = objects['gcode'].run_script_from_command
+    def record(command):
+        run(command)
+        if command == 'SAVE_VARIABLE VARIABLE=changing_tool VALUE=0': variables['changing_tool'] = 0
+    objects['gcode'].run_script_from_command = record
+    result = material._cancellation()._cancel_print_cleanup(binding)
+    assert result['state'] == 'complete' and variables['changing_tool'] == 0
+    assert cleanup.index('drain-toolchange') < cleanup.index('SAVE_VARIABLE VARIABLE=changing_tool VALUE=0') < cleanup.index('TURN_OFF_HEATERS')
+
+
+def test_filament_cancel_clears_transient_without_feeding(service_material):
+    from types import SimpleNamespace as NS
+    from wmp_filament_types import FilamentCancelled
+    from wmp_stop_points import check_operation_boundary
+    material, objects, state = service_material
+    objects['wm_material'] = material
+    material.printer.is_shutdown = lambda: False
+    variables, calls = state['save_variables']['variables'], []
+    variables.update(current_extruder=2, fail_flag=0)
+    heater = {'temperature': 25, 'target': 0, 'can_extrude': False}
+    objects['extruder2'] = NS(get_status=lambda now: dict(heater))
+    plan = material._filament_plan(2, 'load', 1)
+    material.filament_operation = dict(id='transient', session=material.session_id, head='h2', action='load', state='running')
+    def prepare(head, context):
+        _confirmed_released_transient(objects, variables, calls)
+        variables['current_extruder'] = 99
+        material._handle_filament_cancel(cancellation_request(material, id='transient'))
+        check_operation_boundary(material.printer, 'after verified tool docking')
+    material._filament_planning()._prepare_service = prepare
+    def run(command):
+        calls.append(command)
+        if command == 'SAVE_VARIABLE VARIABLE=changing_tool VALUE=0': variables['changing_tool'] = 0
+        elif command.startswith('SET_HEATER_TEMPERATURE'): heater['target'] = float(command.split('TARGET=')[1])
+    objects['gcode'] = NS(run_script_from_command=run)
+    with pytest.raises(FilamentCancelled): material._filament_service()._execute_filament(FakeCommand(), 2, 'load', plan)
+    assert material.filament_operation['state'] == 'failed', material.filament_operation
+    assert material.filament_operation['toolchange_cleanup'] == 'cleared'
+    assert variables['changing_tool'] == 0 and heater['target'] == 0
+    assert all(not command.startswith(('G1', 'G0')) for command in calls)

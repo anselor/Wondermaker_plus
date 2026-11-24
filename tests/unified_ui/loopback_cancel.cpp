@@ -14,6 +14,8 @@ int main(int argc,char**argv){
   assert(wmp_openace::json::parse(http.post(route,body))["result"]["state"]=="requested");
  auto accepted=wmp_openace::json::parse(http.post("/printer/wmp/filament/cancel",body));
  assert(accepted["result"]["state"]=="requested");
+ auto tool_body=wmp_openace::json{{"id","running-1"},{"session","session-1"},{"head","h2"},{"action","take"}}.dump();
+ assert(wmp_openace::json::parse(http.post("/printer/wmp/toolhead/cancel",tool_body))["result"]["state"]=="requested");
  auto rejected=wmp_openace::json::parse(http.post("/printer/wmp/filament/cancel","{}"));
  assert(rejected.contains("error"));
  auto probe=wmp_openace::json{{"session","session-1"},{"request","probe-1"}}.dump();
@@ -26,6 +28,7 @@ int main(int argc,char**argv){
  }
  {bool refused=false;try{http.post("/printer/wmp/probe_editor/stop",std::string(2049,'x'));}catch(...){refused=true;}assert(refused);}
  assert(wmp_openace::json::parse(http.post("/printer/gcode/script","{\"script\":\"M105\"}"))["result"]=="ok");
+ assert(wmp_openace::json::parse(http.post("/printer/wmp/identification/cancel",wmp_openace::json{{"session","session-1"},{"request","identity-1"}}.dump()))["result"]["state"]=="requested");
  auto macro_error=wmp_openace::json::parse(http.post("/printer/gcode/script","{\"script\":\"ERROR\"}"));
  assert(macro_error["error"]["message"]=="Heat the selected nozzle\n");
  const std::string recovery="WMP_RECOVERY_CONTINUE REQUEST="+std::string(2200,'a');
@@ -47,11 +50,13 @@ int main(int argc,char**argv){
  for(const auto*body:{"{}","[]","{\"script\":1}","{\"script\":\"M105\",\"extra\":1}"}){
   bool refused=false;try{http.post("/printer/gcode/script",body);}catch(...){refused=true;}assert(refused);
  }
- for(const auto*path:{"/printer/wmp/print/cancel_resolve_review/extra","/printer/wmp/print/cancel_resolve_review?file=x","/printer/wmp/print/cancel/extra","/printer/wmp/print/cancel_review?file=x","/printer/wmp/recovery/resolve_review/extra","/printer/wmp/recovery/resolve_review?session=x","/printer/wmp/recovery/review/extra","/printer/wmp/recovery/stop?session=x","/printer/wmp/filament/cancel/extra","/printer/emergency_stop","/printer/wmp/filament/cancel?head=h0"}){
+ for(const auto*path:{"/printer/wmp/identification/cancel/extra","/printer/wmp/identification/cancel?request=x","/printer/wmp/print/cancel_resolve_review/extra","/printer/wmp/print/cancel_resolve_review?file=x","/printer/wmp/print/cancel/extra","/printer/wmp/print/cancel_review?file=x","/printer/wmp/recovery/resolve_review/extra","/printer/wmp/recovery/resolve_review?session=x","/printer/wmp/recovery/review/extra","/printer/wmp/recovery/stop?session=x","/printer/wmp/filament/cancel/extra","/printer/emergency_stop","/printer/wmp/toolhead/cancel/extra","/printer/wmp/toolhead/cancel?action=take","/printer/wmp/filament/cancel?head=h0"}){
   bool refused=false;try{http.post(path,body);}catch(...){refused=true;}assert(refused);
  }
  for(const auto*route:{"/printer/wmp/print/cancel_review","/printer/wmp/print/cancel","/printer/wmp/print/cancel_resolve_review"}){
   bool refused=false;try{http.post(route,std::string(32769,'x'));}catch(...){refused=true;}assert(refused);
  }
+ bool identity_refused=false;try{http.post("/printer/wmp/identification/cancel",std::string(2049,'x'));}catch(...){identity_refused=true;}assert(identity_refused);
+ bool tool_refused=false;try{http.post("/printer/wmp/toolhead/cancel",std::string(2049,'x'));}catch(...){tool_refused=true;}assert(tool_refused);
  bool refused=false;try{http.post("/printer/wmp/filament/cancel",std::string(2049,'x'));}catch(...){refused=true;}assert(refused);
 }

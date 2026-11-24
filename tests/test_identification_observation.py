@@ -12,7 +12,7 @@ class Printer:
             'custom_hall': {'Raw': 5000},
             'filament_switch_sensor sensor_b': {'filament_detected': False},
             'gcode_macro Z_HOMING': {'z_raise': 1},
-            'gcode_macro _WMP_TOOL_RETURN_BEGIN': {'success': 1},
+            'gcode_macro _WMP_TOOL_RETURN_BEGIN': {'success': 0, 'completed_success': 1},
             'toolhead': {'homed_axes': 'xyz'},
             **{'filament_switch_sensor docked%d' % n: {'filament_detected': True} for n in range(4)}}
         self.objects = {'virtual_sdcard': SimpleNamespace(is_active=lambda: False, is_cmd_from_sd=lambda: False)}
@@ -95,3 +95,13 @@ def test_sd_activity_or_unavailable_sd_state_blocks_setup(case):
             is_active=lambda: None if case == 'unknown' else case == 'active',
             is_cmd_from_sd=lambda: case == 'from_sd')
     assert not observer(printer)()['idle']
+
+
+@pytest.mark.parametrize('values,expected', [
+    ({'success': 0, 'completed_success': 1}, True),
+    ({'success': 1, 'completed_success': 0}, False),
+    ({'success': 1}, False), ({}, False)])
+def test_identification_reads_completed_result_after_return_consumes_success(values, expected):
+    printer = Printer()
+    printer.data['gcode_macro _WMP_TOOL_RETURN_BEGIN'] = values
+    assert observer(printer)()['toolchange_success'] is expected

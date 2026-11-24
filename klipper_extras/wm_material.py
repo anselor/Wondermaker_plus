@@ -193,6 +193,8 @@ class WMMaterial:
         self.printer.register_event_handler("virtual_sdcard:reset_file", self._clear_filament_checks)
         self.printer.register_event_handler("virtual_sdcard:reset_file", self._close_stop_waits)
         self.printer.lookup_object("webhooks").register_endpoint(
+            "wmp/toolhead/cancel", self._handle_toolhead_cancel)
+        self.printer.lookup_object("webhooks").register_endpoint(
             "wmp/filament/cancel", self._handle_filament_cancel)
         self.printer.lookup_object("webhooks").register_endpoint(
             "wmp/filament/details", self._material_status().handle_details)
@@ -272,6 +274,10 @@ class WMMaterial:
                                desc="Observe empty carriage before pickup; no movement or saved state")
         gcode.register_command("_WMP_CHECK_PICKUP_RELEASE", self.cmd_CHECK_PICKUP_RELEASE,
                                desc="Confirm pickup after retreat using dock release or this attempt's empty-to-coupled evidence")
+        gcode.register_command("_WMP_COUPLING_BEGIN", self.cmd_COUPLING_BEGIN,
+                               desc="Bind an admitted native coupling approach to its invocation")
+        gcode.register_command("_WMP_COUPLING_END", self.cmd_COUPLING_END,
+                               desc="Retire coupling permission after verified back-off")
         gcode.register_command("_WMP_COUPLING_STROKE", self.cmd_COUPLING_STROKE,
                                desc="Run one owned coupling stroke with propagated homing errors")
         gcode.register_command("_WMP_TOOLHEAD_PROGRESS", self.cmd_TOOLHEAD_PROGRESS,
@@ -459,6 +465,7 @@ class WMMaterial:
 
 
 
+    _handle_toolhead_cancel = component_method("_toolheads", "_handle_toolhead_cancel")
     _restore_toolhead_operation = component_method("_toolheads", "_restore_toolhead_operation")
     _material_operation_active = component_method("_command_routing", "_material_operation_active")
 
@@ -693,6 +700,8 @@ class WMMaterial:
     cmd_PICKUP_BEGIN = component_method("_toolheads", "cmd_PICKUP_BEGIN")
     cmd_CHECK_PICKUP_RELEASE = component_method("_toolheads", "cmd_CHECK_PICKUP_RELEASE")
 
+    cmd_COUPLING_BEGIN = component_method("_toolheads", "cmd_COUPLING_BEGIN")
+    cmd_COUPLING_END = component_method("_toolheads", "cmd_COUPLING_END")
     cmd_COUPLING_STROKE = component_method("_toolheads", "cmd_COUPLING_STROKE")
     _recovery_actuator_stroke = component_method("_recovery_motion", "_recovery_actuator_stroke")
 

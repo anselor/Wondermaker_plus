@@ -81,7 +81,9 @@ class NozzleScrubCommands:
         """Run scripts; a failure is reported on screen as sentence."""
         try:
             for script in scripts:
+                self.calibration.check_cancel('before scrub ' + script.split()[0])
                 self._run(script)
+            self.calibration.check_cancel('after scrub phase')
         except Exception as error:
             self._fail(sentence, error)
             raise
@@ -116,6 +118,15 @@ class NozzleScrubCommands:
             self.phase, self.error = 'failed', ''
         if errors:
             logging.warning('Scrub heater cool-down on failure: %s', '; '.join(errors))
+
+    def cancel_cleanup_result(self, request, complete, error):
+        """Publish the command owner's terminal cleanup result, never move."""
+        if request != self.request:
+            return
+        if complete:
+            self.head, self.phase, self.error = -1, 'ended', ''
+        else:
+            self.phase, self.error = 'failed', error[:512]
 
     # Commands.
     def cmd_head(self, gcmd):

@@ -2,16 +2,17 @@
 #pragma once
 #include "stock_api.hpp"
 #include "stock_preview_widgets.hpp"
+#include <algorithm>
 #include <functional>
 #include <list>
 namespace wmp_ui { namespace native {
-// Rebind the original preview controls; their geometry, images, fonts and
-// parentage remain stock. Runtime supplies admission readiness separately from
-// edit readiness. The stock Start callback must never run beside WM+ submission.
+// Rebind original preview controls; images, fonts and parentage stay stock.
+// Constrain the retained filename against the actual header action bounds.
+// Runtime supplies admission readiness separately from edit readiness. The stock Start callback must never run beside WM+ submission.
 class StockPreviewControls {
  struct Page;
  struct Control {Page*page;void*object;unsigned action;};
- struct Page {StockPreviewControls*owner;StockPreviewWidgets widgets;std::list<Control>controls;std::function<void(unsigned)>dispatch;bool editable=false,start_ready=false,start_pending=false,copy_only=false;};
+ struct Page {StockPreviewControls*owner;StockPreviewWidgets widgets;std::list<Control>controls;std::function<void(unsigned)>dispatch;bool editable=false,start_ready=false,start_pending=false,copy_only=false;int title_width=-1;};
  std::list<Page>pages_;Page*current_=nullptr;
 public:
  bool attach(StockPreviewWidgets widgets,std::function<void(unsigned)>dispatch){
@@ -49,7 +50,27 @@ public:
   }
   current_=p;
   for(auto&c:p->controls)if(!stock_function<void*(*)(void*,void(*)(void*),int,void*)>(lv_obj_add_event_cb)(c.object,&pressed,7,&c))return fail(widgets.content);
-  readiness(false,false);return true;
+  fit_header();readiness(false,false);return true;
+ }
+ // Call after construction or an action-caption/geometry change, not per poll.
+ void fit_header(){
+  if(!current_)return;
+  const auto&w=current_->widgets;
+  stock_function<void(*)(void*)>(lv_obj_update_layout)(w.content);
+  struct Area{short x1,y1,x2,y2;};Area title{},content{};
+  stock_function<void(*)(void*,Area*)>(lv_obj_get_coords)(w.title,&title);
+  stock_function<void(*)(void*,Area*)>(lv_obj_get_coords)(w.content,&content);
+  int right=content.x2+1-12;
+  for(auto*button:{w.start,w.cancel}){
+   if(stock_function<bool(*)(void*,unsigned)>(lv_obj_has_flag)(button,1))continue;
+   Area action{};stock_function<void(*)(void*,Area*)>(lv_obj_get_coords)(button,&action);
+   if(action.y1<title.y1+20&&action.y2>=title.y1)right=std::min(right,int(action.x1)-12);
+  }
+  const int width=std::max(1,right-int(title.x1));
+  if(width==current_->title_width)return;
+  current_->title_width=width;
+  stock_function<void(*)(void*,int)>(lv_label_set_long_mode)(w.title,1);
+  stock_function<void(*)(void*,int,int)>(lv_obj_set_size)(w.title,width,20);
  }
  void readiness(bool editable,bool start_ready,bool copy_only=false){
   if(!current_)return;

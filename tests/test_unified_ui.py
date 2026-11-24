@@ -297,6 +297,9 @@ def test_real_loopback_transport_allows_only_explicit_cancel_route(tmp_path):
         finally:
             server.shutdown()
             thread.join()
+    identity_call = ('/printer/wmp/identification/cancel', {'session': 'session-1', 'request': 'identity-1'})
+    assert received.count(identity_call) == 1
+    received.remove(identity_call)
     assert received == [
         ('/printer/wmp/recovery/review', {'id': 'running-1', 'session': 'session-1', 'head': 'h2'}),
         ('/printer/wmp/recovery/resolve_review', {'id': 'running-1', 'session': 'session-1', 'head': 'h2'}),
@@ -307,6 +310,7 @@ def test_real_loopback_transport_allows_only_explicit_cancel_route(tmp_path):
         ('/printer/wmp/print/cancel', {'id': 'running-1', 'session': 'session-1', 'head': 'h2'}),
         ('/printer/wmp/print/cancel_resolve_review', {'id': 'running-1', 'session': 'session-1', 'head': 'h2'}),
         ('/printer/wmp/filament/cancel', {'id': 'running-1', 'session': 'session-1', 'head': 'h2'}),
+        ('/printer/wmp/toolhead/cancel', {'id': 'running-1', 'session': 'session-1', 'head': 'h2', 'action': 'take'}),
         ('/printer/wmp/filament/cancel', {}),
         ('/printer/wmp/probe_editor/stop', {'session': 'session-1', 'request': 'probe-1'}),
         ('/printer/wmp/probe_editor/stop', {}),
@@ -463,3 +467,60 @@ int main(){unsigned char source[16]={0},out[44];
                  reg.UC_ARM64_REG_X29, reg.UC_ARM64_REG_X30)],
                 bytes(cpu.mem_read(0x300ee00, 0x200)))
     assert execute(0x61ab5c, prologue) == execute(0x2000000, relocated)
+
+
+def test_screen_headers_with_factory_fonts(native_lifecycle_binary):
+    if not (ROOT/'analysis/fw_1.1.13_payload/root/home/t13dp/TM_T1/bin/client').is_file():
+        pytest.skip('exact stock client required for font measurement')
+    pytest.importorskip('unicorn')
+    from native_font_measure import StockFontMeasure
+    measure = StockFontMeasure(ROOT)
+    client = (ROOT/'analysis/fw_1.1.13_payload/root/home/t13dp/TM_T1/bin/client').read_bytes()
+    # MOV W2/W1: root height425/width800, canvas height357/width696,
+    # and canvas y34/x89. The keyboard keys remain factory-owned geometry.
+    for address, word in [(0x52e44c, 0x52803522), (0x52e450, 0x52806401),
+                          (0x52e508, 0x52802ca2), (0x52e50c, 0x52805701),
+                          (0x52e518, 0x52800442), (0x52e51c, 0x52800b21)]:
+        assert int.from_bytes(client[address-0x400000:address-0x400000+4], 'little') == word
+    scenario_path = ROOT/'tests/fixtures/screen_header_scenarios.json'
+    expected = json.loads(scenario_path.read_text())
+    result = subprocess.run([str(native_lifecycle_binary), '--header-fit', str(UI/'fixture.json'), str(scenario_path)],
+                            check=True, capture_output=True, text=True, timeout=20)
+    scenes = [json.loads(line) for line in result.stdout.splitlines()]
+    failures = []
+    for scene in scenes:
+        title = scene['title']
+        assert scene['title_count'] == (1 if title else 0), scene
+        for label in ([title] if title else []) + scene['actions']:
+            width, height = measure.measure(label['font'], label['text'], label['w'])
+            if label['mode'] == 1:
+                height = measure.measure(label['font'], 'Ag', label['w'])[1]
+            if height > label['h']:
+                failures.append((scene['scene'], label['text'], 'wraps beyond header', height, label['h']))
+            assert label['x'] >= 0 and label['x']+label['w'] <= scene['width'], scene
+            assert label['y'] >= 0 and label['y']+label['h'] <= scene['height'], scene
+        if title and scene['content_top'] >= 0:
+            assert title['y']+title['h'] <= scene['content_top'], scene
+        for action in scene['actions']:
+            box = action['button']
+            if not title:
+                continue
+            if scene['compact']:
+                assert box['y'] > title['y']+title['h'], scene
+            else:
+                assert abs(box['y']-title['y']) <= 12, scene
+                assert title['x']+title['w'] <= box['x'], scene
+        ordered = sorted((a['button'] for a in scene['actions']), key=lambda b: b['x'])
+        for left, right in zip(ordered, ordered[1:]):
+            if left['y'] < right['y']+right['h'] and right['y'] < left['y']+left['h']:
+                assert left['x']+left['w'] <= right['x'], scene
+        for label in scene['body_labels']:
+            for action in scene['actions']:
+                box = action['button']
+                if label['y'] < box['y']+box['h']:
+                    failures.append((scene['scene'], label['text'], 'body starts inside header actions'))
+        for previous, following in zip(scene['body_labels'], scene['body_labels'][1:]):
+            assert previous['y']+previous['h'] <= following['y'], scene
+    assert len(expected) == len(set(expected))
+    assert sorted(s['scene'] for s in scenes) == sorted(expected)
+    assert not failures, failures

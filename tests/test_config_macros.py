@@ -845,6 +845,17 @@ def test_resume_checks_service_before_heat_and_does_not_repeat_completed_wipe(wi
     assert len(checks) == 2
     assert checks[1] > max(i for i, command in enumerate(commands) if command.startswith('TEMPERATURE_WAIT'))
     assert checks[1] < commands.index('G0 Y200 F12000')
+    heated = commands.index('_WMP_STOP_POINT PHASE=resume_heated')
+    wiped_boundary = commands.index('_WMP_STOP_POINT PHASE=resume_wiped')
+    return_boundary = commands.index('_WMP_STOP_POINT PHASE=resume_return_ready')
+    returned = commands.index('_WMP_STOP_POINT PHASE=resume_returned')
+    assert max(i for i, c in enumerate(commands) if c.startswith('TEMPERATURE_WAIT')) < heated < checks[1]
+    wipe_ready = commands.index('_WMP_STOP_POINT PHASE=resume_wipe_ready')
+    assert checks[1] < wipe_ready < wiped_boundary
+    if not wiped: assert wipe_ready < commands.index('WIPE_NOZZLE') < wiped_boundary
+    assert wiped_boundary < commands.index('G0 Y200 F12000') < return_boundary
+    assert return_boundary < commands.index('RESTORE_GCODE_STATE NAME=PAUSE MOVE=1 MOVE_SPEED=60') < returned
+    assert returned < commands.index('CLEAR_PAUSE') < commands.index('M24')
     assert ('WIPE_NOZZLE' in commands) == (not wiped)
     assert any(c.startswith('E_axis_move') for c in commands) == (not wiped)
     assert 'RESTORE_GCODE_STATE NAME=PAUSE MOVE=1 MOVE_SPEED=60' in commands
@@ -1286,9 +1297,13 @@ def test_pickup_observation_precedes_approach_without_changing_other_owners(owne
         index = commands.index(observation)
         assert commands[index - 1] == 'M400'
         assert index < next(i for i, line in enumerate(commands) if line.startswith(('G0 X', '_WMP_XY_TRAVEL X=')))
+        assert commands[index + 1] == '_WMP_COUPLING_BEGIN KIND=pickup HEAD=2 SESSION=session GENERATION=4'
+        assert commands[-2:] == ['_CHECK_T_SEQUENCE T=2',
+            '_WMP_COUPLING_END KIND=pickup HEAD=2 SESSION=session GENERATION=4']
     else:
         assert observation not in commands
-    assert commands[-1] == '_CHECK_T_SEQUENCE T=2'
+        assert not any(line.startswith('_WMP_COUPLING_') for line in commands)
+        assert commands[-1] == '_CHECK_T_SEQUENCE T=2'
 
 
 def test_normal_toolchange_rechecks_pickup_after_nested_wipe_before_model_return():

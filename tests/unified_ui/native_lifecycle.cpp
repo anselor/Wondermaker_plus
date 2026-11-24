@@ -30,6 +30,7 @@ int async_failure(void(*)(void*),void*){return 0;}
 struct Event;
 struct Callback {void(*fn)(void*);int code;void*data;};
 struct Node {std::string text,image,options;unsigned layout_updates=0;bool height_fixed=false;bool pending_layout=false,open=false,is_image=false,is_label=false;unsigned selected=0,state=0,zoom_factor=256,disable_writes=0;int text_alignment=0,label_long_mode=-1;std::uintptr_t font_address=0;std::uint32_t text_color=0,background_color=0;int opacity=255,background_opacity=255;std::vector<std::uintptr_t>styles;std::uint32_t tint[2]={0,0};unsigned tint_opa[2]={0,0};Node*parent=nullptr;std::vector<Node*>children;std::vector<Callback>callbacks;bool live=true;unsigned flags=0;int x=0,y=0,w=800,h=480,scroll=0,dir=0,inset_x=0,inset_y=0;unsigned line_point_count=0;std::uint32_t line_color=0;};
+unsigned home_events=0;
 unsigned char menu_selection=255;
 unsigned style_resets=0;
 void clear_styles(void*p){++style_resets;static_cast<Node*>(p)->styles.clear();}
@@ -61,6 +62,7 @@ void send(Node*n,int code){auto callbacks=n->callbacks;for(auto cb:callbacks)if(
 int event_send(void*p,int code,void*){assert(static_cast<Node*>(p)->live);send(static_cast<Node*>(p),code);return 1;}
 // Vendor maintenance bytes read by the nozzle scrub (nozzle_scrub_vendor.hpp).
 unsigned char vendor_rapid_mode=1,vendor_selected[4]={0,0,0,0},vendor_pairing_failed=0;std::uint32_t vendor_heads=4;
+unsigned char guide_selected[4]={0,0,0,0};std::uint32_t vendor_calibration_status=0;
 // lv_disp_get_inactive_time: milliseconds since the last touch. 0 is a touch now.
 std::uint32_t inactive_ms=3600000;std::uint32_t inactive(void*){return inactive_ms;}
 void del(void*p){auto*n=static_cast<Node*>(p);assert(n->live);send(n,33);auto children=n->children;for(auto*c:children)del(c);n->live=false;n->callbacks.clear();if(n->parent){auto&v=n->parent->children;v.erase(std::remove(v.begin(),v.end(),n),v.end());}}
@@ -218,6 +220,19 @@ struct RuntimeReceiptTest {
  static void scrub_vendor(Runtime&,unsigned char rapid,std::array<unsigned char,4>selected,unsigned heads){
   fake::vendor_rapid_mode=rapid;for(unsigned i=0;i<4;++i)fake::vendor_selected[i]=selected[i];fake::vendor_heads=heads;}
  static unsigned char scrub_rapid(const Runtime&){return fake::vendor_rapid_mode;}
+ static void calibration_cancel_history(Runtime&r,const std::string&session,const std::string&request){
+  std::lock_guard<std::mutex>lock(r.mutex_);r.calibration_binding_={&r,session,request};r.calibration_cancel_requested_=true;
+ }
+ static void reserve_calibration(Runtime&r,bool value){std::lock_guard<std::mutex>lock(r.mutex_);r.calibration_reserved_=value;}
+ static void waiting_home(Runtime&r,const std::string&session,const std::string&request,const std::string&ticket){
+  r.calibration_binding_={&r,session,request};r.calibration_binding_.ticket=ticket;r.calibration_binding_.sequenced=true;
+  r.calibration_reserved_=true;r.home_active_=true;r.home_terminal_=false;r.home_delivery_finished_=false;r.home_axes_="X";
+  assert(r.home_status_.show(fake::sys));
+ }
+ static bool home_delivered(Runtime&r){std::lock_guard<std::mutex>lock(r.mutex_);return r.home_delivery_finished_;}
+ static bool home_terminal(const Runtime&r){return r.home_terminal_;}
+ static void close_home(Runtime&r){r.home_status_.close();r.home_active_=false;}
+ static bool guide_handoff_pending(const Runtime&r){return r.calibration_flow_.blocked();}
  static void scrub_status(Runtime&r,const Json&data){std::lock_guard<std::mutex>lock(r.mutex_);r.normalized_=data;r.at_=r.ui_.now_ms();}
  static void scrub_advance(Runtime&r,std::int64_t&clock,std::int64_t ms){std::lock_guard<std::mutex>lock(r.mutex_);clock+=ms;}
  static ScrubView scrub_flow_view(Runtime&r){std::lock_guard<std::mutex>lock(r.mutex_);return nozzle_scrub_view(r.scrub_.flow_.facts());}
@@ -235,6 +250,8 @@ void*test_resolve(std::uintptr_t a){
 if(a==0x38626e8){static const std::string asset("stock-white-filament.bin");return const_cast<std::string*>(&asset);}
  if(a==is_rapid_mode)return &fake::vendor_rapid_mode;
  if(a==auto_check_selected)return fake::vendor_selected;
+ if(a==calibration_selected)return fake::guide_selected;
+ if(a==auto_checking_status)return &fake::vendor_calibration_status;
  if(a==current_thr_number)return &fake::vendor_heads;
  if(a==knife_pairing_failed)return &fake::vendor_pairing_failed;
  #define MAP(name,fn) if(a==name)return reinterpret_cast<void*>(&fake::fn)
@@ -287,8 +304,10 @@ struct Http : wmp_openace::HttpPort {
  std::string post(const std::string&,const std::string&)override{assert(on_post);on_post();return "{\"result\":\"ok\"}";}
 };
 #include "progress_ui_contract.hpp"
+#include "screen_header_contract.hpp"
 #include "nozzle_scrub_lifecycle.hpp"
 int main(int argc,char**argv){
+ if(argc==4&&std::string(argv[1])=="--header-fit")return screen_header_contract(argv[2],argv[3]);
  if(argc==3&&std::string(argv[1])=="--progress-fit")return progress_ui_contract(argv[2]);
  {auto*button=fake::make(nullptr);auto*caption=fake::make(button);button->w=130;button->h=54;button->pending_layout=true;
  wmp_ui::native::center_button_caption(button,caption,"Choose source");
@@ -497,9 +516,21 @@ int main(int argc,char**argv){
  fake::bind(stock_start,reinterpret_cast<void(*)(void*)>(preview_event),31,reinterpret_cast<void*>(4));
  auto*start_caption=fake::make(stock_start);start_caption->text="PRINT";
  auto*cancel_caption=fake::make(stock_cancel);cancel_caption->text="CANCEL";
+ auto*preview_title=static_cast<fake::Node*>(preview_widgets.title);
+ preview_title->text=std::string(240,'W')+".gcode";preview_title->x=33;preview_title->y=12;
+ preview_title->w=3649;preview_title->h=20;
+ static_cast<fake::Node*>(preview_widgets.content)->w=695;
+ stock_start->x=580;stock_start->y=0;stock_start->w=90;stock_start->h=40;
+ stock_cancel->x=470;stock_cancel->y=0;stock_cancel->w=100;stock_cancel->h=40;
  StockPreviewControls preview_controls;std::vector<unsigned>preview_actions;
  assert(preview_controls.attach(preview_widgets,[&](unsigned action){preview_actions.push_back(action);}));
  assert(preview_controls.active()&&(stock_start->state&128));
+ assert(preview_title->label_long_mode==1&&preview_title->w==425&&preview_title->h==20);
+ assert(preview_title->text==std::string(240,'W')+".gcode");
+ const auto header_layouts=static_cast<fake::Node*>(preview_widgets.content)->layout_updates;
+ for(unsigned i=0;i<10;++i)preview_controls.readiness(false,false);
+ assert(static_cast<fake::Node*>(preview_widgets.content)->layout_updates==header_layouts);
+
  assert(start_caption->text_color==0xff888888U&&cancel_caption->text_color==0xffeeeeeeU);
  for(const auto&cb:stock_start->callbacks)assert(cb.fn!=reinterpret_cast<void(*)(void*)>(preview_event));
  fake::send(stock_start,7);assert(preview_actions.empty());
@@ -576,6 +607,12 @@ int main(int argc,char**argv){
   const Json receipt={{"state","copied"},{"destination","WM_USB_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/part.gcode"}};
   usb.update(receipt,false);fake::send(start,7);assert(reviews==0);
   usb.update(receipt,true);assert(start->children[0]->text=="OPEN FILE");
+  const auto usb_header_layouts=static_cast<fake::Node*>(usb_widgets.content)->layout_updates;
+  const auto usb_button_layouts=start->layout_updates;
+  usb.update(receipt,true);
+  assert(static_cast<fake::Node*>(usb_widgets.content)->layout_updates==usb_header_layouts);
+  assert(start->layout_updates==usb_button_layouts);
+
   for(const auto&node:fake::nodes)if(node->live&&node->parent==fake::parent(usb_widgets.sources[0]))
    assert(node->text.find("1. Check USB file")==std::string::npos&&node->text.find("2. Copy to printer")==std::string::npos);
   fake::send(start,7);fake::send(start,7);assert(reviews==1&&reviewed==receipt["destination"]&&copies==1);
@@ -1232,6 +1269,121 @@ int main(int argc,char**argv){
   assert(file["file_identity"]["size"].get<int>()>0);::unlink(path.c_str());::rmdir(directory);
  }
 
+ // Standalone Home controls use the same bound Cancel transport, with no
+ // vendor status-loop worker or synchronous LVGL motion dispatch.
+ for(unsigned action=10;action<=14;++action){
+  struct HomeWire:Http{std::atomic<unsigned>calls{0};std::string script;bool fail=false;
+   std::string post(const std::string&path,const std::string&body)override{assert(path=="/printer/gcode/script");script=Json::parse(body).at("script");++calls;if(fail)throw std::runtime_error("connection lost");return "{\"result\":\"ok\"}";}
+  } command;
+  struct CancelWire:Http{std::atomic<unsigned>calls{0};Json sent;
+   std::string post(const std::string&path,const std::string&body)override{assert(path=="/printer/wmp/calibration/cancel");sent=Json::parse(body);++calls;auto reply=sent;reply["state"]="requested";return Json{{"result",reply}}.dump();}
+  } cancel;
+  Http wire,preview,off;Port clock;wmp_openace::UiChannel ch;Runtime home(wire,clock,ch);
+  home.enable_background(command,preview,off);home.enable_calibration_cancel(cancel);
+  auto ready=data;ready["fresh"]=true;ready["owner"]="standalone";ready["job"]={{"state","idle"}};
+  const std::string session(32,'a');ready["calibration_session"]=session;ready["calibration_failed"]="";ready["calibration_active"]=false;
+  ready["calibration_ticket_protocol"]=1;ready["calibration_next_ticket"]="1";ready["calibration_cancel_protocol"]=2;ready["homing_operation_protocol"]=1;ready["calibration_attempt"]=Json::object();
+  for(auto key:{"filament_operation","toolhead_operation","operation"})ready.erase(key);
+  RuntimeReceiptTest::adoption_status(home,ready,Json::object(),clock.now);
+  auto*button=fake::make(fake::screen);fake::Event click{button,7,reinterpret_cast<void*>(action)};
+  wmp_openace::runtime.store(&home);
+  auto external=ready;external["owner"]="openace";RuntimeReceiptTest::adoption_status(home,external,Json::object(),clock.now);
+  const auto delegated=fake::home_events;wmp_openace::original_home_event.store(+[](void*){++fake::home_events;});
+  wmp_openace::unified_home_event(&click);assert(fake::home_events==delegated+1&&!home.home_active()&&command.calls==0);
+  external["fresh"]=false;RuntimeReceiptTest::adoption_status(home,external,Json::object(),clock.now);
+  wmp_openace::unified_home_event(&click);assert(fake::home_events==delegated+1&&!home.home_active()&&command.calls==0);
+  wmp_openace::original_home_event.store(nullptr);RuntimeReceiptTest::adoption_status(home,ready,Json::object(),clock.now);
+  button->flags|=1;wmp_openace::unified_home_event(&click);assert(!home.home_active()&&command.calls==0);button->flags&=~1U;
+  button->state|=128;wmp_openace::unified_home_event(&click);assert(!home.home_active()&&command.calls==0);button->state&=~128U;
+  wmp_openace::unified_home_event(&click);wmp_openace::runtime.store(nullptr);
+  assert(home.home_active()&&home.stock_calibration_reserved());
+  const auto limit=std::chrono::steady_clock::now()+std::chrono::seconds(3);
+  while(!RuntimeReceiptTest::home_delivered(home)&&std::chrono::steady_clock::now()<limit)std::this_thread::yield();
+  assert(RuntimeReceiptTest::home_delivered(home)&&command.calls==1);
+  const auto request=RuntimeReceiptTest::calibration_request(home);
+  const char*encoded[]={"4732382058","4732382059","47323820582059","473238205a","473238"};
+  assert(command.script=="_WMP_HOME_COMMAND HEX="+std::string(encoded[action-10])+" SESSION="+session+" REQUEST="+request+" TICKET=1 SEQUENCE=0");
+  home.update_home();assert(home.stock_calibration_reserved()); // HTTP success is not result authority.
+  unsigned layouts=0;for(const auto&node:fake::nodes)layouts+=node->layout_updates;
+  for(unsigned tick=0;tick<10;++tick){home.update_home();}
+  unsigned after_layouts=0;for(const auto&node:fake::nodes)after_layouts+=node->layout_updates;
+  assert(layouts==after_layouts); // Unchanged Home status does not rebuild widgets.
+  auto*root=fake::sys->children.back();fake::Node*cancel_button=nullptr;
+  for(auto*n:root->children)if(!n->children.empty()&&n->children[0]->text=="CANCEL")cancel_button=n;
+  assert(cancel_button);fake::send(cancel_button,7);
+  while(!cancel.calls.load()&&std::chrono::steady_clock::now()<limit)std::this_thread::yield();
+  assert(cancel.calls==1&&cancel.sent["request"]==request&&cancel.sent["ticket"]=="1");
+  assert(!home.begin_home(action)&&command.calls==1);RuntimeReceiptTest::close_maintenance_notice(home);
+  ready["calibration_attempt"]={{"protocol",1},{"session",session},{"request",request},{"ticket","1"},{"operation","home"},{"state","failed"},{"error","Homing cancelled"},{"cancel_requested",true},{"cancel_cleanup",{{"state","complete"},{"offsets","not_needed"},{"park","held"},{"error",""}}}};
+  auto stale=ready;stale["fresh"]=false;RuntimeReceiptTest::adoption_status(home,stale,Json::object(),clock.now);home.update_home();assert(!RuntimeReceiptTest::home_terminal(home));
+  auto foreign=ready;foreign["calibration_attempt"]["request"]=std::string(32,'f');RuntimeReceiptTest::adoption_status(home,foreign,Json::object(),clock.now);home.update_home();assert(!RuntimeReceiptTest::home_terminal(home)&&home.stock_calibration_reserved());
+  RuntimeReceiptTest::adoption_status(home,ready,Json::object(),clock.now);home.update_home();assert(RuntimeReceiptTest::home_terminal(home)&&!home.stock_calibration_reserved());
+  assert(cancel_button->children[0]->text=="DONE");fake::send(cancel_button,7);assert(!home.home_active());
+  if(action<=12){
+   ready["calibration_next_ticket"]="2";RuntimeReceiptTest::adoption_status(home,ready,Json::object(),clock.now);
+   if(action==10)command.fail=true;
+   assert(home.begin_home(action));
+   const auto again_limit=std::chrono::steady_clock::now()+std::chrono::seconds(3);
+   while(!RuntimeReceiptTest::home_delivered(home)&&std::chrono::steady_clock::now()<again_limit)std::this_thread::yield();
+   assert(RuntimeReceiptTest::home_delivered(home)&&command.calls==2);
+   const auto again_request=RuntimeReceiptTest::calibration_request(home);
+   ready["calibration_attempt"]={{"protocol",1},{"session",session},{"request",again_request},{"ticket","2"},{"operation","home"},{"state",action==11?"failed":"complete"},{"error",action==11?"Endstop did not trigger":""}};
+   ready["calibration_attempt"]=calibration_attempt_result(ready["calibration_attempt"]);
+   assert(!ready["calibration_attempt"].empty());
+   if(action==12){ready["calibration_session"]=std::string(32,'c');ready["calibration_attempt"]=Json::object();}
+   RuntimeReceiptTest::adoption_status(home,ready,Json::object(),clock.now);home.update_home();
+   assert(RuntimeReceiptTest::home_terminal(home)&&!home.stock_calibration_reserved());
+   auto*result_root=fake::sys->children.back();fake::Node*done=nullptr;bool text_found=false;
+   const std::string expected=action==10?"Homing complete.":action==11?"Endstop did not trigger":"Klipper restarted.";
+   for(const auto&node:fake::nodes)if(node->live)for(auto*p=node->parent;p;p=p->parent)if(p==result_root){if(node->text=="DONE")done=node->parent;if(node->text.find(expected)==0)text_found=true;}
+   assert(done&&text_found);home.update_home();assert(command.calls==2);fake::send(done,7);assert(!home.home_active());
+  }
+  fake::del(button);
+ }
+ // A fresh backend-owned raw Home is observed without sending a second
+ // command or consuming a ticket. The existing Cancel transport controls it.
+ {
+  struct RawCancel:Http{std::atomic<unsigned>calls{0};Json sent;
+   std::string post(const std::string&path,const std::string&body)override{assert(path=="/printer/wmp/calibration/cancel");sent=Json::parse(body);++calls;auto reply=sent;reply["state"]="requested";return Json{{"result",reply}}.dump();}
+  } cancel;
+  Http wire;unsigned commands=0;wire.on_post=[&]{++commands;};Port clock;wmp_openace::UiChannel ch;Runtime home(wire,clock,ch);home.enable_calibration_cancel(cancel);
+  auto ready=data;ready["fresh"]=true;ready["owner"]="standalone";ready["homing_raw_protocol"]=1;ready["calibration_cancel_protocol"]=2;
+  const std::string session(32,'a'),request(32,'b');ready["calibration_session"]=session;
+  Json attempt={{"protocol",1},{"session",session},{"request",request},{"ticket","7"},{"operation","home"},{"state","pending"},{"error",""},{"home_axes","Y"},{"home_origin","raw"}};
+  ready["calibration_attempt"]=calibration_attempt_result(attempt);assert(ready["calibration_attempt"]["home_axes"]=="Y");
+  for(unsigned invalid=0;invalid<6;++invalid){
+   auto bad=ready;if(invalid==0)bad["fresh"]=false;else if(invalid==1)bad["owner"]="openace";else if(invalid==2)bad["homing_raw_protocol"]=0;
+   else if(invalid==3)bad["calibration_attempt"]["ticket"]="07";else if(invalid==4)bad["calibration_session"]=std::string(32,'c');else bad["calibration_attempt"]["state"]="complete";
+   RuntimeReceiptTest::adoption_status(home,bad,Json::object(),clock.now);home.update_home();assert(!home.home_active()&&commands==0);
+  }
+  RuntimeReceiptTest::adoption_status(home,ready,Json::object(),clock.now);RuntimeReceiptTest::reserve_calibration(home,true);home.update_home();assert(!home.home_active());RuntimeReceiptTest::reserve_calibration(home,false);
+  home.update_home();assert(home.home_active()&&home.stock_calibration_reserved()&&commands==0);
+  auto*root=fake::sys->children.back();fake::Node*action=nullptr;bool title=false;
+  for(const auto&node:fake::nodes)if(node->live)for(auto*p=node->parent;p;p=p->parent)if(p==root){if(node->text=="CANCEL")action=node->parent;if(node->text=="Home Y")title=true;}
+  assert(action&&title);fake::send(action,7);
+  const auto limit=std::chrono::steady_clock::now()+std::chrono::seconds(3);while(!cancel.calls.load()&&std::chrono::steady_clock::now()<limit)std::this_thread::yield();
+  assert(cancel.calls==1&&cancel.sent["request"]==request&&cancel.sent["ticket"]=="7"&&commands==0);
+  attempt["state"]="failed";attempt["error"]="Homing cancelled";attempt["cancel_requested"]=true;attempt["cancel_cleanup"]={{"state","complete"},{"offsets","not_needed"},{"park","held"},{"error",""}};
+  ready["calibration_attempt"]=calibration_attempt_result(attempt);RuntimeReceiptTest::adoption_status(home,ready,Json::object(),clock.now);home.update_home();
+  assert(RuntimeReceiptTest::home_terminal(home)&&!home.stock_calibration_reserved()&&action->children[0]->text=="DONE");
+  // A second console Home replaces an old result pane immediately, so the
+  // current motion has CANCEL even if DONE was never pressed for the last run.
+  auto next=attempt;next["request"]=std::string(32,'c');next["ticket"]="8";next["state"]="pending";next["error"]="";next["home_axes"]="X";next.erase("cancel_requested");next.erase("cancel_cleanup");
+  ready["calibration_attempt"]=calibration_attempt_result(next);RuntimeReceiptTest::adoption_status(home,ready,Json::object(),clock.now);home.update_home();
+  assert(!RuntimeReceiptTest::home_terminal(home)&&home.stock_calibration_reserved()&&RuntimeReceiptTest::calibration_request(home)==std::string(32,'c'));
+  auto older=attempt;older["state"]="pending";ready["calibration_attempt"]=calibration_attempt_result(older);RuntimeReceiptTest::adoption_status(home,ready,Json::object(),clock.now);home.update_home();assert(RuntimeReceiptTest::calibration_request(home)==std::string(32,'c'));
+  next["state"]="complete";ready["calibration_attempt"]=calibration_attempt_result(next);RuntimeReceiptTest::adoption_status(home,ready,Json::object(),clock.now);home.update_home();assert(RuntimeReceiptTest::home_terminal(home));
+  fake::Node*done=nullptr;auto*new_root=fake::sys->children.back();for(auto*n:new_root->children)if(!n->children.empty()&&n->children[0]->text=="DONE")done=n;
+  assert(done);fake::send(done,7);assert(!home.home_active()&&commands==0);
+  // A server-committed foreign request for the same advertised ticket proves
+  // the lost-response local request cannot execute. Control follows the live
+  // Home immediately, rather than waiting for that old connection to time out.
+  RuntimeReceiptTest::waiting_home(home,session,std::string(32,'d'),"9");
+  next["request"]=std::string(32,'e');next["ticket"]="9";next["state"]="pending";
+  ready["calibration_attempt"]=calibration_attempt_result(next);RuntimeReceiptTest::adoption_status(home,ready,Json::object(),clock.now);home.update_home();
+  assert(RuntimeReceiptTest::calibration_request(home)==std::string(32,'e')&&RuntimeReceiptTest::home_delivered(home)&&!RuntimeReceiptTest::home_terminal(home)&&commands==0);
+  next["state"]="complete";ready["calibration_attempt"]=calibration_attempt_result(next);RuntimeReceiptTest::adoption_status(home,ready,Json::object(),clock.now);home.update_home();assert(RuntimeReceiptTest::home_terminal(home));RuntimeReceiptTest::close_home(home);
+ }
  // Worker shutdown cancels queued work, rejects new work, and joins the one
  // already executing task without dropping its completion.
  {
@@ -1775,9 +1927,233 @@ int main(int argc,char**argv){
   view.update(state,external.message(state),external.can_start(state,true),false,!external.blocks_navigation(state));
   assert(!(text("BACK")->parent->flags&1));fake::send(text("BACK")->parent,7);assert(backs==2);
   fake::send(text("START")->parent,7);assert(submits==1);
+  view.update(state,"Identifying heads",true,false,false,true);
+  assert(text("CANCEL")&&(text("BACK")->parent->flags&1));
+  fake::send(text("CANCEL")->parent,7);assert(submits==2);
+  view.update(state,"Cancellation requested",false,false,false,true);
+  fake::send(text("CANCEL")->parent,7);assert(submits==2);
   fake::del(page);view.update(state,"Unavailable",false,false);
  }
+ // Identification Start and Cancel share status, with independent delivery.
+ {
+  struct IdentificationCancelHttp:Http{
+   std::atomic<unsigned>calls{0};Json binding;
+   std::string post(const std::string&path,const std::string&body)override{
+    assert(path=="/printer/wmp/identification/cancel");binding=Json::parse(body);
+    auto receipt=binding;receipt["state"]="requested";calls.fetch_add(1);
+    return Json{{"result",receipt}}.dump();
+   }
+  } cancel;
+  Http wire;Port clock;wmp_openace::UiChannel channel;Runtime runtime(wire,clock,channel);
+  runtime.enable_calibration_cancel(cancel);
+  auto ready=data;ready["fresh"]=true;ready["owner"]="standalone";ready["job"]={{"state","idle"}};
+  ready["calibration_active"]=false;ready["calibration_failed"]="";ready["calibration_session"]=std::string(32,'a');
+  ready["identification"]={{"protocol",2},{"cancel_protocol",1},{"state","idle"}};
+  for(auto key:{"filament_operation","toolhead_operation","operation"})ready.erase(key);
+  RuntimeReceiptTest::adoption_status(runtime,ready,Json::object(),clock.now);
+  std::vector<std::string>commands;runtime.set_calibration_sender([&](const std::string&command){commands.push_back(command);return true;});
+  auto*page=fake::make(fake::screen);runtime.stock_identification_created(page);
+  auto text=[&](const std::string&value){for(auto&n:fake::nodes)if(n->live&&n->text==value)for(auto*p=n->parent;p;p=p->parent)if(p==page)return n.get();return static_cast<fake::Node*>(nullptr);};
+  fake::send(text("START")->parent,7);assert(commands.size()==1&&commands[0].find("_WMP_IDENTIFY_HEADS SESSION=")==0);
+  assert(text("CANCEL")&&runtime.identification_blocks_navigation());
+  fake::send(text("CANCEL")->parent,7);fake::send(text("CANCEL")->parent,7);
+  const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(3);
+  while(!cancel.calls.load()&&std::chrono::steady_clock::now()<deadline)std::this_thread::yield();
+  assert(cancel.calls.load()==1&&commands.size()==1&&cancel.binding.size()==2);
+  assert(cancel.binding["session"]==ready["calibration_session"]);
+  auto op=ready["identification"];op["state"]="cancelled";
+  op["request_result"]={{"session",cancel.binding["session"]},{"request",cancel.binding["request"]},{"state","cancelled"},{"error","Identification cancelled; mapping unchanged"}};
+  ready["identification"]=op;RuntimeReceiptTest::adoption_status(runtime,ready,Json::object(),clock.now);
+  runtime.update_identification();assert(!runtime.identification_blocks_navigation()&&text("START"));
+  assert(text("Identification cancelled; mapping unchanged")&&text("DONE"));fake::del(page);
+ }
  nozzle_scrub_lifecycle(data);
+ // Guide selections enter the exact same admitted Maintenance worker. The
+ // old four guide issuers cannot send commands or intermediate SAVE_CONFIG.
+ for(unsigned mask=1;mask<16;++mask){
+  struct GuideCancel:Http{std::atomic<unsigned>calls{0};Json sent;
+   std::string post(const std::string&path,const std::string&body)override{
+    assert(path=="/printer/wmp/calibration/cancel");sent=Json::parse(body);auto result=sent;result["state"]="requested";
+    calls.fetch_add(1);return Json{{"result",result}}.dump();
+   }} cancel;
+  Http wire;Port clock;wmp_openace::UiChannel ch;Runtime guide(wire,clock,ch);
+  if(mask==1)guide.enable_calibration_cancel(cancel);
+  auto ready=data;ready["fresh"]=true;ready["owner"]="standalone";ready["job"]={{"state","idle"}};
+  ready["calibration_session"]=std::string(32,'a');ready["calibration_failed"]="";ready["calibration_active"]=false;
+  ready["calibration_ticket_protocol"]=1;ready["calibration_next_ticket"]="1";ready["calibration_cancel_protocol"]=2;ready["calibration_attempt"]=Json::object();
+  for(auto key:{"filament_operation","toolhead_operation","operation"})ready.erase(key);
+  RuntimeReceiptTest::adoption_status(guide,ready,Json::object(),clock.now);
+  for(unsigned i=0;i<4;++i)fake::guide_selected[i]=(mask>>i)&1;
+  fake::vendor_rapid_mode=1;fake::vendor_heads=4;std::string destination;
+  fake::Node*progress=nullptr;
+  guide.set_stock_navigation([&](const char*name){destination=name;if(destination=="auto_checking_page"){
+   guide.stock_calibration_enqueued();if(mask==1){progress=fake::make(fake::screen);guide.stock_calibration_created(progress);}
+  }});
+  auto*button=fake::make(fake::screen);fake::Event click{button,7,reinterpret_cast<void*>(1)};
+  wmp_openace::runtime.store(&guide);wmp_openace::unified_guide_calibration_event(&click);wmp_openace::runtime.store(nullptr);
+  assert(destination=="auto_checking_page"&&guide.stock_calibration_reserved()&&guide.onboarding_active());
+  const auto selection=GuideCalibrationSelection::read();assert(fake::vendor_calibration_status==selection.initial_status());
+  for(unsigned i=0;i<4;++i)assert(fake::vendor_selected[i]==fake::guide_selected[i]);
+  const auto request=RuntimeReceiptTest::calibration_request(guide);
+  guide.run_stock_calibration_worker([&]{
+   auto command=guide.stock_calibration_command_for_worker(0x4b7828,"G29");
+   assert(command.find("SESSION="+std::string(32,'a')+" REQUEST="+request+" SEQUENCE=0 TICKET=1")!=std::string::npos);
+   assert(guide.calibration_navigation("guide_filament_page")&&destination=="auto_checking_page");
+   if(mask==1){
+    fake::Node*button=nullptr;for(const auto&node:fake::nodes)if(node->live&&node->text=="CANCEL")for(auto*p=node->parent;p;p=p->parent)if(p==progress)button=node->parent;
+    assert(button);fake::send(button,7);
+    const auto limit=std::chrono::steady_clock::now()+std::chrono::seconds(3);
+    while(!cancel.calls.load()&&std::chrono::steady_clock::now()<limit)std::this_thread::yield();
+    assert(cancel.calls==1&&cancel.sent["request"]==request&&cancel.sent["ticket"]=="1");
+    assert(guide.suppress_cancelled_calibration_send(0x4b7a6c));
+   }
+  });
+  for(auto caller:calibration_senders)assert(guide.refuse_unbound_guide_calibration_send(caller)==stock_guide_calibration_sender(caller));
+  assert(!guide.refuse_unbound_guide_calibration_send(0x12345));
+  guide.leave_stock_calibration();assert(destination=="guide_calibration_page"&&guide.onboarding_active());
+  fake::del(button);if(progress)fake::del(progress);
+ }
+ // Setup handoff and explicit Finish cannot bypass an unresolved owned
+ // Cancel. Incomplete cleanup permits an explicit calibration retry, not Finish.
+ {
+  Http wire;Port clock;wmp_openace::UiChannel ch;Runtime setup(wire,clock,ch);
+  auto ready=data;ready["fresh"]=true;ready["owner"]="standalone";ready["job"]={{"state","idle"}};
+  const std::string session(32,'a'),request(32,'b');ready["calibration_session"]=session;ready["calibration_failed"]="";ready["calibration_active"]=false;
+  for(auto key:{"filament_operation","toolhead_operation","operation"})ready.erase(key);
+  RuntimeReceiptTest::adoption_status(setup,ready,Json::object(),clock.now);
+  unsigned finished=0;setup.set_stock_navigation([](const char*){});setup.set_finish_onboarding([&]{++finished;return true;});setup.begin_onboarding();
+  RuntimeReceiptTest::calibration_cancel_history(setup,session,request);
+  assert(!setup.finish_onboarding()&&finished==0);
+  assert(setup.calibration_navigation("guide_filament_page")&&!RuntimeReceiptTest::guide_handoff_pending(setup));
+  ready["calibration_attempt"]={{"request",request},{"session",session},{"cancel_requested",true},{"cancel_cleanup",{{"state","incomplete"}}}};
+  RuntimeReceiptTest::adoption_status(setup,ready,Json::object(),clock.now);
+  assert(!setup.finish_onboarding()&&finished==0);
+  assert(setup.calibration_navigation("guide_filament_page")&&!RuntimeReceiptTest::guide_handoff_pending(setup));
+  ready["calibration_attempt"]["cancel_cleanup"]["state"]="complete";RuntimeReceiptTest::adoption_status(setup,ready,Json::object(),clock.now);
+  assert(setup.finish_onboarding()&&finished==1);
+ }
+ // Stale/disabled controls, no selection and busy printers cannot enqueue a
+ // guide run. The constructor failing to enqueue releases its reservation.
+ {
+  Http wire;Port clock;wmp_openace::UiChannel ch;Runtime guide(wire,clock,ch);
+  auto ready=data;ready["fresh"]=true;ready["owner"]="standalone";ready["job"]={{"state","idle"}};
+  ready["calibration_session"]=std::string(32,'a');ready["calibration_failed"]="";ready["calibration_active"]=false;
+  ready["calibration_ticket_protocol"]=1;ready["calibration_next_ticket"]="1";
+  for(auto key:{"filament_operation","toolhead_operation","operation"})ready.erase(key);
+  RuntimeReceiptTest::adoption_status(guide,ready,Json::object(),clock.now);unsigned navigations=0;
+  guide.set_stock_navigation([&](const char*){++navigations;});
+  for(auto&value:fake::guide_selected)value=0;
+  assert(!guide.begin_guide_calibration(nullptr)&&navigations==0&&!guide.stock_calibration_reserved());
+  fake::guide_selected[0]=2;assert(!guide.begin_guide_calibration(nullptr)&&navigations==0);
+  fake::guide_selected[0]=1;
+  auto*button=fake::make(fake::screen);fake::Event click{button,7,reinterpret_cast<void*>(1)};
+  wmp_openace::runtime.store(&guide);
+  button->flags|=1;wmp_openace::unified_guide_calibration_event(&click);button->flags&=~1U;
+  button->state|=128;wmp_openace::unified_guide_calibration_event(&click);button->state&=~128U;
+  click.data=reinterpret_cast<void*>(99);wmp_openace::unified_guide_calibration_event(&click);click.data=reinterpret_cast<void*>(1);
+  assert(navigations==0);
+  static unsigned toggles=0;const auto old_toggle=wmp_openace::original_guide_calibration_event.exchange(+[](void*){++toggles;});
+  click.data=reinterpret_cast<void*>(2);wmp_openace::unified_guide_calibration_event(&click);
+  assert(toggles==1&&navigations==0);click.data=reinterpret_cast<void*>(1);wmp_openace::original_guide_calibration_event.store(old_toggle);
+  ready["job"]["state"]="printing";RuntimeReceiptTest::adoption_status(guide,ready,Json::object(),clock.now);
+  wmp_openace::unified_guide_calibration_event(&click);assert(navigations==0);
+  ready["job"]["state"]="idle";RuntimeReceiptTest::adoption_status(guide,ready,Json::object(),clock.now);
+  wmp_openace::unified_guide_calibration_event(&click);assert(navigations==1&&!guide.stock_calibration_reserved());
+  assert(guide.calibration_navigation("guide_calibrating_page")&&navigations==1);
+  wmp_openace::runtime.store(nullptr);fake::del(button);
+ }
+ // Accurate guide offset calibration offers the same brush choice and
+ // replays its guide START with the resulting binding, not a legacy worker.
+ {
+  ScrubRun t(data,0,{{1,0,0,1}},1);for(unsigned i=0;i<4;++i)fake::guide_selected[i]=i==0||i==3;
+  fake::unbind(t.start,&wmp_openace::unified_maintenance_event);
+  fake::bind(t.start,&wmp_openace::unified_guide_calibration_event,7,reinterpret_cast<void*>(1));
+  t.r.set_stock_navigation([&](const char*name){assert(std::string(name)=="auto_checking_page");t.r.stock_calibration_enqueued();});
+  fake::send(t.start,7);assert(t.state()==ScrubState::Prepare&&!t.r.stock_calibration_reserved());
+  t.tap("CONFIRM");t.r.gui_step();assert(t.r.stock_calibration_reserved()&&t.state()==ScrubState::StockChecks&&!t.request().empty());
+  t.run_worker();t.until([&]{return t.state()==ScrubState::ReturnPrompt;});
+  RuntimeReceiptTest::scrub_shutdown(t.r);t.worker.join();assert(t.returned.load());
+  for(const auto&command:ScrubRun::sent())assert(command.find("REQUEST="+t.request())!=std::string::npos);
+ }
+ // A stale or non-label Maintenance global cannot change another page.
+ {
+  StockCalibrationStatus view;auto*page=fake::make(fake::screen);auto*foreign=fake::make(fake::screen);
+  auto*foreign_title=static_cast<fake::Node*>(fake::make_label(foreign));foreign_title->text="Other page";
+  view.created(page,false,foreign_title);assert(foreign_title->text=="Other page");
+  auto*card=fake::make(page);auto*title=static_cast<fake::Node*>(fake::make_label(card));title->text="Guide title";
+  view.created(page,true,title);assert(title->text=="Guide title");
+  auto*not_label=fake::make(card);not_label->text="Not a title";
+  view.created(page,false,not_label);assert(not_label->text=="Not a title");
+  fake::del(page);fake::del(foreign);
+ }
+ // Maintenance CANCEL stays in the header, retains its widget on status
+ // refresh, and only reports DONE after this run's cleanup receipt.
+ {
+  StockCalibrationStatus view;auto*page=fake::make(fake::screen);unsigned cancels=0;
+  auto*card=fake::make(page);card->x=90;card->y=55;card->w=695;card->h=357;
+  auto*factory_title=static_cast<fake::Node*>(fake::make_label(card));factory_title->x=33;factory_title->y=12;
+  factory_title->font_address=MyriadPro_Regular_16;
+  const auto factory_nodes=fake::nodes.size();
+  const std::string session(32,'a'),request(32,'b');view.created(page,false,factory_title);view.begin(session,request);view.cancel=[&]{++cancels;};
+  assert(fake::nodes.size()==factory_nodes&&factory_title->text=="Calibration");
+  assert(factory_title->w==515&&factory_title->h==20&&factory_title->label_long_mode==1);
+  const auto title_layouts=card->layout_updates;
+  Json state={{"fresh",true},{"calibration_session",session},{"calibration_failed",""},{"maintenance_cancel_available",true},
+   {"maintenance_worker_returned",false},{"maintenance_cancel_request",request}};
+  auto find=[&](const std::string&s){for(auto&n:fake::nodes)if(n->live&&n->text.find(s)==0)for(auto*p=n->parent;p;p=p->parent)if(p==page)return n.get();return static_cast<fake::Node*>(nullptr);};
+  view.update(state);auto*button=find("CANCEL");assert(button&&button->parent->y==55);
+  const auto count=fake::nodes.size();view.update(state);assert(fake::nodes.size()==count&&find("CANCEL")==button);
+  assert(card->layout_updates==title_layouts&&factory_title->text=="Calibration");
+  fake::send(button->parent,7);assert(cancels==1);
+  state["maintenance_cancel_available"]=false;state["maintenance_cancel_requested"]=true;
+  state["maintenance_cancel_message"]="Cancellation requested. Waiting for the printer to stop.";
+  view.update(state);assert(!find("CANCEL")&&find("Cancellation requested.")&&!find("DONE"));
+  Json attempt={{"protocol",1},{"session",session},{"request",request},{"ticket","1"},{"state","failed"},{"error","Cancelled"},{"cancel_requested",true},
+   {"cancel_cleanup",{{"state","complete"},{"offsets","restored"},{"park","parked"},{"error",""}}}};
+  state["calibration_attempt"]=attempt;state["maintenance_worker_returned"]=true;view.update(state);
+  assert(find("Calibration cancelled.")&&find("DONE"));
+  for(const auto&location:std::vector<std::pair<std::string,std::string>>{
+       {"between bed mesh points","Stopped between bed mesh points."},
+       {"before bed mesh finalization","Stopped before saving the bed mesh."},
+       {"during heater wait","Stopped while heating."},
+       {"after verified tool pickup","Stopped after verified pickup."},
+       {"during shaper calculations","Stopped while calculating input shaping."},
+       {"after Y homing","Stopped after Y homing."},
+       {"before tool-setter touch","Stopped before the next tool-setter touch."}}){
+   state["calibration_attempt"]["cancel_phase"]=location.first;view.update(state);
+   assert(find("Calibration cancelled.")->text.find(location.second)!=std::string::npos);
+  }
+  state["calibration_attempt"]["cancel_phase"]="before UNKNOWN_INTERNAL_COMMAND";view.update(state);
+  assert(find("Calibration cancelled.")->text.find("UNKNOWN_INTERNAL_COMMAND")==std::string::npos);
+  state["calibration_attempt"]["request"]=std::string(32,'c');view.update(state);
+  assert(!find("Calibration cancelled."));
+  state["calibration_attempt"]=attempt;view.update(state);
+  assert(calibration_attempt_result(attempt)["cancel_cleanup"]["state"]=="complete");
+  attempt["checkpoints"]=Json::array({
+   {{"type","mesh"},{"state","saved"},{"sequence",0},{"sha256",std::string(64,'a')}},
+   {{"type","vibration"},{"state","saved"},{"sequence",1},{"sha256",std::string(64,'b')}},
+   {{"type","pid:extruder3"},{"state","saved"},{"sequence",2},{"sha256",std::string(64,'c')}}});
+  auto projected=calibration_attempt_result(attempt);assert(projected["checkpoints"].size()==3);
+  state["calibration_attempt"]=projected;view.update(state);
+  assert(find("Calibration cancelled.")->text.find("Saved: bed mesh, vibration, Head 4 PID.")!=std::string::npos);
+  assert(find("Calibration cancelled.")->text.find("Restart Klipper to apply saved settings.")!=std::string::npos);
+  const auto saved_count=fake::nodes.size();view.update(state);view.update(state);assert(fake::nodes.size()==saved_count);
+  for(const auto&bad:{Json(true),Json(1),Json("unknown"),Json::object()}){
+   auto malformed=attempt;malformed["checkpoints"][0]["state"]=bad;
+   assert(calibration_attempt_result(malformed)["checkpoints"].size()==2);
+  }
+  auto malformed=attempt;malformed["checkpoints"][0]["sha256"]="invalid";
+  assert(calibration_attempt_result(malformed)["checkpoints"].size()==2);
+  malformed["checkpoints"]=Json::array();for(int i=0;i<17;++i)malformed["checkpoints"].push_back(attempt["checkpoints"][0]);
+  assert(!calibration_attempt_result(malformed).contains("checkpoints"));
+  view.begin(session,std::string(32,'c'));state["calibration_attempt"]["request"]=std::string(32,'c');
+  state["calibration_attempt"].erase("checkpoints");state["maintenance_cancel_request"]=std::string(32,'c');view.update(state);
+  assert(find("Calibration cancelled.")->text.find("Saved:")==std::string::npos);
+  for(const auto&bad:{Json(1),Json(true),Json("unknown"),Json::object()}){
+   attempt["cancel_cleanup"]["state"]=bad;assert(!calibration_attempt_result(attempt).contains("cancel_cleanup"));
+  }
+  fake::del(page);
+ }
  // Calibration failure remains visible through stale updates and cannot expose
  // stock success ticks by dismissal. DONE only navigates; it sends no commands.
  {
@@ -1861,6 +2237,51 @@ int main(int argc,char**argv){
   auto malformed=receipt;malformed["request"]="invalid token";assert(calibration_save_result(malformed).empty());
   malformed=receipt;malformed["state"]="complete";assert(calibration_save_result(malformed).empty());
   fake::del(page);
+ }
+ // Cancellation uses its own port while a pooled calibration invocation is
+ // live. The first stage still admits its ticket; later stages/saves are held.
+ {
+  struct CancelHttp:wmp_openace::HttpPort{
+   std::atomic<unsigned>calls{0};Json payload;
+   std::string get(const std::string&)override{assert(false);return {};}
+   std::string post(const std::string&path,const std::string&body)override{
+    assert(path=="/printer/wmp/calibration/cancel");payload=Json::parse(body);
+    auto result=payload;result["state"]="requested";calls.fetch_add(1);
+    return Json{{"result",result}}.dump();
+   }
+  } cancel;
+  Http wire;Port clock;wmp_openace::UiChannel ch;Runtime r(wire,clock,ch);r.enable_calibration_cancel(cancel);
+  auto ready=data;ready["fresh"]=true;ready["owner"]="standalone";ready["job"]={{"state","idle"}};
+  ready["calibration_session"]=std::string(32,'a');ready["calibration_failed"]="";ready["calibration_active"]=false;
+  ready["calibration_ticket_protocol"]=1;ready["calibration_next_ticket"]="1";ready["calibration_cancel_protocol"]=2;
+  ready["calibration_attempt"]=Json::object();for(auto key:{"filament_operation","toolhead_operation","operation"})ready.erase(key);
+  RuntimeReceiptTest::adoption_status(r,ready,Json::object(),clock.now);
+  assert(r.begin_stock_calibration());const auto request=RuntimeReceiptTest::calibration_request(r);
+  r.stock_calibration_enqueued();r.finish_stock_calibration_start();
+  r.run_stock_calibration_worker([&]{
+   assert(!r.suppress_cancelled_calibration_send(0x4b7a1c));
+   r.stock_calibration_command_for_worker(0x4b7a1c,"G28");
+   assert(r.request_calibration_cancel());
+   assert(r.suppress_cancelled_calibration_send(0x4b842c));
+   assert(r.suppress_cancelled_calibration_send(0x4b869c));
+   *nozzle_scrub_vendor().failed=1;assert(r.suppress_cancelled_calibration_send(offset_park));assert(*nozzle_scrub_vendor().failed==0);
+   assert(!r.suppress_cancelled_calibration_send(0x12345));
+   const auto until=std::chrono::steady_clock::now()+std::chrono::seconds(3);
+   while(!cancel.calls.load()&&std::chrono::steady_clock::now()<until)std::this_thread::yield();
+   assert(cancel.calls==1&&cancel.payload["request"]==request&&cancel.payload["ticket"]=="1");
+   assert(r.request_calibration_cancel()&&cancel.calls==1);
+   ready["calibration_attempt"]={{"protocol",1},{"session",std::string(32,'a')},{"request",request},{"state","failed"},{"error","Cancelled"},{"cancel_requested",true},{"early_save_available",true},
+    {"cancel_cleanup",{{"state","complete"},{"offsets","restored"},{"park","parked"},{"error",""}}}};
+   RuntimeReceiptTest::adoption_status(r,ready,Json::object(),clock.now);
+   assert(!r.suppress_cancelled_calibration_send(0x4b869c));
+   ready["calibration_attempt"]["cancel_cleanup"]["state"]="running";
+   RuntimeReceiptTest::adoption_status(r,ready,Json::object(),clock.now);
+   assert(r.suppress_cancelled_calibration_send(0x4b869c));
+  });
+  assert(!r.begin_stock_calibration()); // worker return alone is no stop receipt
+  ready["calibration_next_ticket"]="2";ready["calibration_attempt"]={{"protocol",1},{"session",std::string(32,'a')},{"request",request},{"state","failed"},{"error","Cancelled"},{"cancel_requested",true},
+   {"cancel_cleanup",{{"state","complete"},{"offsets","not_needed"},{"park","not_moved"},{"error",""}}}};
+  RuntimeReceiptTest::adoption_status(r,ready,Json::object(),clock.now);assert(r.begin_stock_calibration());
  }
  // Queued/running work owns the reservation across Klipper restarts. A pooled
  // worker gets an invocation binding, not whatever a later page displays.
@@ -2033,11 +2454,16 @@ int main(int argc,char**argv){
   idle["calibration_session"]="guide-session";idle["calibration_checkpoint"]="old";
   assert(!setup.calibration_navigation("main_page"));
   assert(setup.calibration_navigation("guide_calibrating_page"));setup.gui_step();assert(commands.empty()&&pages.empty());
-  RuntimeReceiptTest::adoption_status(setup,idle,Json::object(),port.now);setup.gui_step();assert(commands.size()==1&&pages.empty());
+  RuntimeReceiptTest::adoption_status(setup,idle,Json::object(),port.now);setup.gui_step();assert(commands.empty()&&pages.empty());
+  RuntimeReceiptTest::close_maintenance_notice(setup);
+  // Retired guide progress is never constructed. Explicit Skip continues via
+  // the existing checked handoff to managed filament setup instead.
+  assert(setup.calibration_navigation("guide_filament_page"));setup.gui_step();assert(commands.size()==1&&pages.empty());
   setup.gui_step();assert(commands.size()==1&&pages.empty());
   idle["calibration_checkpoint"]=commands.back().substr(commands.back().find("TOKEN=")+6);
-  RuntimeReceiptTest::adoption_status(setup,idle,Json::object(),port.now);setup.gui_step();assert(pages==std::vector<std::string>{"guide_calibrating_page"});
-  setup.calibration_navigation("guide_filament_page");setup.gui_step();assert(commands.size()==2&&pages.size()==1);
+  RuntimeReceiptTest::adoption_status(setup,idle,Json::object(),port.now);setup.gui_step();assert(pages.empty());
+  setup.gui_step();assert(pages==std::vector<std::string>{"filament_page"});
+  setup.calibration_navigation("guide_calibration_finish_page");setup.gui_step();assert(commands.size()==2&&pages.size()==1);
   idle["calibration_failed"]="PID failed";RuntimeReceiptTest::adoption_status(setup,idle,Json::object(),port.now);setup.gui_step();
   idle["calibration_checkpoint"]=commands.back().substr(commands.back().find("TOKEN=")+6);
   idle["calibration_failed"]="";idle["calibration_session"]="restarted";
@@ -2768,6 +3194,8 @@ int main(int argc,char**argv){
   std::vector<std::string> setup_commands;
   setup.set_calibration_sender([&](const std::string&command){setup_commands.push_back(command);return true;});
   wmp_openace::runtime.store(&setup);
+  auto*skip=fake::make(fake::screen);fake::Event skip_click{skip,7,nullptr};
+  wmp_openace::unified_guide_calibration_event(&skip_click);fake::del(skip);
   wmp_openace::unified_setup_filament_guide(nullptr);
   assert(setup.onboarding_active()); // Marker protected before checkpoint completion.
   wmp_openace::unified_retired_guide_worker();wmp_openace::unified_retired_guide_worker();
@@ -3420,6 +3848,16 @@ int main(int argc,char**argv){
   assert(find("3. Verify attachment sensors"));
   snapshot["toolhead_operation"]["phase"]="verifying";dialog.update(snapshot);
   assert(find("3. Verify attachment sensors")->text_color==0xffff6600U);
+  unsigned cancels=0;dialog.cancel=[&](const std::string&id){assert(id=="tool-progress");++cancels;return true;};
+  auto*stop=find("STOP");assert(stop&&(stop->parent->state&128));
+  snapshot["toolhead_cancel_protocol"]=1;dialog.update(snapshot);
+  assert(!(stop->parent->state&128));
+  auto invalid=snapshot;invalid["fresh"]=false;dialog.update(invalid);assert(stop->parent->state&128);
+  invalid=snapshot;invalid["toolhead_operation"]["action"]="other";dialog.update(invalid);assert(stop->parent->state&128);
+  invalid=snapshot;invalid["toolhead_operation"]["session"]="old";dialog.update(invalid);assert(stop->parent->state&128);
+  dialog.update(snapshot);fake::send(stop->parent,7);assert(cancels==1);
+  snapshot["toolhead_operation"]["cancel_requested"]=true;dialog.update(snapshot);assert(stop->parent->state&128);
+  fake::send(stop->parent,7);assert(cancels==1);
   dialog.close();fake::del(parent);
  }
  // Unload progress survives navigation without repeating motion or cancellation.
@@ -4268,14 +4706,28 @@ fake::send(slot_card,7);assert(ace_action.empty());
 
  {
   StockPrintPreparation preparation;
+  unsigned preparation_stops=0;preparation.stop=[&]{++preparation_stops;};
   Json data={{"owner","standalone"},{"fresh",true},{"print_preparation",{{"active",true},{"id","job1"},{"phase","homing"},
    {"steps",Json::array({{{"phase","preheat"},{"label","Preheat probe nozzle"}},{{"phase","homing"},{"label","Home printer"}}})}}}};
   auto find_preparation=[&](const std::string&text){for(auto it=fake::nodes.rbegin();it!=fake::nodes.rend();++it){const auto&n=*it;if(n->live&&n->text==text&&!(n->flags&1))return n.get();}return static_cast<fake::Node*>(nullptr);};
   preparation.navigation("main_page");preparation.update(data);
   auto*step=find_preparation("2. Home printer");assert(step&&step->text_color==0xffff6600U);
-  auto*close=find_preparation("CLOSE");assert(close);fake::send(close->parent,7);
+  auto*close=find_preparation("CLOSE");assert(close);
+  auto*stop=find_preparation("STOP");assert(stop);
+  auto*title=find_preparation("Preparing print");assert(title);
+  auto*panel=title->parent;auto*overlay=close->parent->parent;
+  assert(panel->parent==overlay&&panel->y==0&&title->y==0&&close->parent->y==0);
+  assert(panel->x+title->x+title->w<=stop->parent->x);
+  assert(stop->parent->x+stop->parent->w<=close->parent->x);
+  unsigned titles=0;for(const auto&n:fake::nodes)if(n->live&&n->text=="Preparing print"&&!(n->flags&1))++titles;
+  assert(titles==1);
+  preparation.update(data);assert(find_preparation("Preparing print")==title);
+  fake::send(close->parent,7);
   assert(!step->live);preparation.update(data);assert(!find_preparation("2. Home printer"));
   data["print_preparation"]["id"]="job2";preparation.update(data);assert(find_preparation("2. Home printer"));
+  fake::send(find_preparation("STOP")->parent,7);assert(preparation_stops==1);
+  preparation.update(data);assert(!find_preparation("2. Home printer"));
+  data["print_preparation"]["id"]="job3";preparation.update(data);
   preparation.navigation("setting_page");assert(!find_preparation("2. Home printer"));
   preparation.navigation("main_page");preparation.update(data);assert(find_preparation("2. Home printer"));
   data["print_preparation"]["active"]=false;preparation.update(data);assert(!find_preparation("2. Home printer"));

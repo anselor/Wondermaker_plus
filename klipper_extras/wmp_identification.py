@@ -22,6 +22,18 @@ except ImportError:
 UUID_LINE = re.compile(rb'(?m)^([ \t]*canbus_uuid[ \t]*:[ \t]*)([0-9a-fA-F]{12})([ \t]*(?:[#;][^\r\n]*)?)(\r?\n|$)')
 
 
+def _head_mcu_settings(settings, head):
+    # Klipper's configfile status lowercases section names even when the
+    # configured MCU object is named T0. Keep support for retained snapshots,
+    # but never choose between competing aliases of the same active section.
+    name = 'mcu t%d' % head
+    matches = [value for key, value in settings.items()
+               if isinstance(key, str) and key.lower() == name]
+    if len(matches) > 1:
+        raise ValueError('Ambiguous active head MCU configuration')
+    return matches[0] if matches and isinstance(matches[0], dict) else {}
+
+
 def _verified_permutation(original_ids, observed_ids):
     mappings = []
     for values in (original_ids, observed_ids):
@@ -200,7 +212,7 @@ def plan_head_configuration(snapshot, observed_ids, effective_settings, validate
         if len(matches) != 1 or len(re.findall(rb'(?m)^[ \t]*canbus_uuid[ \t]*:', raw)) != 1:
             raise ValueError('Expected exactly one valid configured head UUID')
         identity = matches[0].group(2).decode().lower()
-        active = effective_settings.get('mcu T%d' % head, {}).get('canbus_uuid')
+        active = _head_mcu_settings(effective_settings, head).get('canbus_uuid')
         if not isinstance(active, str) or active.lower() != identity:
             raise ValueError('Active head identity differs from migration source')
         original_ids.append(identity)
@@ -598,7 +610,7 @@ class AssignmentRepairTransaction(MappingTransaction):
         self.session, self.admit = material.session_id, admit
         for head, raw in enumerate(self.original.values()):
             identity = UUID_LINE.search(raw).group(2).decode().lower()
-            if effective_settings.get('mcu T%d' % head, {}).get('canbus_uuid', '').lower() != identity:
+            if _head_mcu_settings(effective_settings, head).get('canbus_uuid', '').lower() != identity:
                 raise ValueError('Loaded UUID assignment differs from configuration; restart before assignment repair')
 
     def _journal(self, state, replacements, errors=()):
@@ -638,7 +650,7 @@ class AssignmentRepairTransaction(MappingTransaction):
             path = Path(directory) / row['name']
             if path.is_symlink() or path.read_bytes() != after:
                 raise ValueError('UUID assignment repair configuration changed: ' + row['name'])
-            if settings.get('mcu T%d' % head, {}).get('canbus_uuid', '').lower() != identity:
+            if _head_mcu_settings(settings, head).get('canbus_uuid', '').lower() != identity:
                 raise ValueError('Loaded UUID assignment does not match repaired configuration')
         _verified_permutation(old, new)
         record = dict(record, verified_session=session)
@@ -688,6 +700,15 @@ class ManagedMappingTransaction(MappingTransaction):
             raise
 
 
+class IdentificationCancelled(ValueError):
+    """Expected unwind at a safe boundary, never inside a coupling stroke."""
+
+
+def _identification_cancelled(error):
+    return (isinstance(error, IdentificationCancelled)
+            or getattr(error, 'wmp_identification_cancel', False) is True)
+
+
 class IdentificationCommands:
     """Explicit attempts with queryable results and no automatic replay."""
     def __init__(self, printer, gcode, calibration):
@@ -696,6 +717,84 @@ class IdentificationCommands:
         self.failure = ''
         self.requests = {}
         self.request_result = None
+        self._request_scope = None
+
+    @staticmethod
+    def _current_actor():
+        from greenlet import getcurrent
+        return getcurrent()
+
+    def _scope_owned(self, scope):
+        return (self._request_scope is scope
+                and self.calibration.session == scope['session']
+                and self.printer.lookup_object('wm_material', None) is scope['material']
+                and getattr(scope['material'], 'session_id', None) == scope['material_session']
+                and getattr(scope['material'], '_command_generation', 0) == scope['generation']
+                and (scope['operation'] is None or self.operation is scope['operation'])
+                and (scope['recovery'] is None or getattr(scope['recovery'], 'identification', None) is self)
+                and all(self.printer.lookup_object(name, None) is owner
+                        for name, owner in scope['owners']))
+
+    def handle_cancel(self, request):
+        # Reactor intent only: no G-code mutex, hardware or publication.
+        session, identity = request.get_str('session'), request.get_str('request')
+        if (session != self.calibration.session or not re.fullmatch(r'[0-9a-f]{32}', identity)
+                or any(self.printer.lookup_object(name, None) is not None for name in ('openace', 'AFC'))):
+            raise request.error('Identification request or owner changed')
+        scope = self._request_scope
+        if scope is not None:
+            if (not self._scope_owned(scope) or identity != scope['request']
+                    or scope['publishing']):
+                raise request.error('Identification request changed or mapping publication has started')
+            scope['cancel_requested'] = True
+            if scope['operation'] is not None:
+                scope['operation'].cancel_requested = True
+        else:
+            result = self.requests.get(identity)
+            if result is not None:
+                if result.get('session') != session or result.get('state') != 'cancelled':
+                    raise request.error('Identification request is no longer cancelable')
+            else:
+                if (len(self.requests) >= 128 or self.calibration.active
+                        or self.operation is not None and self.operation.state in ('pending', 'running', 'complete')
+                        or self.printer.lookup_object('wm_material', None) is None):
+                    raise request.error('Identification cannot retire this queued request')
+                # The Start may still be waiting on the command worker/mutex.
+                # Its own bounded history entry prevents later execution.
+                result = dict(session=session, request=identity, state='cancelled',
+                              error='Identification cancelled before execution')
+                self.requests[identity] = self.request_result = result
+        request.send({'session': session, 'request': identity, 'state': 'requested'})
+
+    def check_operation_boundary(self, label):
+        scope = self._request_scope
+        if scope is None or scope['actor'] is not self._current_actor():
+            return
+        command_error = getattr(self.gcode, 'error', getattr(self.printer, 'command_error', ValueError))
+        if not self._scope_owned(scope):
+            raise command_error('Identification command ownership changed; inspect before recovery')
+        operation = scope['operation']
+        if operation is None or operation.state != 'running' or operation.cancel_cleanup or scope['publishing']:
+            return
+        # Real readiness, owner and machine faults take precedence over Cancel.
+        try:
+            operation._check()
+        except ValueError as error:
+            raise command_error(str(error)) from error
+        if not self._scope_owned(scope):
+            raise command_error('Identification command ownership changed; inspect before recovery')
+        if scope['cancel_requested']:
+            scope['cancel_phase'] = operation.cancel_phase = label[:160]
+            # This exception crosses nested real G-code dispatchers. A plain
+            # ValueError is an internal error there and shuts the printer down.
+            error = command_error('Identification cancelled; stopped ' + label[:160])
+            error.wmp_identification_cancel = True
+            raise error
+
+    def _begin_publication(self):
+        self.check_operation_boundary('before saving head mapping')
+        self._request_scope['publishing'] = True
+        self.operation.publication_started = True
 
     def _migration_admission(self, material, session, fresh_action=False):
         """Fresh owner/job admission; retain the first failed condition for callers."""
@@ -778,6 +877,11 @@ class IdentificationCommands:
         result = self.operation.status() if self.operation else {
             'state': 'failed' if self.failure else 'idle', 'steps': [], 'failure': self.failure}
         result['protocol'] = 2
+        result['cancel_protocol'] = 1
+        scope = self._request_scope
+        result['cancel_requested'] = bool(scope['cancel_requested'] if scope else getattr(self.operation, 'cancel_requested', False))
+        result['cancel_phase'] = scope['cancel_phase'] if scope else getattr(self.operation, 'cancel_phase', '')
+        result['publication_started'] = bool(scope['publishing'] if scope else getattr(self.operation, 'publication_started', False))
         if self.request_result is not None:
             result['request_result'] = dict(self.request_result)
         result['restart_required'] = result['state'] == 'complete'
@@ -801,9 +905,30 @@ class IdentificationCommands:
             result.update(state='failed' if self.operation is not None or self.failure else 'refused',
                           error=str(error)[:512])
             raise
-        result['state'] = 'complete'
+        result['state'] = 'cancelled' if self.operation is not None and self.operation.state == 'cancelled' else 'complete'
+        if result['state'] == 'cancelled':
+            result['error'] = self.operation.failure
 
     def run(self, gcmd):
+        if self._request_scope is not None:
+            raise gcmd.error('Head identification command is already running')
+        material = self.printer.lookup_object('wm_material', None)
+        scope = {'session': self.calibration.session, 'request': gcmd.get('REQUEST', ''),
+                 'actor': self._current_actor(), 'material': material,
+                 'material_session': getattr(material, 'session_id', None),
+                 'generation': getattr(material, '_command_generation', 0),
+                 'owners': tuple((name, self.printer.lookup_object(name, None))
+                                 for name in ('wmp_recovery', 'openace', 'AFC')),
+                 'recovery': self.printer.lookup_object('wmp_recovery', None),
+                 'operation': None, 'cancel_requested': False, 'cancel_phase': '', 'publishing': False}
+        self._request_scope = scope
+        try:
+            return self._run(gcmd, scope)
+        finally:
+            if self._request_scope is scope:
+                self._request_scope = None
+
+    def _run(self, gcmd, scope):
         if self.operation is not None and self.operation.state in ('pending', 'running', 'complete'):
             raise gcmd.error('Head identification is running or its published mapping needs a Klipper restart')
         mode = gcmd.get('MODE', 'identify')
@@ -817,6 +942,7 @@ class IdentificationCommands:
         # A fresh explicit request retries against present conditions. Keep the
         # old correlated receipt in requests; never replay its partial sequence.
         self.operation, self.failure = None, ''
+        operation = None
         # Refuse competing editor ownership before latching identification mode.
         # Completed review and failed results do not reserve the printer.
         try:
@@ -852,9 +978,11 @@ class IdentificationCommands:
             settings = active_nozzle_settings(self.printer, self.printer.lookup_object('configfile').get_status(now)['settings'])
             generation = getattr(material, '_command_generation', 0)
             def owned():
-                return (self.printer.lookup_object('wm_material', None) is material
+                return (self._scope_owned(scope)
+                        and self.printer.lookup_object('wm_material', None) is material
                         and material.session_id == session
                         and getattr(material, '_command_generation', 0) == generation
+                        and (operation is None or self.operation is operation)
                         and self.printer.lookup_object('openace', None) is None
                         and self.printer.lookup_object('AFC', None) is None)
             def admitted():
@@ -871,19 +999,39 @@ class IdentificationCommands:
                 if not owned():
                     raise ValueError('Identification command ownership changed; inspect before recovery')
                 self.gcode.run_script_from_command(command)
-            self.operation = IdentificationSession(
+            def drain_owned():
+                self.printer.lookup_object('toolhead').wait_moves()
+                if not owned() or self.operation is not operation:
+                    raise ValueError('Identification owner changed during cancellation drain')
+                try:
+                    from .wmp_stop_points import finish_cancelled_toolchange
+                except ImportError:
+                    from wmp_stop_points import finish_cancelled_toolchange
+                operation.toolchange_cleanup = 'unconfirmed'
+                operation.toolchange_cleanup = finish_cancelled_toolchange(
+                    self.printer, lambda: owned() and self.operation is operation)
+            operation = IdentificationSession(
                 transaction, KlipperObservation(
                     self.printer, count, self.calibration,
                     admitted, lambda: self.migration_refusal),
-                execute_owned, self.printer.invoke_shutdown)
-            self.operation.run()
+                execute_owned, self.printer.invoke_shutdown,
+                cleanup_owned=lambda: owned() and self.operation is operation,
+                boundary=self.check_operation_boundary,
+                begin_publication=self._begin_publication,
+                drain=drain_owned)
+            scope['operation'] = self.operation = operation
+            operation.run()
             self.calibration.identification_blocked = True
             gcmd.respond_info('Head identification complete. Restart Klipper to apply the head mapping.')
         except Exception as error:
+            if _identification_cancelled(error):
+                if operation is not None and self.operation is operation and self._scope_owned(scope):
+                    self.failure = operation.failure
+                return
             message = str(error) or 'Head identification failed'
             # Structural validation never started an operation and cannot create
             # a physical-failure latch. Retain a correlated refused response.
-            if self.operation is not None:
+            if operation is not None and self.operation is operation:
                 self.failure = message
             raise gcmd.error(message)
 
@@ -958,7 +1106,9 @@ class KlipperObservation:
             docked=docks, mounted=mounted,
             homed_axes=status('toolhead').get('homed_axes', ''),
             identifying=(mode == 1) if type(mode) in (int, float) and mode in (0, 1) else None,
-            toolchange_success=status('gcode_macro _WMP_TOOL_RETURN_BEGIN').get('success') == 1)
+            # FINISH consumes the return-only success flag before this readback.
+            # Its separate completion result is invalidated by the next BEGIN.
+            toolchange_success=status('gcode_macro _WMP_TOOL_RETURN_BEGIN').get('completed_success') == 1)
 
 
 class IdentificationSession:
@@ -968,11 +1118,20 @@ class IdentificationSession:
     command or raise. The Klipper/UI adapter is separate. shutdown() is required
     when the identification-mode flag cannot be cleared after a failed stage.
     """
-    def __init__(self, transaction, observe, execute, shutdown):
+    def __init__(self, transaction, observe, execute, shutdown, cleanup_owned=None,
+                 boundary=None, begin_publication=None, drain=None):
         self.transaction = transaction
         self.observe = observe
         self.execute = execute
         self.shutdown = shutdown
+        self.cleanup_owned = cleanup_owned
+        self.boundary = boundary or (lambda label: None)
+        self.begin_publication = begin_publication or (lambda: None)
+        self.drain = drain or (lambda: None)
+        self.mode_cleanup = 'not_needed'
+        self.toolchange_cleanup = 'not_needed'
+        self.cancel_requested, self.cancel_phase, self.publication_started = False, '', False
+        self.cancel_cleanup = False
         self.count = len(transaction.original)
         self.identities = [UUID_LINE.search(content).group(2).decode().lower()
                            for content in transaction.original.values()]
@@ -984,9 +1143,11 @@ class IdentificationSession:
 
     def status(self):
         return {'state': self.state, 'failure': self.failure,
+                'mode_cleanup': self.mode_cleanup,
+                'toolchange_cleanup': self.toolchange_cleanup,
                 'steps': [{'number': n + 1, 'label': label,
                            'state': 'complete' if n < self.completed else
-                           ('failed' if self.state == 'failed' else 'active') if n == self.completed and self.state != 'pending' else 'pending'}
+                           (self.state if self.state in ('failed', 'cancelled') else 'active') if n == self.completed and self.state != 'pending' else 'pending'}
                           for n, label in enumerate(self.steps)]}
 
     def _check(self):
@@ -1002,15 +1163,81 @@ class IdentificationSession:
             raise ValueError('Carriage attachment state is unavailable')
         return state
 
+    def _owns_cleanup(self):
+        # Callers without an ownership adapter retain the original behavior.
+        # The managed adapter always supplies current request authority.
+        if self.cleanup_owned is None:
+            return True
+        try:
+            return self.cleanup_owned() is True
+        except Exception:
+            return False
+
+    def _clear_failed_mode(self):
+        if not self._owns_cleanup():
+            self.mode_cleanup = 'unconfirmed'
+            self.failure += '; unable to clear identification mode: owner changed; inspect identification mode before retrying'
+            return
+        try:
+            # Non-motion cleanup only. Its command fence and post-readback
+            # ownership checks must not clear or stop a replacement owner.
+            self.execute('SAVE_VARIABLE VARIABLE=is_nozzle_setting VALUE=0')
+            if not self._owns_cleanup():
+                raise ValueError('owner changed during identification-mode cleanup')
+            observed = self.observe()
+            if not self._owns_cleanup():
+                raise ValueError('owner changed during identification-mode readback')
+            if observed.get('identifying') is not False:
+                raise ValueError('Identification mode is still active or unknown')
+            self.mode_may_be_set = False
+            self.mode_cleanup = 'cleared'
+        except Exception as cleanup_error:
+            self.failure += '; unable to clear identification mode: ' + str(cleanup_error)
+            owned = self._owns_cleanup()
+            self.mode_cleanup = 'failed' if owned else 'unconfirmed'
+            if owned:
+                # Preserve existing shutdown for a genuine failure to clear
+                # this request's mode, never as an old owner's fallback.
+                self.shutdown(self.failure)
+
     def _command(self, command):
         self._check()
+        self.boundary('before ' + command)
         self.execute(command)
         self.execute('M400')
-        return self._check()
+        state = self._check()
+        self.boundary('after ' + command)
+        return state
 
     def _docked(self, state):
         if state['mounted'] or not all(state['docked']):
             raise ValueError('All heads must be seated and the carriage released')
+
+    def _cancel(self, error):
+        self.failure = str(error)
+        self.cancel_cleanup = True
+        self.transaction.fail(self.failure)
+        if not self._owns_cleanup():
+            self.state = 'failed'
+            if self.mode_may_be_set:
+                self.mode_cleanup = 'unconfirmed'
+            self.failure += '; owner changed; cleanup unconfirmed'
+            raise ValueError(self.failure)
+        try:
+            self.drain()
+            if not self._owns_cleanup():
+                raise ValueError('owner changed during cancellation drain')
+            if self.mode_may_be_set:
+                self._clear_failed_mode()
+            if self.mode_may_be_set or not self._owns_cleanup():
+                raise ValueError('identification mode cleanup was not confirmed')
+            self.state = 'cancelled'
+        except Exception as cleanup_error:
+            self.state = 'failed'
+            if self.mode_may_be_set and self.mode_cleanup == 'not_needed':
+                self.mode_cleanup = 'unconfirmed'
+            self.failure += '; ' + str(cleanup_error)
+            raise ValueError(self.failure) from cleanup_error
 
     def run(self):
         if self.state != 'pending':
@@ -1044,22 +1271,18 @@ class IdentificationSession:
             self.mode_may_be_set = False
             self.completed += 1
             self._docked(self._check())
+            self.begin_publication()
             journal = self.transaction.commit(final_dock_confirmed=True)
             self.completed += 1
             self.state = 'complete'
             return journal
         except Exception as error:
+            if _identification_cancelled(error):
+                self._cancel(error)
+                raise
             self.failure = str(error) or 'Identification failed'
             self.state = 'failed'
             self.transaction.fail(self.failure)
             if self.mode_may_be_set:
-                try:
-                    # No motion, retry, UUID write or firmware restart on failure.
-                    self.execute('SAVE_VARIABLE VARIABLE=is_nozzle_setting VALUE=0')
-                    if self.observe().get('identifying') is not False:
-                        raise ValueError('Identification mode is still active or unknown')
-                    self.mode_may_be_set = False
-                except Exception as cleanup_error:
-                    self.failure += '; unable to clear identification mode: ' + str(cleanup_error)
-                    self.shutdown(self.failure)
+                self._clear_failed_mode()
             raise

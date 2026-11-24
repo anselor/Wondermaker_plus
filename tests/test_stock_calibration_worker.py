@@ -228,7 +228,8 @@ def test_offset_stage_profile_entries_match_the_worker():
     profile = json.loads((ROOT / 'client-preload/unified-ui/native/profile1113.json').read_text())
     assert {row['name']: int(row['address'], 16) for row in profile['data']} == {
         'is_rapid_mode': 0x384c570, 'auto_check_selected': 0x385fa88,
-        'current_thr_number': 0x385c260, 'knife_pairing_failed': PAIRING_FAILED}
+        'current_thr_number': 0x385c260, 'knife_pairing_failed': PAIRING_FAILED,
+        'calibration_selected': 0x386c1c0, 'auto_checking_status': 0x385fc18}
     assert {row['name']: int(row['address'], 16) for row in profile['sender_returns']} == {
         'offset_home': G28_SENT, 'offset_rapid': RAPID_SENT, 'offset_park': PARK_SENT}
     calls = {row['name']: int(row['address'], 16) for row in profile['functions']}

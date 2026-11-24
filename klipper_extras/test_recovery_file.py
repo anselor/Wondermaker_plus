@@ -38,6 +38,7 @@ def file_machine(tmp_path):
     sd.gcode = gcode
     material = WMMaterial.__new__(WMMaterial)
     material.printer = printer
+    objects["wm_material"] = material
     def make(name='job.gcode'):
         path = tmp_path / name
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -232,8 +233,11 @@ def test_recovery_accounting_does_not_retry_an_unacknowledged_start(accounting_m
 
 
 @pytest.fixture
-def worker_machine(accounting_machine, tmp_path):
+def worker_machine(accounting_machine, tmp_path, monkeypatch):
     from wm_material import RecoveryAttempt
+    from wmp_plr_attempt import RecoveryLifecycle
+    actor = object()
+    monkeypatch.setattr(RecoveryLifecycle, "_current_actor", staticmethod(lambda: actor))
     material, sd, stats, execution, clock, extrusion = accounting_machine
     material.session_id = 'current'
     material.profile_path = str(tmp_path / 'profile.ini')

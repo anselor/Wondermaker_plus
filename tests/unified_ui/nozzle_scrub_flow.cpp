@@ -1753,6 +1753,32 @@ void cancel_during_remeasure_waits_for_the_running_command_then_restores() {
  assert(view(flow).state == ScrubState::Cancelling);
 }
 
+void cancel_during_repeat_heating_drops_next_heat_and_restores() {
+ NozzleScrubFlow flow;
+ Snapshot s;
+ first_pass(flow, s);
+ at_park(flow, s, {1, 2});
+ drain(flow);
+ flow.select_recheck(ScrubChoice::Clean);
+ flow.confirm(20);
+ assert(drain(flow) == std::vector<std::string>({"_WMP_SCRUB_ATTENTION VALUE=0", "_WMP_SCRUB_HEAD T=1"}));
+ // The current head is really heating, with the next head's preheat queued
+ // but not yet handed to the sender. Stop must discard that future work.
+ heat(flow, s, 1, 100, 21);
+ assert(view(flow).state == ScrubState::Heating);
+ flow.cancel(22);
+ flow.cancel(23);
+ // Attention was already released when Clean again was selected.
+ assert(drain(flow) == std::vector<std::string>({"_WMP_OFFSETS_RESTORE", "_WMP_SCRUB_END"}));
+ assert(flow.facts().restored_requested && flow.outcome() == ScrubOutcome::Skip);
+ assert(view(flow).state == ScrubState::Cancelling && flow.hold());
+ s.restore = "done";
+ s.scrub_phase = "ended";
+ flow.observe(s.json(), 24);
+ assert(view(flow).state == ScrubState::Finished && !flow.hold());
+ assert(drain(flow).empty());
+}
+
 void cancel_during_repeat_scrub_cools_docks_and_restores() {
  {
   NozzleScrubFlow flow;
@@ -2603,6 +2629,21 @@ void panel_view_for_every_state() {
 }  // namespace
 
 int main() {
+ // Out-of-band cancellation waits for its own cleanup receipt; it queues no END.
+ {
+  NozzleScrubFlow flow;Snapshot snapshot;
+  flow.open(2,false,kSession);flow.observe(snapshot.json(),0);assert(flow.confirm(0));flow.bind(kRequest);
+  assert(flow.cancel_out_of_band(1));assert(flow.facts().state==ScrubState::Cancelling);
+  std::string command;assert(!flow.next_command(command));
+  flow.send_failed("_WMP_SCRUB_HEAD T=0",1);assert(!flow.next_command(command));
+  auto data=snapshot.json();data["calibration_attempt"]["state"]="failed";data["calibration_attempt"]["cancel_requested"]=true;
+  flow.observe(data,2);assert(flow.facts().state==ScrubState::Cancelling);
+  data["calibration_attempt"]["cancel_cleanup"]={{"state","complete"},{"offsets","restored"},{"park","parked"},{"error",""}};
+  data["calibration_attempt"]["request"]=kOldRequest;flow.observe(data,3);assert(flow.facts().state==ScrubState::Cancelling);
+  data["calibration_attempt"]["request"]=kRequest;flow.observe(data,4);
+  assert(flow.facts().state==ScrubState::Finished&&flow.outcome()==ScrubOutcome::Skip);
+  assert(flow.facts().offsets_unchanged&&!flow.next_command(command));
+ }
  prepare_defaults_to_brush_and_exact_text();
  blob_choice_never_holds();
  offsets_only_run_skips_return_prompt();
@@ -2650,6 +2691,7 @@ int main() {
  remeasure_sends_next_only_after_measured_and_idle();
  recheck_repeats_when_a_head_is_flagged_again();
  cancel_during_remeasure_waits_for_the_running_command_then_restores();
+ cancel_during_repeat_heating_drops_next_heat_and_restores();
  cancel_during_repeat_scrub_cools_docks_and_restores();
  stale_status_in_recheck_releases_after_the_limit_without_restore();
  stale_limit_overtakes_cancel_waiting_for_remeasure();

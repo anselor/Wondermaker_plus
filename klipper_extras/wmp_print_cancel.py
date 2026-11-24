@@ -263,6 +263,7 @@ class PrintCancellation:
         begin = self.material.printer.lookup_object("gcode_macro _WMP_RECOVERY_BEGIN").get_status(reactor.monotonic()).get("active")
         body = self.material.printer.lookup_object("gcode_macro START_PRINT").get_status(reactor.monotonic()).get("print_body_ready")
         if (action == "finish_idle_cleanup" and context == {} and paused is False
+                and type(variables.get("changing_tool", 0)) is int and variables.get("changing_tool", 0) == 0
                 and begin in (False, 0) and body in (False, 0) and all(v == 0 for v in heaters.values())):
             action = "acknowledge_complete"
         return {"binding": binding, "action": action, "cancel_id": cancel_id,
@@ -545,7 +546,14 @@ class PrintCancellation:
             cleanup_phase(name, "complete")
             return True
         cleanup_phase("stopping", "complete")
-        drained = attempt("draining", lambda: run("M400"))
+        def drain():
+            run("M400")
+            try:
+                from .wmp_stop_points import finish_cancelled_toolchange
+            except ImportError:
+                from wmp_stop_points import finish_cancelled_toolchange
+            finish_cancelled_toolchange(self.material.printer, lambda: guard() is None)
+        drained = attempt("draining", drain)
         def cool():
             run("TURN_OFF_HEATERS")
             names = self.material.printer.lookup_object("heaters").get_all_heaters()

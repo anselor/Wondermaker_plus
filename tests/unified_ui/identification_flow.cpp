@@ -44,4 +44,27 @@ int main(){
  assert(refused.message(data)=="Resolve probe editor");assert(refused.can_start(data,true));
  assert(refused.start(data,true));assert(refused.command()!=command);
  refused.observe(data);assert(refused.blocks_navigation(data)); // Old receipt cannot settle new request.
+
+ // Cancel is available before backend dispatch and settles only its own receipt.
+ data={{"fresh",true},{"owner","standalone"},{"calibration_session",std::string(32,'a')},
+       {"identification",{{"protocol",2},{"cancel_protocol",1},{"state","idle"}}}};
+ StockIdentificationFlow stopped;assert(stopped.start(data,true));
+ assert(stopped.cancel_visible(data)&&stopped.can_cancel(data));
+ auto binding=stopped.cancel_binding();assert(binding.size()==2);
+ assert(stopped.cancel(data)&&!stopped.cancel(data)&&!stopped.can_cancel(data));
+ assert(stopped.blocks_navigation(data));
+ data["identification"]["request_result"]={{"session",binding["session"]},{"request",std::string(32,'b')},{"state","cancelled"},{"error","Other request stopped"}};
+ stopped.observe(data);assert(stopped.blocks_navigation(data));
+ data["identification"]["request_result"]["request"]=binding["request"];
+ data["identification"]["state"]="cancelled";data["identification"]["request_result"]["state"]="pending";
+ stopped.observe(data);assert(stopped.blocks_navigation(data)&&!stopped.can_start(data,true));
+ data["identification"]["request_result"]["state"]="cancelled";
+ data["identification"]["request_result"]["error"]="Identification cancelled before execution";
+ stopped.observe(data);assert(!stopped.blocks_navigation(data));
+ assert(stopped.message(data)=="Identification cancelled before execution");
+ assert(stopped.can_start(data,true));assert(stopped.start(data,true));
+ assert(stopped.cancel_binding()!=binding&&stopped.can_cancel(data));
+ data["identification"]["publication_started"]=true;assert(!stopped.can_cancel(data));
+ data["identification"]["publication_started"]=false;data["fresh"]=false;assert(!stopped.can_cancel(data));
+ data["fresh"]=true;data["owner"]="openace";assert(!stopped.can_cancel(data));
 }

@@ -569,7 +569,7 @@ def test_mesh_without_request_probes_every_point_and_finalizes(mesh_env):
     assert env.material.stop_requested() is None
 
 
-@pytest.mark.parametrize('after', [0, 2, 4])
+@pytest.mark.parametrize('after', [0, 2, 4, 5])
 def test_mesh_stops_before_next_point_without_finalizing(mesh_env, after):
     env = mesh_env
     _open(env)
@@ -614,17 +614,21 @@ def test_mesh_stop_inert_with_other_owner(mesh_env, owner):
 def test_mesh_stop_installs_once(mesh_env):
     env = mesh_env
     first = env.rig.helper._move_next
+    first_finalize = env.rig.helper._invoke_callback
     env.material._install_mesh_stop()
     assert env.rig.helper._move_next is first
+    assert env.rig.helper._invoke_callback is first_finalize
 
 
-@pytest.mark.parametrize('missing', ['bed_mesh', 'bmc', 'probe_mgr', 'probe_helper', 'move_next'])
+@pytest.mark.parametrize('missing', ['bed_mesh', 'bmc', 'probe_mgr', 'probe_helper', 'move_next', 'finalize'])
 def test_mesh_stop_skipped_when_vendor_pieces_missing(wait_env, missing):
     from types import SimpleNamespace as NS
     env = wait_env
     helper = NS(probe_points=[])
     if missing != 'move_next':
         helper._move_next = lambda probe_num: None
+    if missing != 'finalize':
+        helper._invoke_callback = lambda results: None
     chain = {'bed_mesh': NS(bmc=NS(probe_mgr=NS(probe_helper=helper)))}
     if missing == 'bmc': chain['bed_mesh'] = NS()
     elif missing == 'probe_mgr': chain['bed_mesh'] = NS(bmc=NS())
@@ -634,6 +638,8 @@ def test_mesh_stop_skipped_when_vendor_pieces_missing(wait_env, missing):
     env.material._install_mesh_stop()
     if missing != 'move_next':
         assert not hasattr(helper._move_next, '__wrapped__')
+    if missing != 'finalize':
+        assert not hasattr(helper._invoke_callback, '__wrapped__')
 
 
 # End to end: rendered START_PRINT through the retained vendor dispatcher and the SD error path.
@@ -1019,3 +1025,257 @@ def test_cancel_generation_unwind_is_only_cancelled_for_its_bound_job(legacy_can
     stats.note_error(message)
     assert stats.state == ('cancelled' if change is None else 'error')
     assert message.startswith('Print cancellation requested; stopped ') is (change is None)
+
+
+def _bound_calibration(env):
+    from types import SimpleNamespace as NS
+    attempt = {'request': 'a' * 32, 'state': 'pending', 'cancel_requested': False}
+    actor = ['calibration']
+    tracker = NS(enabled=True, current_actor=lambda: actor[0],
+                 contexts={'calibration': attempt['request']})
+    def check(label):
+        if attempt['cancel_requested']:
+            raise ValueError('Calibration cancellation requested; stopped ' + label)
+    calibration = NS(active=True, executing=attempt, _current_attempt=attempt,
+                     _heater_ownership=tracker, check_cancel=check)
+    env.objects['wmp_recovery'] = NS(calibration=calibration)
+    return calibration, attempt, actor
+
+
+@pytest.mark.parametrize('kind', ['heater', 'temperature'])
+def test_bound_calibration_wait_stops_at_next_poll_without_print_region(wait_env, kind):
+    from types import SimpleNamespace as NS
+    env = wait_env
+    calibration, attempt, actor = _bound_calibration(env)
+    assert not env.material.stop_waits_open()
+    env.on_pause = lambda count: attempt.update(cancel_requested=True)
+    if kind == 'heater':
+        heater = NS(name='extruder3', check_busy=lambda eventtime: True)
+        run = lambda: env.host._wait_for_temperature(heater)
+    else:
+        env.host.heaters['extruder3'] = Sensor([20.])
+        run = lambda: env.handlers['TEMPERATURE_WAIT'](WaitCommand(SENSOR='extruder3', MINIMUM=200))
+    with pytest.raises(ValueError, match='Calibration cancellation requested'):
+        run()
+    assert len(env.pauses) == 1
+    assert env.cleanup == [] and env.forwarded == []
+    assert env.material.stop_requested() is None
+
+
+@pytest.mark.parametrize('mode', ['other-greenlet', 'old-attempt', 'inactive', 'cleanup', 'openace', 'AFC'])
+def test_calibration_wait_requires_command_owner_and_keeps_vendor_behavior(wait_env, mode):
+    from types import SimpleNamespace as NS
+    env = wait_env
+    calibration, attempt, actor = _bound_calibration(env)
+    attempt['cancel_requested'] = True
+    if mode == 'other-greenlet': actor[0] = 'callback'
+    elif mode == 'old-attempt': calibration._current_attempt = dict(attempt)
+    elif mode == 'inactive': calibration.active = False
+    elif mode == 'cleanup': attempt.update(cancel_cleanup={'state': 'running'})
+    else: env.objects[mode] = object()
+    sensor = Sensor([20., 220.])
+    env.host._wait_for_temperature(NS(name='extruder3', check_busy=sensor.check_busy))
+    assert len(env.pauses) == 1 and env.cleanup == []
+
+
+@pytest.mark.parametrize('after', [2, 5])
+def test_bound_calibration_mesh_cancel_retracts_and_never_finalizes(mesh_env, after):
+    env = mesh_env
+    calibration, attempt, actor = _bound_calibration(env)
+    env.rig.on_probe = lambda count: count == after and attempt.update(cancel_requested=True)
+    with pytest.raises(ValueError, match='stopped (between bed mesh points|before bed mesh finalization)'):
+        env.rig.helper.start_probe(MeshCommand())
+    assert len(env.rig.probed) == len(env.rig.xy_points()) == after
+    assert env.rig.moves[-1] == (None, None, 5.)
+    assert env.rig.finalized == [] and env.cleanup == []
+
+
+@pytest.mark.parametrize('mode', ['other-greenlet', 'old-attempt', 'inactive', 'cleanup', 'openace', 'AFC'])
+def test_mesh_finalization_keeps_foreign_owner_behavior(mesh_env, mode):
+    env = mesh_env
+    calibration, attempt, actor = _bound_calibration(env)
+    def last_probe(count):
+        if count != 5:
+            return
+        attempt['cancel_requested'] = True
+        if mode == 'other-greenlet': actor[0] = 'callback'
+        elif mode == 'old-attempt': calibration._current_attempt = dict(attempt)
+        elif mode == 'inactive': calibration.active = False
+        elif mode == 'cleanup': attempt.update(cancel_cleanup={'state': 'running'})
+        else: env.objects[mode] = object()
+    env.rig.on_probe = last_probe
+    env.rig.helper.start_probe(MeshCommand())
+    assert len(env.rig.probed) == len(env.rig.xy_points()) == 5
+    assert len(env.rig.finalized) == 1 and env.rig.ended == [True]
+    assert env.cleanup == [] and env.forwarded == []
+
+
+def test_vendor_pid_cancel_restores_control_and_does_not_write_results(wait_env):
+    import ast
+    from pathlib import Path
+    from types import SimpleNamespace as NS
+    env = wait_env
+    calibration, attempt, actor = _bound_calibration(env)
+    env.on_pause = lambda count: attempt.update(cancel_requested=True)
+    source = Path(__file__).resolve().parents[1] / 'analysis/fw_1.1.13_payload/root/home/t13dp/klipper/klippy/extras/pid_calibrate.py'
+    if not source.exists(): pytest.skip('retained vendor PID source unavailable')
+    cls = next(n for n in ast.parse(source.read_text()).body if isinstance(n, ast.ClassDef) and n.name == 'PIDCalibrate')
+    old = object()
+    heater = NS(name='extruder3', control=old, check_busy=lambda eventtime: True)
+    controls = []
+    def set_control(control):
+        previous = heater.control
+        heater.control = control
+        controls.append(control)
+        return previous
+    heater.set_control = set_control
+    env.host.lookup_heater = lambda name: heater
+    env.host.set_temperature = lambda h, target, wait: env.host._wait_for_temperature(h)
+    printer = env.material.printer
+    printer.command_error, printer.config_error = ValueError, KeyError
+    namespace = {'ControlAutoTune': lambda *args: object()}
+    exec(compile(ast.Module(body=[cls], type_ignores=[]), str(source), 'exec'), namespace)
+    pid = namespace['PIDCalibrate'].__new__(namespace['PIDCalibrate'])
+    pid.printer = printer
+    command = NS(get=lambda key: 'extruder3', get_float=lambda key: 220.,
+                 get_int=lambda key, default: default, error=ValueError,
+                 respond_info=lambda message: pytest.fail('partial PID result published'))
+    with pytest.raises(ValueError, match='Calibration cancellation requested'):
+        pid.cmd_PID_CALIBRATE(command)
+    assert heater.control is old and len(controls) == 2
+    assert len(env.pauses) == 1
+
+
+def test_bound_calibration_heat_wait_matches_vendor_without_cancel(wait_env):
+    from types import SimpleNamespace as NS
+    env = wait_env
+    _bound_calibration(env)
+    observed = []
+    for run in (env.vendor_heat, env.host._wait_for_temperature):
+        env.pauses.clear()
+        sent = []
+        env.objects['gcode'].respond_raw = env.objects['gcode'].respond_info = sent.append
+        sensor = Sensor([20., 80., 220.])
+        run(NS(name='extruder3', check_busy=sensor.check_busy))
+        observed.append((list(env.pauses), sent))
+    assert observed[0] == observed[1]
+    assert len(observed[0][0]) == 2
+
+
+@pytest.mark.parametrize('kind', ['bed', 'nozzle'])
+def test_resume_wait_cancel_exits_within_one_poll_without_continuation(wait_env, monkeypatch, kind):
+    from wmp_stop_points import StopPoints
+    env = wait_env
+    env.host.heaters['heater_bed'].name = 'heater_bed'
+    actor = object()
+    monkeypatch.setattr(StopPoints, '_current_actor', staticmethod(lambda: actor))
+    env.objects['wm_material'] = env.material
+    tail = []
+    def execute():
+        assert env.material.stop_waits_open()
+        if kind == 'bed':
+            env.host._wait_for_temperature(env.host.heaters['heater_bed'])
+        else:
+            env.host.heaters['extruder3'] = Sensor([20.])
+            env.handlers['TEMPERATURE_WAIT'](WaitCommand(SENSOR='extruder3', MINIMUM=200.))
+        tail.append('resume print')
+    env.on_pause = lambda count: env.objects['gcode'].run_script('CANCEL_PRINT')
+    with pytest.raises(ValueError, match='Print cancellation requested; stopped'):
+        env.material._observe_resume(execute)
+    assert len(env.pauses) == 1 and tail == []
+    assert env.material._stop_points()._resume_scope is None
+    assert env.material._resume_progress == {} and not env.material.stop_waits_open()
+    assert env.forwarded == []
+
+
+@pytest.mark.parametrize('change', ['session', 'file', 'handle', 'generation', 'openace', 'AFC', 'material'])
+def test_resume_wait_handoff_aborts_old_tail(wait_env, monkeypatch, change):
+    import io
+    from wmp_stop_points import StopPoints
+    env = wait_env
+    env.host.heaters['heater_bed'].name = 'heater_bed'
+    monkeypatch.setattr(StopPoints, '_current_actor', staticmethod(lambda: 'resume-actor'))
+    env.objects['wm_material'] = env.material
+    def handoff(count):
+        if change == 'session': env.material.session_id = 'new-session'
+        elif change == 'file': env.objects['print_stats'].filename = 'other.gcode'
+        elif change == 'handle': env.objects['virtual_sdcard'].current_file = io.StringIO('new')
+        elif change == 'generation': env.material._command_generation = getattr(env.material, '_command_generation', 0) + 1
+        elif change == 'material': env.objects['wm_material'] = object()
+        else: env.objects[change] = object()
+    env.on_pause = handoff
+    tail = []
+    def execute():
+        env.host._wait_for_temperature(env.host.heaters['heater_bed'])
+        tail.append('return')
+    with pytest.raises(ValueError, match='Resume ownership changed'):
+        env.material._observe_resume(execute)
+    assert len(env.pauses) == 1 and tail == []
+    assert env.material._stop_points()._resume_scope is None
+    assert env.forwarded == []
+
+
+def test_resume_wait_scope_is_actor_bound_and_clears_after_failure(wait_env, monkeypatch):
+    from wmp_stop_points import StopPoints
+    env = wait_env
+    owner, callback = object(), object()
+    actor = [owner]
+    monkeypatch.setattr(StopPoints, '_current_actor', staticmethod(lambda: actor[0]))
+    env.objects['wm_material'] = env.material
+    previous = {'session': 'older', 'handle': object()}
+    env.material._stop_points()._stop_waits = previous
+    def execute():
+        assert env.material.stop_waits_open()
+        actor[0] = callback
+        assert not env.material.stop_waits_open()
+        command = WaitCommand(SENSOR='extruder3', MINIMUM=200.)
+        env.handlers['TEMPERATURE_WAIT'](command)
+        assert env.original_calls == [command]
+        actor[0] = owner
+        assert env.material.stop_waits_open()
+        raise RuntimeError('original heater fault')
+    with pytest.raises(RuntimeError, match='original heater fault'):
+        env.material._observe_resume(execute)
+    assert env.material._stop_points()._resume_scope is None
+    assert env.material._stop_points()._stop_waits is previous
+    assert env.material._resume_progress == {} and env.forwarded == []
+
+
+def test_resume_wait_without_cancel_preserves_vendor_wait_and_return(wait_env, monkeypatch):
+    from wmp_stop_points import StopPoints
+    env = wait_env
+    actor = object()
+    monkeypatch.setattr(StopPoints, '_current_actor', staticmethod(lambda: actor))
+    env.objects['wm_material'] = env.material
+    env.host.heaters['extruder3'] = Sensor([20., 210.])
+    result = []
+    def execute():
+        command = WaitCommand(SENSOR='extruder3', MINIMUM=200.)
+        env.handlers['TEMPERATURE_WAIT'](command)
+        result.append('return')
+        return 42
+    assert env.material._observe_resume(execute) == 42
+    assert result == ['return'] and len(env.pauses) == 1
+    assert env.material._stop_points()._resume_scope is None
+    assert env.original_calls == [] and env.forwarded == []
+
+
+@pytest.mark.parametrize('phase', ['resume_heated', 'resume_wipe_ready', 'resume_wiped',
+                                   'resume_return_ready', 'resume_returned'])
+def test_resume_macro_boundary_stops_before_next_action(wait_env, monkeypatch, phase):
+    from test_wm_material import FakeCommand
+    from wmp_stop_points import StopPoints
+    env = wait_env
+    actor = object()
+    monkeypatch.setattr(StopPoints, '_current_actor', staticmethod(lambda: actor))
+    env.objects['wm_material'] = env.material
+    tail = []
+    def execute():
+        env.objects['gcode'].run_script('CANCEL_PRINT')
+        env.handlers['_WMP_STOP_POINT'](FakeCommand(PHASE=phase))
+        tail.append('next motion or SD resume')
+    with pytest.raises(ValueError, match='Print cancellation requested; stopped'):
+        env.material._observe_resume(execute)
+    assert tail == [] and env.forwarded == []
+    assert env.material._print_cancel['stop_point']['label'] == StopPoints.STOP_POINTS[phase][0]
+    assert env.material._stop_points()._resume_scope is None

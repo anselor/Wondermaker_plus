@@ -8,11 +8,135 @@ raises a G-code error that unwinds the job; the cancel cleanup then runs as for
 any other cancel. Inert while openACE or AFC owns filament operations.
 """
 import logging
+import math
 import re
+
+
+def finish_cancelled_toolchange(printer, owned):
+    """Clear only an owned, drained and mechanically confirmed transient flag.
+
+    No homing, coupling, heater or motor commands. Call from the unwound
+    command owner's cleanup, never from the out-of-band Stop callback.
+    """
+    def guard():
+        if owned() is not True:
+            raise ValueError('Tool-change cleanup ownership is unavailable')
+    def ready_guard():
+        guard()
+        if (printer.is_shutdown() or getattr(printer, 'quick_stop_flag', False)
+                or any(printer.lookup_object(name, None) is not None
+                       for name in ('openace', 'AFC'))):
+            raise ValueError('Tool-change cleanup ownership is unavailable')
+    def read(name):
+        guard()
+        obj = printer.lookup_object(name, None)
+        result = obj.get_status(printer.get_reactor().monotonic()) if obj is not None else {}
+        guard()
+        return result
+    variables = read('save_variables').get('variables', {})
+    flag = variables.get('changing_tool')
+    if flag is None or type(flag) is int and flag == 0:
+        return 'not_needed'
+    if type(flag) is not int or flag != 1:
+        raise ValueError('Tool-change transient flag is invalid')
+    ready_guard()
+    toolhead = printer.lookup_object('toolhead', None)
+    wait = getattr(toolhead, 'wait_moves', None)
+    if not callable(wait):
+        raise ValueError('Tool-change motion completion is unavailable')
+    wait()
+    ready_guard()
+    variables = read('save_variables').get('variables', {})
+    count = variables.get('thr_number')
+    if (type(variables.get('changing_tool')) is not int or variables['changing_tool'] != 1
+            or type(variables.get('fail_flag')) is not int or variables['fail_flag'] != 0
+            or type(count) is not int or not 1 <= count <= 4):
+        raise ValueError('Tool-change transient or coupling state changed during cleanup')
+    hall = read('custom_hall').get('Raw')
+    lock = read('filament_switch_sensor sensor_b').get('filament_detected')
+    docks = [read('filament_switch_sensor docked%d' % n).get('filament_detected')
+             for n in range(count)]
+    if (type(hall) not in (int, float) or not math.isfinite(hall)
+            or not 3450 <= hall <= 6000 or any(type(value) is not bool for value in docks)):
+        raise ValueError('Tool-change attachment readback is unavailable')
+    # Identification may intentionally discover a different UUID order. Use
+    # physical sensors here, not the mapping it has not yet published.
+    attached = hall < 4700 and lock is True and docks.count(False) == 1
+    released = hall >= 4700 and lock is False and all(docks)
+    if not (attached or released):
+        raise ValueError('Tool-change attachment is not confirmed after draining')
+    ready_guard()
+    latest = read('save_variables').get('variables', {})
+    if any(type(latest.get(key)) is not int or latest[key] != expected
+           for key, expected in (('changing_tool', 1), ('fail_flag', 0), ('thr_number', count))):
+        raise ValueError('Tool-change transient or coupling state changed during sensor readback')
+    ready_guard()
+    printer.lookup_object('gcode').run_script_from_command(
+        'SAVE_VARIABLE VARIABLE=changing_tool VALUE=0')
+    cleared = read('save_variables').get('variables', {}).get('changing_tool')
+    ready_guard()
+    if type(cleared) is not int or cleared != 0:
+        raise ValueError('Tool-change transient cleanup was not confirmed')
+    return 'cleared'
+
+
+def check_operation_boundary(printer, label, phase='operation_boundary', state='Operation stopped at a safe boundary; motors not disabled'):
+    """Shared cancellation observation outside native homing/coupling strokes.
+
+    Never call this from inside stock G28's command-error handler. Calibration
+    and print owners validate their own live bindings; no unbound global flag
+    or hardware command is introduced by this helper.
+    """
+    material = printer.lookup_object('wm_material', None)
+    lifecycle = getattr(material, '_plr_lifecycle_component', None)
+    if lifecycle is not None:
+        try:
+            lifecycle.check_operation_boundary(label)
+        except ValueError as error:
+            # Recovery guards also run outside G-code and use ValueError.
+            # At a nested command boundary that must be a normal command
+            # unwind, not the dispatcher's internal-error shutdown path.
+            raise getattr(printer, 'command_error', ValueError)(str(error)) from error
+    stops = getattr(material, '_stop_points_component', None)
+    if stops is not None:
+        stops.check_resume_boundary(label)
+    recovery = printer.lookup_object('wmp_recovery', None)
+    identification = getattr(recovery, 'identification', None)
+    if identification is not None:
+        identification.check_operation_boundary(label)
+    calibration = getattr(recovery, 'calibration', None)
+    editor = getattr(calibration, 'probe_editor', None)
+    if editor is not None:
+        # An already executing standalone preparation must unwind on handoff,
+        # without applying its cleanup to a new manager. Otherwise inert.
+        editor.check_operation_boundary(label)
+    if any(printer.lookup_object(owner, None) is not None for owner in ('openace', 'AFC')):
+        return
+    if calibration is not None:
+        calibration.check_cancel(label)
+    material = printer.lookup_object('wm_material', None)
+    # Do not instantiate a component or perform any status/journal work while
+    # idle. The executing service carries its own immutable command scope.
+    service = getattr(material, '_filament_service_component', None)
+    check_service = getattr(service, 'check_operation_boundary', None)
+    if callable(check_service):
+        check_service(label)
+    toolheads = getattr(material, '_toolhead_service', None)
+    check_toolheads = getattr(toolheads, 'check_operation_boundary', None)
+    if callable(check_toolheads):
+        check_toolheads(label)
+    check = getattr(material, 'check_stop_point', None)
+    if callable(check):
+        check(phase, label, state)
 
 
 class StopPoints:
     STOP_POINTS = {
+        "resume_heated": ("after resume heating", "paused print; resume heating finished; return not started"),
+        "resume_wipe_ready": ("before resume wiping", "paused print; resume return and wiping not started"),
+        "resume_wiped": ("after resume wiping", "paused print; wipe finished; return not started"),
+        "resume_return_ready": ("before paused-position return", "paused print; travel to return approach finished"),
+        "resume_returned": ("after paused-position return", "paused print; return finished; SD continuation not started"),
         "start_admitted": ("print start admitted", "not homed by this job; nothing moved or heated by this job"),
         "before_homing": ("before homing", "not homed by this job; heaters may be on"),
         "homed": ("after homing", "homed; probe head attached and locked"),
@@ -30,6 +154,7 @@ class StopPoints:
     def __init__(self, material):
         self.material = material
         self._stop_waits = None
+        self._resume_scope = None
         self._wait_wrappers_installed = False
         self._stop_note_error_installed = False
 
@@ -41,6 +166,60 @@ class StopPoints:
         self.material._install_wait_wrappers()
         self.material._install_mesh_stop()
         self.material._install_stop_note_error()
+        self._install_resonance_stop()
+        toolheads = getattr(self.material, '_toolheads', None)
+        if callable(toolheads):
+            toolheads().coupling_regions().install()
+
+    def _install_resonance_stop(self):
+        tester = self.material.printer.lookup_object('resonance_tester', None)
+        original = getattr(tester, '_run_test', None)
+        if not callable(original) or getattr(original, '_wmp_resonance_stop', False):
+            return
+        try:
+            from .wmp_resonance_stop import ResonanceStop, install_calculation_stop
+        except ImportError:
+            from wmp_resonance_stop import ResonanceStop, install_calculation_stop
+        install_calculation_stop(original)
+        wrapped = ResonanceStop(self, tester, original)
+        wrapped._wmp_resonance_stop = True
+        tester._run_test = wrapped
+
+    def _calibration_wait_owner(self):
+        """Only the bound calibration command greenlet may manage its wait.
+
+        Reactor callbacks run in other greenlets while a command is suspended.
+        An unrelated wait must keep vendor semantics even during calibration.
+        Cleanup also runs in the command context, but must finish its own park.
+        """
+        if self._stop_owner_present():
+            return None
+        recovery = self.material.printer.lookup_object('wmp_recovery', None)
+        calibration = getattr(recovery, 'calibration', None)
+        attempt = getattr(calibration, 'executing', None)
+        if (attempt is None or not getattr(calibration, 'active', False)
+                or attempt is not getattr(calibration, '_current_attempt', None)
+                or attempt.get('state') != 'pending'
+                or attempt.get('cancel_cleanup', {}).get('state') == 'running'):
+            return None
+        tracker = getattr(calibration, '_heater_ownership', None)
+        if (tracker is None or not tracker.enabled
+                or tracker.contexts.get(tracker.current_actor()) != attempt['request']):
+            return None
+        return calibration
+
+    def _toolhead_wait_owner(self):
+        service = getattr(self.material, '_toolhead_service', None)
+        return service.wait_owner() if service is not None and not self._stop_owner_present() else None
+
+    def _check_calibration_wait(self, label):
+        self.check_resume_boundary(label)
+        service = getattr(self.material, '_toolhead_service', None)
+        if service is not None:
+            service.check_operation_boundary(label)
+        calibration = self._calibration_wait_owner()
+        if calibration is not None:
+            calibration.check_cancel(label)
 
     def _stop_owner_present(self):
         printer = self.material.printer
@@ -62,7 +241,64 @@ class StopPoints:
             return None
         return {"scope": "print", "cancel_id": live["cancel_id"]}
 
+    @staticmethod
+    def _current_actor():
+        from greenlet import getcurrent
+        return getcurrent()
+
+    def _resume_owned(self, scope, check_generation=True):
+        material = self.material
+        printer = material.printer
+        sd = printer.lookup_object('virtual_sdcard', None)
+        stats = printer.lookup_object('print_stats', None)
+        return (self._resume_scope is scope
+                and printer.lookup_object('wm_material', None) is material
+                and not self._stop_owner_present()
+                and material.session_id == scope['session']
+                and (not check_generation or getattr(material, '_command_generation', 0) == scope['generation'])
+                and sd is scope['sd'] and stats is scope['stats']
+                and getattr(sd, 'current_file', None) is scope['handle']
+                and not getattr(scope['handle'], 'closed', False)
+                and getattr(stats, 'filename', None) == scope['file'])
+
+    def check_resume_boundary(self, label):
+        scope = self._resume_scope
+        if scope is None or self._current_actor() is not scope['actor']:
+            return
+        # Accepted print Cancel fences command generations itself. It may
+        # stop this same job, but cannot authorize any further resume action.
+        if (not self._resume_owned(scope, check_generation=False)
+                or not self._resume_owned(scope) and self.material.stop_requested() is None):
+            raise self.material.printer.lookup_object('gcode').error(
+                'Resume ownership changed; no further resume actions allowed')
+        self.material.check_stop_point('resume_boundary', label,
+            'Paused print resume stopped at a safe boundary; motors not disabled')
+
+    def run_resume_waits(self, execute):
+        """Command-lifetime wait cancellation, independent of progress telemetry."""
+        printer = self.material.printer
+        sd = printer.lookup_object('virtual_sdcard', None)
+        stats = printer.lookup_object('print_stats', None)
+        handle = getattr(sd, 'current_file', None)
+        if (self._resume_scope is not None or self._stop_owner_present()
+                or handle is None or getattr(handle, 'closed', False) or stats is None):
+            return execute()
+        scope = dict(actor=self._current_actor(), session=self.material.session_id,
+                     generation=getattr(self.material, '_command_generation', 0),
+                     sd=sd, stats=stats, handle=handle, file=stats.filename)
+        self._resume_scope = scope
+        try:
+            self.check_resume_boundary('before resume')
+            return execute()
+        finally:
+            if self._resume_scope is scope:
+                self._resume_scope = None
+
     def stop_waits_open(self):
+        scope = self._resume_scope
+        if scope is not None and self._current_actor() is scope['actor']:
+            self.check_resume_boundary('before resume heater wait')
+            return True
         region = self._stop_waits
         sd = self.material.printer.lookup_object("virtual_sdcard", None)
         if region is None or sd is None or self._stop_owner_present():
@@ -123,26 +359,40 @@ class StopPoints:
 
         Wraps the vendor ProbePointsHelper owned by bed_mesh (extras/probe.py),
         which raises the head to horizontal_move_z before _move_next() moves to
-        the next point. Only bed_mesh's helper is wrapped, so G28 and other probe
-        users never stop here (a G28 error turns the motors off). The gcode error
+        the next point. Its final point calls _invoke_callback() instead, so
+        that boundary must be guarded too. Only bed_mesh's helper is wrapped,
+        so G28 and other probe users never stop here (a G28 error turns the
+        motors off). The gcode error
         reaches the vendor dispatcher, whose gcode:command_error event ends the
         probe session; the bed_mesh finalize callback never runs, so no partial
-        mesh is built or saved. Only managed while the stop-wait region is open.
+        mesh is built or saved. Managed for an open print stop-wait region or
+        the executing bound calibration command.
         """
         mesh = self.material.printer.lookup_object("bed_mesh", None)
         manager = getattr(getattr(mesh, "bmc", None), "probe_mgr", None)
         helper = getattr(manager, "probe_helper", None)
         original = getattr(helper, "_move_next", None)
-        if not callable(original) or getattr(original, "__wrapped__", None) is not None:
+        finalize = getattr(helper, "_invoke_callback", None)
+        if (not callable(original) or not callable(finalize)
+                or getattr(original, "__wrapped__", None) is not None
+                or getattr(finalize, "__wrapped__", None) is not None):
             return
         material = self.material
-        def move_next(probe_num):
+        def check_boundary(probe_num, label):
+            self._check_calibration_wait(label)
             if material.stop_waits_open() and material.stop_requested() is not None:
                 points = getattr(helper, "probe_points", None) or ()
                 raise self._stop_mesh(min(probe_num, len(points)), len(points))
+        def move_next(probe_num):
+            check_boundary(probe_num, 'between bed mesh points')
             return original(probe_num)
+        def invoke_callback(results):
+            check_boundary(len(results), 'before bed mesh finalization')
+            return finalize(results)
         move_next.__wrapped__ = original
+        invoke_callback.__wrapped__ = finalize
         helper._move_next = move_next
+        helper._invoke_callback = invoke_callback
 
     def _install_stop_note_error(self):
         """Record a stop-point unwind as a cancelled print, not a failed one.
@@ -170,9 +420,9 @@ class StopPoints:
     def _install_wait_wrappers(self):
         """Wrap the vendor heat waits so a pending cancel ends them within one poll.
 
-        Only waits started while the stop-wait region is open are managed; the
-        loops mirror PrinterHeaters (extras/heaters.py) so the vendor behaviour
-        is unchanged when no cancel is pending.
+        Waits in an open print stop-wait region or the executing bound
+        calibration command are managed. The loops mirror PrinterHeaters
+        (extras/heaters.py), preserving vendor behavior without a cancel.
         """
         if self._wait_wrappers_installed:
             return
@@ -186,7 +436,7 @@ class StopPoints:
         original_wait = getattr(pheaters, "_wait_for_temperature", None)
         if callable(original_wait):
             def wait_for_temperature(heater):
-                if not material.stop_waits_open():
+                if not material.stop_waits_open() and self._calibration_wait_owner() is None and self._toolhead_wait_owner() is None:
                     return original_wait(heater)
                 if printer.get_start_args().get("debugoutput") is not None:
                     return
@@ -196,9 +446,11 @@ class StopPoints:
                 reactor = printer.get_reactor()
                 if material.stop_requested() is not None:
                     raise self._stop_heat_wait(name, gcode.error)
+                self._check_calibration_wait('before heater wait')
                 eventtime = reactor.monotonic()
                 while (printer.quick_stop_flag == False and not printer.is_shutdown()
                        and heater.check_busy(eventtime)):
+                    self._check_calibration_wait('during heater wait')
                     toolhead.get_last_move_time()
                     gcode.respond_raw(pheaters._get_temp(eventtime))
                     if material.stop_requested() is not None:
@@ -211,7 +463,7 @@ class StopPoints:
         if original is None:
             return
         def temperature_wait(gcmd):
-            if not material.stop_waits_open():
+            if not material.stop_waits_open() and self._calibration_wait_owner() is None and self._toolhead_wait_owner() is None:
                 return original(gcmd)
             sensor_name = gcmd.get("SENSOR")
             if sensor_name not in pheaters.available_sensors:
@@ -230,8 +482,10 @@ class StopPoints:
             reactor = printer.get_reactor()
             if material.stop_requested() is not None:
                 raise self._stop_heat_wait(sensor_name, gcmd.error)
+            self._check_calibration_wait('before temperature wait')
             eventtime = reactor.monotonic()
             while printer.quick_stop_flag == False and not printer.is_shutdown():
+                self._check_calibration_wait('during temperature wait')
                 temp, target = sensor.get_temp(eventtime)
                 if temp >= min_temp and temp <= max_temp:
                     return
@@ -249,6 +503,7 @@ class StopPoints:
         phase = gcmd.get("PHASE", "")
         if phase not in self.STOP_POINTS:
             raise gcmd.error("Unknown stop point PHASE=%s" % phase)
+        self.check_resume_boundary(self.STOP_POINTS[phase][0])
         self.material.check_stop_point(phase, *self.STOP_POINTS[phase])
 
     def cmd_STOP_WAITS(self, gcmd):
