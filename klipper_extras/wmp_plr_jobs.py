@@ -10,13 +10,16 @@ import uuid
 
 class _ScanCooperator:
     """Bound startup bookkeeping without changing the active G-code stream."""
-    def __init__(self, reactor):
+    def __init__(self, reactor, progress=None, source=''):
         self.reactor = reactor
-        self.deadline = reactor.monotonic() + .020
-        self.bytes = self.lines = 0
+        self.started = reactor.monotonic()
+        self.deadline = self.started + .020
+        self.bytes = self.lines = self.processed = self.yields = 0
+        self.progress, self.source = progress, source
 
     def advance(self, size):
         self.bytes += size
+        self.processed += size
         self.lines += 1
         # Check wall time at most every 64 bounded line chunks; bytes also
         # bound progress for long slicer comments. Avoid tell() per G-code line.
@@ -25,9 +28,21 @@ class _ScanCooperator:
         self.lines = 0
         now = self.reactor.monotonic()
         if self.bytes >= 65536 or now >= self.deadline:
+            if self.progress is not None:
+                self.progress(self.processed)
+            self.yields += 1
             self.reactor.pause(now + .001)
             self.bytes = 0
             self.deadline = self.reactor.monotonic() + .020
+
+
+    def finish(self):
+        if self.progress is not None:
+            self.progress(self.processed)
+        if self.source:
+            logging.info("WM+ startup file scan: source=%s bytes=%d seconds=%.3f yields=%d",
+                         self.source, self.processed,
+                         self.reactor.monotonic() - self.started, self.yields)
 
 
 class RecoveryJobs:
@@ -79,7 +94,10 @@ class RecoveryJobs:
             raise ValueError("Active print file is outside the SD directory")
         content, tools = hashlib.sha256(), set()
         usage = self.material._begin_usage_scan(binding["path"])
-        cooperate = _ScanCooperator(self.material.printer.get_reactor())
+        preparation = self.material._print_preparation()
+        attempt = preparation.begin_file_scan(relative, os.stat(binding["path"]).st_size)
+        cooperate = _ScanCooperator(self.material.printer.get_reactor(),
+                progress=lambda completed: preparation.file_scan_progress(attempt, completed), source='active-sd')
         with open(binding["path"], "rb") as stream:
             continuing = False
             while True:
@@ -91,7 +109,11 @@ class RecoveryJobs:
                 # Hash the whole file without allocating an arbitrarily long
                 # slicer polygon/comment line. Only the first chunk can name
                 # a command; never interpret continuation text as a new tool.
-                line = "" if continuing else raw.decode("utf-8", errors="replace").split(";", 1)[0].split("#", 1)[0].strip()
+                if continuing or raw.startswith((b"G0 ", b"G1 ", b";", b"#")):
+                    continuing = not raw.endswith(b"\n")
+                    cooperate.advance(len(raw))
+                    continue
+                line = raw.decode("utf-8", errors="replace").split(";", 1)[0].split("#", 1)[0].strip()
                 if (not continuing and not raw.endswith(b"\n") and len(raw) == 65536
                         and b";" not in raw and b"#" not in raw
                         and re.match(r"(?:T[0-3]|START_PRINT)(?:\s|$)", line, re.IGNORECASE)):
@@ -105,6 +127,7 @@ class RecoveryJobs:
                     if initial:
                         tools.add(int(initial.group(1)))
                 cooperate.advance(len(raw))
+        cooperate.finish()
         self.material._finish_usage_scan(usage, content.hexdigest(), binding["stream"])
         if not tools:
             raise ValueError("Cannot identify physical tool requirements in the SD file")
@@ -282,7 +305,7 @@ class RecoveryJobs:
 
         content = hashlib.sha256()
         usage = self.material._begin_usage_scan(full)
-        cooperate = _ScanCooperator(self.material.printer.get_reactor())
+        cooperate = _ScanCooperator(self.material.printer.get_reactor(), source='screen-submission')
         with open(full, "rb") as stream:
             if identity(os.fstat(stream.fileno())) != file_identity:
                 raise ValueError("Print file changed before recovery staging")
@@ -297,6 +320,7 @@ class RecoveryJobs:
         if identity(os.stat(full)) != file_identity:
             raise ValueError("Print file replaced during recovery staging")
         self.material.printer.get_reactor().pause(self.material.printer.get_reactor().monotonic() + .001)
+        cooperate.finish()
         self.material._finish_usage_scan(usage, content.hexdigest())
         if loaded_error is not None:
             raise loaded_error

@@ -32,7 +32,7 @@ struct ScreenDiagnosticFacts {
  std::atomic<unsigned> worker_calls{0};
  // Poll stages: 1 discovery, 2 query, 3 decode/projection, 4 enrichment,
  // 5 legacy delivery, 6 standalone delivery. Never used for admission.
- std::atomic<unsigned> status_polls{0},status_failures{0};
+ std::atomic<unsigned> status_polls{0},status_failures{0},filament_detail_failures{0};
  std::atomic<int> status_failure_stage{0},status_failure_kind{0};
  std::atomic<long long> status_failure_poll_ms{0};
  std::atomic<long long> status_failure_at{-1},status_received_at{-1},status_query_max_ms{0},status_gap_max_ms{0};
@@ -99,14 +99,14 @@ public:
    "worker=%u worker_session=%lld worker_flags=%d snapshot=%d session=%lld view_flags=%d mode=%d frame=%d layout_bits=%x renderer=%d renderer_exception=%d "
    "viewport=%d,%d,%d,%d print=%d,%d,%d,%d stop=%d,%d,%d,%d group=%d,%d,%d,%d protected=%d,%d,%d,%d owned_root=%s owned_badge=%s owned_label=%s owned_top=%s "
    "at_ms=%lld nav=%u nav_page=%d nav_at=%lld nav_stale=%u nav_owner=%u gui_gap_max_ms=%lld gui_duration_max_ms=%lld "
-   "status_polls=%u status_failures=%u status_failure_stage=%d status_failure_at=%lld status_received_at=%lld status_query_max_ms=%lld status_gap_max_ms=%lld status_failure_kind=%d status_failure_poll_ms=%lld\n",
+   "status_polls=%u status_failures=%u status_failure_stage=%d status_failure_at=%lld status_received_at=%lld status_query_max_ms=%lld status_gap_max_ms=%lld status_failure_kind=%d status_failure_poll_ms=%lld filament_detail_failures=%u\n",
    d.bootstrap.load(),d.error.load(),d.address.load(),d.timer_calls.load(),d.timer_matches.load(),
    d.refresh_calls.load(),d.gui_calls.load(),d.worker_calls.load(),d.worker_session.load(),d.worker_flags.load(),
    d.snapshot.load(),d.session.load(),d.view_flags.load(),
    d.mode.load(),d.frame.load(),d.layout_bits.load(),d.renderer.load(),d.renderer_exception.load(),
    g[0],g[1],g[2],g[3],g[4],g[5],g[6],g[7],g[8],g[9],g[10],g[11],g[12],g[13],g[14],g[15],g[16],g[17],g[18],g[19],widget[0],widget[1],widget[2],widget[3],
    static_cast<long long>(now_ms),navigation,d.navigation_page.load(),d.navigation_at.load(),d.navigation_stale.load(),d.navigation_owner.load(),d.gui_gap_max_ms.load(),d.gui_duration_max_ms.load(),
-   d.status_polls.load(),d.status_failures.load(),d.status_failure_stage.load(),d.status_failure_at.load(),d.status_received_at.load(),d.status_query_max_ms.load(),d.status_gap_max_ms.load(),d.status_failure_kind.load(),d.status_failure_poll_ms.load());
+   d.status_polls.load(),d.status_failures.load(),d.status_failure_stage.load(),d.status_failure_at.load(),d.status_received_at.load(),d.status_query_max_ms.load(),d.status_gap_max_ms.load(),d.status_failure_kind.load(),d.status_failure_poll_ms.load(),d.filament_detail_failures.load());
   if(n<=0||std::size_t(n)>=sizeof(line))return;
   // Bounded attempts, including EINTR/short writes; regular-file I/O never runs
   // on the GUI. Mixed adjacent GUI samples are diagnostic, never a snapshot grant.

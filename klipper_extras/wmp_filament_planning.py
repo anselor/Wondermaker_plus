@@ -238,8 +238,10 @@ class FilamentPlanning:
         base = material_family(identity)
         base = {"PCTG": "PETG", "PA6": "PA", "PA12": "PA"}.get(base, base)
         cls = "soft" if base in ("TPU", "TPE") else "petg" if base in ("PETG", "PET") else "abs" if base in ("ABS", "ASA", "HIPS", "WOOD") else "pla"
-        target = temperatures[recipe_material] if action == "load" else {"PETG": 235, "PET": 235, "ABS": 280, "ASA": 280, "HIPS": 280, "PA": 280, "PC": 300}.get(base, 250)
-        if action == "load" and identity.get("nozzle_temp", 0) > 0:
+        # Both directions service the same material. An unrelated unload table
+        # can leave PETG too cold despite a higher configured spool temperature.
+        target = temperatures[recipe_material]
+        if identity.get("nozzle_temp", 0) > 0:
             target = identity["nozzle_temp"]
         previous_material, transition_note = None, ""
         if action == "load":

@@ -17,7 +17,11 @@ inline Json print_preparation_view(const Json&data){
  }
  std::string values;
  auto append=[&](const std::string&label,double actual,double target){if(!values.empty())values+='\n';values+=label+": "+std::to_string(int(actual))+" / "+std::to_string(int(target))+" C";};
- if(phase=="bed"||phase=="chamber"||phase=="stabilizing"){
+ if(phase=="file"){
+  const auto progress=preparation.value("file_progress",Json::object());
+  const auto total=progress.value("total",0LL),done=progress.value("bytes",0LL);
+  if(total>0&&done>=0&&done<=total)values="File checked: "+std::to_string(done*100/total)+"%";
+ }else if(phase=="bed"||phase=="chamber"||phase=="stabilizing"){
   const auto temperatures=preparation.value("temperatures",Json::object());
   for(const auto*key:{"bed","chamber"}){
    const auto t=temperatures.value(key,Json::object());

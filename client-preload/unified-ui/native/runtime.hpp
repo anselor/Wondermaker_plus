@@ -17,7 +17,7 @@
 #include "stock_picker_lifetime.hpp"
 #include "stock_temperature_keypad.hpp"
 #include "stock_nozzle_editor.hpp"
-#include "stock_colour_picker.hpp"
+#include "solid_colour_picker.hpp"
 #include "stock_preview_page.hpp"
 #include "stock_usb_preview.hpp"
 #include "usb_copy_worker.hpp"
@@ -118,7 +118,20 @@ public:
     const auto data=stock_snapshot();return standalone_.submit({"profile_import",data.value("revision",""),data.value("owner",""),{{"action",action},{"value",value}}});
    };
    stock_filament_.material_entry([this](unsigned head){return begin_stock_edit(head,"material");});
-   stock_filament_.colour_entry([this](unsigned head){return begin_stock_edit(head,"color");});
+   stock_filament_.colour_entry([this](unsigned head){
+    if(begin_stock_edit(head,"color")){
+     std::string colour;
+     for(const auto&source:stock_snapshot().value("sources",Json::array()))if(source.value("head","")=="h"+std::to_string(head)&&source.value("kind","")=="external")colour=identity_display_text(source.value("identity",Json::object()),"color","");
+     open_solid_colour(colour);
+    }
+    return false; // Consumed: never construct the vendor colour picker.
+   });
+   solid_colour_.cancelled=[this](){stock_picker_cancel();};
+   solid_colour_.chosen=[this](const std::string&colour){
+    if(stock_ace_edit_){
+     if(stock_identity_.active()&&stock_edit_field_=="color")stock_filament_.ace_controls().colour_draft(stock_identity_.draft().value("id",""),colour);
+    }else stock_identity_pick("color",colour);
+   };
    stock_filament_.brand_controls().begin=[this](unsigned head){return begin_stock_edit(head,"brand");};
    stock_filament_.brand_controls().choose=[this](unsigned head,const std::string&value){
     if(!stock_filament_.import_active()&&!filament_procedure_.active()&&head==stock_edit_head_)stock_identity_pick("brand",value);
@@ -178,7 +191,7 @@ public:
  bool begin_stock_edit(unsigned head,const std::string&field){
     if(stock_filament_.import_active()||filament_procedure_.active())return false;
     update_tool_view();update_stock_edit();
-    stock_picker_.retire();
+    solid_colour_.close();stock_picker_.close();
     auto data=stock_snapshot();
     if(!stock_edit_receipt_.empty()){stock_filament_.message("Waiting for the previous settings save confirmation.");return false;}
     if(!stock_identity_.begin(data,"h"+std::to_string(head),field)){
@@ -629,7 +642,7 @@ public:
   onboarding_=false;requested_.store(-1);stock_filament_.onboarding(false);stock_("main_page");return true;
  }
  // Called after the original stock constructor returns, on the LVGL thread.
- void stock_filament_created(void*page){stock_identity_.cancel();stock_picker_.retire();stock_filament_.created(page);}
+ void stock_filament_created(void*page){solid_colour_.close();stock_identity_.cancel();stock_picker_.retire();stock_filament_.created(page);}
  void stock_calibration_created(void*page,void*factory_title=nullptr){
   calibration_status_.created(page,false,factory_title);CalibrationBinding binding;
   {std::lock_guard<std::mutex>lock(mutex_);binding=calibration_binding_;}
@@ -656,7 +669,7 @@ public:
  bool stock_colour_pick(unsigned index){
   if(!stock_material_owned_)return false;
   const auto*colour=stock_solid_colour(index);
-  if(!colour){if(!stock_ace_edit_)stock_identity_.cancel();stock_filament_.message("Textured colour profiles are not supported yet; choose a solid colour.");return true;}
+  if(!colour){stock_filament_.message("Textured colour profiles are not supported yet; choose a solid colour.");return true;}
   if(stock_ace_edit_){
    if(!stock_identity_.active()||stock_edit_field_!="color")return true;
    stock_filament_.ace_controls().colour_draft(stock_identity_.draft().value("id",""),colour);return true;
@@ -919,11 +932,19 @@ public:
    poll_stage=3;if(!wmp_openace::ScreenModel::acceptable_payload(body))throw std::runtime_error("Status exceeds bounded reply limit");
    auto status=Json::parse(body).at("result").at("status");Json ace=Json::object();
    if(filament_details_needed_.load()&&status.value("wm_material",Json::object()).value("filament_details_protocol",0)==1){
-    const auto details_body=http_.get("/printer/wmp/filament/details");
-    if(!wmp_openace::ScreenModel::acceptable_payload(details_body))throw std::runtime_error("Filament details exceed bounded reply limit");
-    auto details=Json::parse(details_body).at("result");const auto&base=status.at("wm_material");
-    if(!details.is_object()||!details.value("filament_details_ready",false)||details.value("session_id","")!=base.value("session_id","")||details.value("command_generation",-1LL)!=base.value("command_generation",-2LL))throw std::runtime_error("Filament detail context changed");
-    status["wm_material"]=std::move(details);
+    // Optional editor enrichment must not erase a successful telemetry read.
+    // Never merge old/cross-generation plans, and never renew received_at.
+    try{
+     const auto details_body=http_.get("/printer/wmp/filament/details");
+     if(!wmp_openace::ScreenModel::acceptable_payload(details_body))throw std::runtime_error("Filament details exceed bounded reply limit");
+     auto details=Json::parse(details_body).at("result");const auto&base=status.at("wm_material");
+     if(!details.is_object()||!details.value("filament_details_ready",false)||details.value("session_id","")!=base.value("session_id","")||details.value("command_generation",-1LL)!=base.value("command_generation",-2LL))throw std::runtime_error("Filament detail context changed");
+     status["wm_material"]=std::move(details);
+    }catch(...){
+     diagnostics.filament_detail_failures.fetch_add(1);
+     status["wm_material"]["filament_details_ready"]=false;
+     status["wm_material"]["filament_procedures"]=Json::array();
+    }
    }
    publish_case_light_status(status,received_at,case_light_status_sink());
    if(present){if(!status.contains("openace")||!status["openace"].is_object())throw std::runtime_error("openACE unavailable");ace=status["openace"];}
@@ -1301,7 +1322,7 @@ private:
  StockPreviewPage stock_preview_;bool native_preview_session_=false;std::string native_previous_operation_;
  StockFilamentNative stock_filament_;StockTemperatureKeypad temperature_keypad_;StockFilamentProcedure filament_procedure_;StockNozzleEditor nozzle_editor_;
  StockIdentityEdit stock_identity_;Json stock_edit_operation_;bool stock_ace_edit_=false,stock_material_owned_=false;std::string stock_edit_receipt_,stock_edit_field_;unsigned stock_edit_head_=4;
- StockPickerLifetime stock_picker_;
+ StockPickerLifetime stock_picker_;SolidColourPicker solid_colour_;
  bool ace_mode_active_=false,tool_mode_active_=false;unsigned tool_head_=0;int tool_step_=10;std::array<int,4>tool_targets_{{220,220,220,220}};std::string tool_receipt_,tool_busy_action_,tool_busy_head_;
  StockNotice filament_refusal_notice_;
  StockNotice maintenance_notice_;std::string maintenance_refusal_,factory_command_reason_;
@@ -1432,6 +1453,12 @@ private:
   stock_edit_operation_["load_context"]={{"job",data.value("job",Json::object())},{"paused_filament",data.value("paused_filament",Json::object())}};
   stock_edit_receipt_=receipt.id;view.colour_result(source.value("id",""),receipt.message);view.identity_pending(receipt.state=="pending"||receipt.state=="unknown");stock_filament_.message(receipt.message);
  }
+ void open_solid_colour(const std::string&colour){
+  if(!solid_colour_.show(stock_filament_.page(),colour)){
+   stock_identity_.cancel();stock_filament_.message("Colour picker could not be opened.");return;
+  }
+  stock_picker_opened(solid_colour_.modal());
+ }
  void begin_ace_colour(){
   update_tool_view();update_stock_edit();auto data=stock_snapshot();
   if(stock_filament_.ace_controls().adoption_unresolved()){stock_filament_.message("ACE registration needs confirmation before another change.");return;}
@@ -1446,9 +1473,7 @@ private:
   if(!stock_identity_.begin_source(data,source.value("id",""),"color")){reject_action("filament COLOUR",stock_identity_.reason());return;}
   stock_picker_.close();stock_ace_edit_=true;stock_material_owned_=true;stock_edit_field_="color";
   auto colour=stock_filament_.ace_controls().draft_colour();if(colour.empty())colour=identity_display_text(source.value("identity",Json::object()),"color","");
-  auto*modal=open_stock_colour_picker(stock_filament_.page(),stock_colour_index(colour));
-  stock_picker_opened(modal);
-  if(!stock_picker_.modal()){stock_identity_.cancel();stock_filament_.message("Stock colour picker could not be opened.");}
+  open_solid_colour(colour);
  }
  void save_unit_draft(){
   update_tool_view();update_stock_edit();

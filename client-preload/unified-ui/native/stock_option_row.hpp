@@ -34,7 +34,8 @@ struct StockOptionRow {
    row.dot=stock_function<void*(*)(void*)>(lv_obj_create)(ring);
    if(!row.dot){row.close();return row;}
    stock_dialog_backdrop(row.dot);stock_function<void(*)(void*,unsigned)>(lv_obj_clear_flag)(row.dot,2);
-   stock_object_place(row.dot,8,8,16,16);
+   // Child positions start inside the ring's three-pixel border.
+   stock_object_place(row.dot,5,5,16,16);
    stock_function<void(*)(void*,int,unsigned)>(lv_obj_set_style_radius)(row.dot,8,0);
    stock_function<void(*)(void*,std::uint32_t,unsigned)>(lv_obj_set_style_bg_color)(row.dot,0xffff6600U,0);
    stock_function<void(*)(void*,int,unsigned)>(lv_obj_set_style_bg_opa)(row.dot,255,0);

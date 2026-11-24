@@ -836,7 +836,7 @@ def test_unload_uses_observed_identity_and_reports_failure(sequence_material, mo
     material._set_filament_loaded("h2", True)
     material._filament_checks['h2'] = {'state': 'loaded', 'identity': profiles['h2']}
     material._filament_state()._sensor_filament_status = lambda now: material._filament_checks
-    objects['extruder2'] = SimpleNamespace(get_status=lambda now: {'temperature': 235, 'target': 235, 'can_extrude': True})
+    objects['extruder2'] = SimpleNamespace(get_status=lambda now: {'temperature': 250, 'target': 250, 'can_extrude': True})
     # Configured spool may change; unload must still shape the observed PETG.
     material.cmd_SET_FILAMENT(profile_command(material, PROFILE=json.dumps({'brand': 'Generic', 'material': 'PLA', 'color': '#ffffff'}).encode().hex()))
     cmd = sequence_command(material, 'unload')
@@ -2355,7 +2355,7 @@ def test_toolhead_recovery_rechecks_after_draining(interrupted_toolhead, change)
     assert not material.toolhead_operation.get('recovered')
 
 
-def test_imported_target_does_not_silently_override_unload_recipe(service_material):
+def test_imported_target_is_shared_by_load_and_unload(service_material):
     material, objects, state = service_material
     identity = {'brand': 'Generic', 'material': 'PLA', 'color': '#12ABCD',
                 'nozzle_temp': 215, 'nozzle_temp_min': 190, 'nozzle_temp_max': 230}
@@ -2363,9 +2363,26 @@ def test_imported_target_does_not_silently_override_unload_recipe(service_materi
     assert material._filament_plan(2, 'load', 1)['target'] == 215
     state['filament_switch_sensor filament2']['filament_detected'] = True
     material._set_filament_loaded('h2', True)
-    assert material._filament_plan(2, 'unload', 1)['target'] == 230
+    assert material._filament_plan(2, 'unload', 1)['target'] == 215
     assert material.filament_operation == {}
     assert material._profiles()[0]['h2'] == identity
+
+
+
+@pytest.mark.parametrize('temperature', [None, 260])
+def test_petg_service_load_and_unload_share_default_or_profile_temperature(service_material, temperature):
+    material, objects, state = service_material
+    identity = {'brand': 'Example', 'material': 'PETG', 'color': '#cd001a'}
+    if temperature is not None:
+        identity.update(nozzle_temp=temperature, nozzle_temp_min=240, nozzle_temp_max=270)
+    material.cmd_SET_FILAMENT(profile_command(material, PROFILE=json.dumps(identity).encode().hex()))
+    load = material._filament_plan(2, 'load', 1)
+    state['filament_switch_sensor filament2']['filament_detected'] = True
+    material._set_filament_loaded('h2', True)
+    unload = material._filament_plan(2, 'unload', 1)
+    assert load['target'] == unload['target'] == (250 if temperature is None else temperature)
+    assert unload['class'] == 'petg'
+    assert material.filament_operation == {}
 
 
 @pytest.mark.parametrize('name', ['PLA-CF', 'PA6-GF', 'Custom'])
@@ -2382,7 +2399,7 @@ def test_explicit_temperature_does_not_invent_unknown_material_recipe(service_ma
 
 
 @pytest.mark.parametrize('name,load_temp,unload_temp', [
-    ('PCTG', 260, 235), ('PA6', 260, 280), ('PA12', 260, 280), ('PP', 240, 250)])
+    ('PCTG', 260, 260), ('PA6', 260, 260), ('PA12', 260, 260), ('PP', 240, 240)])
 def test_builtin_added_materials_have_service_plans(service_material, name, load_temp, unload_temp):
     material, objects, state = service_material
     identity = {'brand': 'Generic', 'material': name, 'color': '#12ABCD'}
@@ -3086,7 +3103,7 @@ def test_every_builtin_has_explicit_range_or_honest_service_point():
 def test_process_loss_during_withdrawal_retains_uncertainty(sequence_material, monkeypatch):
     obj, objects = sequence_material
     from types import SimpleNamespace
-    objects['extruder2'] = SimpleNamespace(get_status=lambda now: {'temperature': 235., 'target': 235., 'can_extrude': True})
+    objects['extruder2'] = SimpleNamespace(get_status=lambda now: {'temperature': 250., 'target': 250., 'can_extrude': True})
     obj._set_filament_loaded('h2', True)
     obj._filament_state()._sensor_filament_status = lambda now: {'h2': {'state': 'loaded', 'identity': obj._profiles()[0]['h2']}}
     def process_loss(printer, script):
@@ -3243,7 +3260,7 @@ def test_state_directory_flush_failure_preserves_load_write_boundary(sequence_ma
     if action == 'unload':
         material._set_filament_loaded('h2', True)
         material._filament_state()._sensor_filament_status = lambda now: {'h2': {'state': 'loaded', 'identity': material._profiles()[0]['h2']}}
-        objects['extruder2'] = SimpleNamespace(get_status=lambda now: {'temperature':235., 'target':235., 'can_extrude':True})
+        objects['extruder2'] = SimpleNamespace(get_status=lambda now: {'temperature':250., 'target':250., 'can_extrude':True})
     command = sequence_command(material, action)
     real_fsync = os.fsync
     def failed_directory(fd):
@@ -3374,7 +3391,7 @@ def test_sunlu_simulated_pla_petg_round_trip_plans(service_material):
     material._record_hotend_material('h3', other, purged=True)
     material._record_hotend_material('h2', pla, purged=True)
     for incoming, load_target, unload_target, shaping in (
-            (petg, 220, 235, 'petg'), (pla, 240, 250, 'pla')):
+            (petg, 220, 250, 'petg'), (pla, 240, 220, 'pla')):
         material.cmd_SET_FILAMENT(profile_command(
             material, PROFILE=json.dumps(incoming).encode().hex()))
         load = material._filament_plan(2, 'load', 1)

@@ -33,3 +33,23 @@ def test_fast_small_batch_avoids_per_line_clock_and_pause():
     assert calls == [1]
     worker.advance(32)
     assert calls == [1, 1]
+
+
+def test_progress_is_published_before_reactor_yield_and_scan_logs_once(caplog):
+    import logging
+    clock, events = [0.], []
+    def pause(when):
+        assert events[-1] == ('progress', 65536)
+        events.append(('pause', when))
+        clock[0] = when
+    worker = _ScanCooperator(SimpleNamespace(monotonic=lambda: clock[0], pause=pause),
+                            progress=lambda done: events.append(('progress', done)),
+                            source='active-sd')
+    worker.advance(65536)
+    with caplog.at_level(logging.INFO):
+        worker.finish()
+    assert events[-1] == ('progress', 65536)
+    records = [record for record in caplog.records if 'WM+ startup file scan:' in record.message]
+    assert len(records) == 1
+    assert 'source=active-sd bytes=65536' in records[0].message
+    assert 'yields=1' in records[0].message

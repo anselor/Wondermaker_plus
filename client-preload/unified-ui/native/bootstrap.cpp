@@ -525,7 +525,8 @@ extern "C" void unified_colour_pick(void*event)noexcept {
    if(r->stock_picker_gate(reinterpret_cast<void*(*)(void*)>(wmp_ui::native::lv_event_get_target)(event))==1)return;
    if(r->stock_colour_pick(unsigned(index))){
     auto*modal=r->stock_picker_modal();
-    if(modal&&reinterpret_cast<bool(*)(void*)>(wmp_ui::native::lv_obj_is_valid)(modal))
+    // Non-RGB swatches are consumed without retiring the current picker/draft.
+    if(wmp_ui::native::stock_solid_colour(unsigned(index))&&modal&&reinterpret_cast<bool(*)(void*)>(wmp_ui::native::lv_obj_is_valid)(modal))
      reinterpret_cast<void(*)(void*)>(wmp_ui::native::lv_obj_del)(modal);
     return;
    }

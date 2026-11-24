@@ -16,12 +16,14 @@ static int screen_header_contract(const char*path,const char*scenarios_path){
   StockHomeStatus home;StockProbeEditor probe;StockIdentification identity;StockResumeProgress resume;
   StockFilamentProcedure procedure;StockCalibrationStatus calibration;StockNozzleScrub scrub;
   StockNozzleEditor nozzle;StockProfileImport importer;StockRecoveryProgress recovery;StockAceFilaments ace;
-  StockPreviewControls preview_controls;
+  StockPreviewControls preview_controls;SolidColourPicker colour_picker;
   StockNotice notice;StockPausePrompt pause;StockDiagnostics diagnostics;StockImagePreview image;StockTemperatureKeypad keypad;
   std::string title;std::vector<std::string>actions,body_labels;bool compact=false;int content_top=-1;
   auto find=[&](const std::string&text){for(const auto&item:fake::nodes)if(item->live&&item->is_label&&item->text==text&&under(item.get(),parent))return item.get();return static_cast<fake::Node*>(nullptr);};
   auto tap=[&](const std::string&text){auto*n=find(text);assert(n);fake::send(n->parent,7);};
-  if(scene=="home"){
+  if(scene=="solid-colour"){
+   assert(colour_picker.show(parent,"#ffffff"));title="Filament colour";actions={"CANCEL"};content_top=68;
+  }else if(scene=="home"){
    assert(home.show(parent));home.update("Home printer","Waiting for Y reference",variant=="complete",variant.empty());title="Home printer";actions={variant=="complete"?"DONE":"CANCEL"};
   }else if(scene=="resume"){
    auto*row=fake::make(parent);row->h=140;

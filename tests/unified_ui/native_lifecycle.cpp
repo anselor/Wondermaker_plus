@@ -17,6 +17,7 @@
 #include "native/stock_probe_editor.hpp"
 #include "native/setup_completion.hpp"
 #include <cstdlib>
+#include <set>
 #include <cassert>
 #include <array>
 #include <fstream>
@@ -29,7 +30,7 @@ int async_success(void(*callback)(void*),void*data){async_data=data;async_callba
 int async_failure(void(*)(void*),void*){return 0;}
 struct Event;
 struct Callback {void(*fn)(void*);int code;void*data;};
-struct Node {std::string text,image,options;unsigned layout_updates=0;bool height_fixed=false;bool pending_layout=false,open=false,is_image=false,is_label=false;unsigned selected=0,state=0,zoom_factor=256,disable_writes=0;int text_alignment=0,label_long_mode=-1;std::uintptr_t font_address=0;std::uint32_t text_color=0,background_color=0;int opacity=255,background_opacity=255;std::vector<std::uintptr_t>styles;std::uint32_t tint[2]={0,0};unsigned tint_opa[2]={0,0};Node*parent=nullptr;std::vector<Node*>children;std::vector<Callback>callbacks;bool live=true;unsigned flags=0;int x=0,y=0,w=800,h=480,scroll=0,dir=0,inset_x=0,inset_y=0;unsigned line_point_count=0;std::uint32_t line_color=0;};
+struct Node {std::string text,image,options;unsigned layout_updates=0;bool height_fixed=false;bool pending_layout=false,open=false,is_image=false,is_label=false;unsigned selected=0,state=0,zoom_factor=256,disable_writes=0;int text_alignment=0,label_long_mode=-1;std::uintptr_t font_address=0;std::uint32_t text_color=0,background_color=0;int opacity=255,background_opacity=255,border_width=0;std::vector<std::uintptr_t>styles;std::uint32_t tint[2]={0,0};unsigned tint_opa[2]={0,0};Node*parent=nullptr;std::vector<Node*>children;std::vector<Callback>callbacks;bool live=true;unsigned flags=0;int x=0,y=0,w=800,h=480,scroll=0,dir=0,inset_x=0,inset_y=0;unsigned line_point_count=0;std::uint32_t line_color=0;};
 unsigned home_events=0;
 unsigned char menu_selection=255;
 unsigned style_resets=0;
@@ -95,6 +96,7 @@ void background_colour(void*p,std::uint32_t v,int){static_cast<Node*>(p)->backgr
 void text_alignment(void*p,int v,unsigned){static_cast<Node*>(p)->text_alignment=v;}
 void text_colour(void*p,std::uint32_t v,int){static_cast<Node*>(p)->text_color=v;}
 unsigned text_writes=0;
+void border_width(void*p,int width,int){static_cast<Node*>(p)->border_width=width;}
 void remove_style(void*,void*,unsigned){}void style(void*,int,int){}void color(void*p,std::uint32_t v,int){static_cast<Node*>(p)->line_color=v;}void one_int(void*,int){}void text(void*p,const char*value){++text_writes;static_cast<Node*>(p)->text=value;}void update(void*p){auto*n=static_cast<Node*>(p);++n->layout_updates;n->pending_layout=false;for(auto*c:n->children)update(c);if(layout_hook)layout_hook(n);}
 const void*image_source(void*p){return static_cast<Node*>(p)->image.c_str();}
 int image_type(const void*p){return p&&*static_cast<const char*>(p)?1:3;}
@@ -139,6 +141,11 @@ struct RuntimeReceiptTest {
   assert(r.stock_identity_.begin_source(data,id,"color"));r.stock_ace_edit_=true;r.stock_material_owned_=true;r.stock_edit_field_="color";
  }
  static bool identity_active(const Runtime&r){return r.stock_identity_.active();}
+ static bool open_standalone_colour(Runtime&r,void*parent){
+  if(!r.begin_stock_edit(0,"color")||!r.solid_colour_.show(parent,"#ffffff"))return false;
+  r.stock_picker_opened(r.solid_colour_.modal());return true;
+ }
+
  static void saved_load(Runtime&r,const Json&origin,const Json&current){
   auto data=current;r.normalized_=data;++r.status_publication_;r.at_=r.ui_.now_ms();r.standalone_.observe(data);
   r.ace_mode_active_=true;r.stock_ace_edit_=true;r.stock_edit_receipt_="saved-edit";
@@ -245,7 +252,6 @@ struct RuntimeReceiptTest {
   return {{"flagged",r.scrub_.result_flagged_heads_locked()},{"saved_anyway",r.scrub_.result_saved_anyway_locked()},
    {"cancelled",r.scrub_.result_cancelled_locked()},{"restore_failed",r.scrub_.result_restore_failed_locked()}};}
 };
-void*test_stock_colour_picker(void*parent,int selected){assert(selected>=-1&&selected<16);return fake::make(parent);}
 void*test_resolve(std::uintptr_t a){
 if(a==0x38626e8){static const std::string asset("stock-white-filament.bin");return const_cast<std::string*>(&asset);}
  if(a==is_rapid_mode)return &fake::vendor_rapid_mode;
@@ -277,9 +283,9 @@ if(a==0x38626e8){static const std::string asset("stock-white-filament.bin");retu
  MAP(lv_obj_remove_style,remove_style);MAP(lv_label_set_text,text);MAP(lv_label_set_long_mode,label_mode);MAP(lv_obj_move_to_index,one_int);MAP(lv_obj_add_state,one_int);
  MAP(lv_obj_set_scroll_dir,set_dir);MAP(lv_obj_set_scrollbar_mode,one_int);MAP(lv_obj_get_scroll_y,get_scroll);MAP(lv_obj_scroll_to_y,set_scroll);MAP(lv_obj_update_layout,update);
  MAP(lv_obj_set_style_text_color,text_colour);MAP(lv_obj_set_style_text_align,text_alignment);
- MAP(lv_obj_set_style_bg_color,background_colour);
+ MAP(lv_obj_set_style_bg_color,background_colour);MAP(lv_obj_set_style_border_width,border_width);
  for(auto f:{lv_obj_set_style_border_color})if(a==f)return reinterpret_cast<void*>(&fake::color);
- for(auto f:{lv_obj_set_style_pad_top,lv_obj_set_style_pad_bottom,lv_obj_set_style_pad_left,lv_obj_set_style_pad_right,lv_obj_set_style_border_width,lv_obj_set_style_outline_width,lv_obj_set_style_bg_opa,lv_obj_set_style_radius,lv_obj_set_style_text_align,lv_obj_set_style_text_opa,lv_obj_set_style_opa})if(a==f)return reinterpret_cast<void*>(&fake::style);
+ for(auto f:{lv_obj_set_style_pad_top,lv_obj_set_style_pad_bottom,lv_obj_set_style_pad_left,lv_obj_set_style_pad_right,lv_obj_set_style_outline_width,lv_obj_set_style_bg_opa,lv_obj_set_style_radius,lv_obj_set_style_text_align,lv_obj_set_style_text_opa,lv_obj_set_style_opa})if(a==f)return reinterpret_cast<void*>(&fake::style);
  throw std::runtime_error("unhandled fake LVGL address");
 #undef MAP
 }
@@ -314,6 +320,55 @@ int main(int argc,char**argv){
  assert(!button->pending_layout&&caption->w>0&&caption->h==MyriadPro_Bold_20_line_height);
  button->h=64;center_button_caption(button,caption,"Confirm",40);
  assert(caption->h==25&&caption->y==(40-25)/2);
+ }
+
+
+ {
+  // Every offered colour is RGB, selectable, and fits the smallest supported
+  // stock content area. Cancel/hidden-page events never modify the draft.
+  auto*page=fake::make(fake::screen);page->w=640;page->h=360;
+  SolidColourPicker picker;std::string selected;unsigned picks=0,cancels=0;
+  picker.chosen=[&](const std::string&colour){selected=colour;++picks;};
+  picker.cancelled=[&](){++cancels;};
+  std::set<std::string>colours;
+  for(unsigned i=0;i<48;++i){
+   std::uint32_t rgb=0;assert(stock_rgb(filament_solid_colour(i),rgb));
+   assert(colours.insert(filament_solid_colour(i)).second);
+   assert(picker.show(page,filament_solid_colour(i)));
+   auto*modal=static_cast<fake::Node*>(picker.modal());
+   std::vector<fake::Node*>swatches;
+   for(auto*child:modal->children)if(child->background_color==rgb&&child->w==child->h)swatches.push_back(child);
+   assert(swatches.size()==1);auto*swatch=swatches.front();
+   assert(swatch->w>=32&&swatch->x>=0&&swatch->y>=60&&swatch->x+swatch->w<=page->w&&swatch->y+swatch->h<=page->h);
+   page->flags|=1;fake::send(swatch,7);assert(picks==i);page->flags&=~1U;
+   fake::send(swatch,7);assert(picks==i+1&&selected==filament_solid_colour(i)&&!picker.modal());
+  }
+  assert(!filament_solid_colour(48));
+  assert(picker.show(page,"#123456"));auto*modal=static_cast<fake::Node*>(picker.modal());
+  fake::Node*cancel=nullptr;for(auto*child:modal->children)for(auto*label:child->children)if(label->text=="CANCEL")cancel=child;
+  assert(cancel);fake::send(cancel,7);assert(cancels==1&&picks==48&&!picker.modal());
+  assert(picker.show(page,"#ffffff"));fake::del(page);assert(!picker.modal());
+ }
+
+ {
+  // LVGL child coordinates start at the parent's border/content origin.
+  // Compare physical centres, rather than just mirroring a position literal.
+  auto*page=fake::make(fake::screen);
+  auto row=StockOptionRow::create(page,"Wire brush","Clean each nozzle",0,0,600);
+  auto*dot=static_cast<fake::Node*>(row.dot);assert(dot&&dot->parent);
+  auto*ring=dot->parent;
+  assert(2*(ring->border_width+dot->x)+dot->w==ring->w);
+  assert(2*(ring->border_width+dot->y)+dot->h==ring->h);
+  row.select(true);assert(!(dot->flags&1));row.select(false);assert(dot->flags&1);
+  row.close();fake::del(page);
+ }
+
+ {
+  const auto view=print_preparation_view({{"print_preparation",{{"phase","file"},
+    {"steps",Json::array({{{"phase","file"},{"label","Prepare print file"}}})},
+    {"file_progress",{{"bytes",80},{"total",200}}}}}});
+  assert(view.at("value")=="File checked: 40%");
+  assert(view.at("steps").at(0).at("state")=="running");
  }
 
  {
@@ -891,7 +946,24 @@ int main(int argc,char**argv){
   RuntimeReceiptTest::details_demand(r,false);clock.now+=700;r.worker_step(clock.now);
   assert(count()==1&&RuntimeReceiptTest::status(r)["procedures"].empty());
   RuntimeReceiptTest::details_demand(r,true);wire.filament_details["session_id"]="another-session";
-  clock.now+=700;r.worker_step(clock.now);assert(!RuntimeReceiptTest::status(r).value("fresh",false));
+  const auto failures=wmp_openace::screen_diagnostics().status_failures.load();
+  const auto detail_failures=wmp_openace::screen_diagnostics().filament_detail_failures.load();
+  clock.now+=700;r.worker_step(clock.now);
+  assert(RuntimeReceiptTest::status(r).value("fresh",false));
+  assert(RuntimeReceiptTest::status(r)["procedures"].empty());
+  assert(!RuntimeReceiptTest::status(r).value("filament_details_ready",true));
+  assert(wmp_openace::screen_diagnostics().status_failures.load()==failures);
+  assert(wmp_openace::screen_diagnostics().filament_detail_failures.load()==detail_failures+1);
+  wire.filament_details["session_id"]="detail-session";wire.filament_details["command_generation"]=1;
+  clock.now+=700;r.worker_step(clock.now);assert(RuntimeReceiptTest::status(r).value("fresh",false)&&RuntimeReceiptTest::status(r)["procedures"].empty());
+  wire.filament_details["command_generation"]=0;wire.filament_details["filament_details_ready"]=false;
+  clock.now+=700;r.worker_step(clock.now);assert(RuntimeReceiptTest::status(r).value("fresh",false)&&RuntimeReceiptTest::status(r)["procedures"].empty());
+  wire.on_get=[&](const std::string&path){if(path=="/printer/wmp/filament/details"){clock.now+=1501;throw std::runtime_error("details request failed");}};
+  clock.now+=700;r.worker_step(clock.now);assert(RuntimeReceiptTest::status(r).value("fresh",false));
+  assert(RuntimeReceiptTest::status(r)["procedures"].empty());
+  clock.now+=500;assert(!RuntimeReceiptTest::status(r).value("fresh",false)); // Original base timestamp still expires.
+  wire.on_get=nullptr;wire.filament_details["filament_details_ready"]=true;
+  clock.now+=700;r.worker_step(clock.now);assert(RuntimeReceiptTest::status(r).value("fresh",false)&&RuntimeReceiptTest::status(r)["procedures"].size()==1);
  }
  // Unknown metadata must not reveal legacy stock colors. Presence transitions
  // repaint even when configured source metadata is unchanged, in head order.
@@ -1117,6 +1189,26 @@ int main(int argc,char**argv){
  standalone_runtime.request(7);standalone_runtime.gui_step();
  assert(stock_calls==1&&!standalone_runtime.active());
  assert(fake::screen->children.size()==initial_children&&retained->live);
+
+ // Standalone picker choices use the existing typed settings receipt; closing
+ // one without a selection does not submit a save or destroy another editor.
+ {
+  Http wire;wire.ace_present=false;Port clock;clock.now=10000;
+  wire.extra_status={{"wm_material",{{"identity_writable",true},{"identity_revision",std::string(64,'a')}}}};
+  wmp_openace::UiChannel channel;Runtime r(wire,clock,channel);r.worker_step(clock.now);
+  auto*page=fake::make(fake::screen);
+  assert(RuntimeReceiptTest::open_standalone_colour(r,page));
+  auto*modal=static_cast<fake::Node*>(r.stock_picker_modal());assert(modal);
+  fake::Node*cancel=nullptr;for(auto*child:modal->children)for(auto*label:child->children)if(label->text=="CANCEL")cancel=child;
+  assert(cancel);fake::send(cancel,7);assert(!RuntimeReceiptTest::identity_active(r)&&!RuntimeReceiptTest::pending(r,false));
+  assert(RuntimeReceiptTest::open_standalone_colour(r,page));modal=static_cast<fake::Node*>(r.stock_picker_modal());
+  fake::Node*green=nullptr;for(auto*child:modal->children)if(child->background_color==0xff00b140U&&child->w==child->h)green=child;
+  assert(green);fake::send(green,7);assert(!r.stock_picker_modal());
+  assert(RuntimeReceiptTest::pending(r,false));
+  const auto edit=RuntimeReceiptTest::edit_operation(r);
+  assert(edit.at("arguments").at("draft").at("identity").at("color")=="#00b140");
+  fake::del(page);
+ }
  // A new status reply is fresh even when earlier polling work was slow.
  // It must still expire two seconds after receipt, and failed queries fail closed.
  {
@@ -3349,7 +3441,8 @@ int main(int argc,char**argv){
  for(const auto&node:fake::nodes)if(node->live&&node->w==88&&node->h==48)for(auto*p=node->parent;p;p=p->parent)if(p==presence_page)colour_button=node.get();
  assert(colour_button);fake::send(colour_button,7);
  auto*actual_modal=static_cast<fake::Node*>(presence_runtime.stock_picker_modal());assert(actual_modal&&actual_modal->parent==presence_page);
- presence_runtime.stock_colour_pick(0);fake::del(actual_modal);presence_runtime.gui_step();
+ fake::Node*white=nullptr;for(auto*child:actual_modal->children)if(child->background_color==0xffffffffU&&child->w==child->h)white=child;
+ assert(white);fake::send(white,7);assert(!actual_modal->live);presence_runtime.gui_step();
  assert(!RuntimeReceiptTest::pending(presence_runtime,false)); // draft only
  auto*save_colour=page_button("SAVE");assert(save_colour);fake::send(save_colour,7);presence_runtime.gui_step();
  assert(RuntimeReceiptTest::pending(presence_runtime,false));

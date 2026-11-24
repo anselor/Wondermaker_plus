@@ -31,6 +31,32 @@ class PrintPreparation:
     def printer(self):
         return self.material.printer
 
+    def begin_file_scan(self, filename, total):
+        """Show bookkeeping only for the actual active SD attempt.
+
+        A pending screen submission has no SD job to cancel yet; do not make it
+        look like an active print or borrow the previous job's cancellation.
+        """
+        now = self.printer.get_reactor().monotonic()
+        stats = self.printer.lookup_object('print_stats').get_status(now)
+        sd = self.printer.lookup_object('virtual_sdcard', None)
+        stream = getattr(sd, 'current_file', None)
+        if stats.get('state') != 'printing' or stats.get('filename') != filename or stream is None:
+            return None
+        self._job_file = stream
+        self.state = {'protocol': 1, 'id': uuid.uuid4().hex, 'file': filename,
+                      'phase': 'file', 'active': True,
+                      'steps': [{'phase': 'file', 'label': 'Prepare print file'}],
+                      'file_progress': {'bytes': 0, 'total': total},
+                      'instruction': 'Checking the print file and recovery information.',
+                      'note': ''}
+        return self.state['id']
+
+    def file_scan_progress(self, attempt, completed):
+        if attempt and self.state.get('id') == attempt and self.state.get('phase') == 'file':
+            progress = self.state['file_progress']
+            progress['bytes'] = min(progress['total'], max(0, completed))
+
     def cmd_BEGIN(self, gcmd):
         chamber = gcmd.get_float('CHAMBER', 0., minval=0.)
         if not math.isfinite(chamber):

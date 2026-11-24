@@ -320,3 +320,28 @@ calling screen. **Back** leaves without saving, with an unsaved-change notice
 when applicable. A failed save keeps the editor open and reports the error.
 Opening Nozzle Type from General keeps the editor on that screen, so closing it
 does not navigate to Toolheads or change the selected toolhead.
+
+
+### Solid-colour picker
+
+WM+ uses its own 48-colour RGB palette for filament colour editing, including
+neutrals, pastels, saturated and dark colours. The title and Cancel action share
+the header row. The current palette colour has an orange outline; a custom RGB
+value remains unchanged when the picker is cancelled, even if no tile matches it.
+
+Standalone and openACE editors share this picker. Choosing a tile follows the
+calling editor's existing save flow: source editor changes remain drafts until
+Save, and direct standalone head edits use the typed settings receipt. Cancel
+never saves a colour. No vendor textured swatches or approximate substitutes are
+offered. Rainbow, gradient and two/three-colour appearances need future identity
+model support; they are not represented by a single RGB value here.
+
+
+### Shared service temperature
+
+Standalone Load and Unload use the material default or the spool's configured
+nozzle temperature. PETG therefore unloads at its normal 250 C default (or its
+explicit profile target), instead of the old independent 235 C unload target.
+Profile/heater limits and the existing tip-shaping moves still apply. A Load
+that must handle residue from a different material retains its explicit
+transition-temperature policy. openACE-owned service is handled by openACE.

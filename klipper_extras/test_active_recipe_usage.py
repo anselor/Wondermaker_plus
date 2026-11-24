@@ -192,3 +192,29 @@ def test_optional_recovery_still_detects_in_place_source_change_during_scan(prin
     assert obj.print_submission['state']=='submitted'
     assert 'Loaded filament changed during recovery staging' in obj._print_recovery_error
     assert obj._material_settings()._recipe_usage_observation['tools']==(2,3)
+
+
+@pytest.mark.parametrize('extra', [
+    b'G1 X1 Y1 E0.1 ; T0\nG0 X2 Y2 ; START_PRINT INITIAL_TOOL=0\n',
+    b';' + b'x' * 70000 + b'T0\n',
+    b'G1 X1 ;' + b'x' * 70000 + b'T0\n',
+    b'  g1 X1 Y1 ; T0\n',
+])
+def test_active_scan_fast_lines_and_continuations_do_not_invent_tools(usage_machine, extra, caplog):
+    import logging
+    obj, objects, cfg, path, stream = usage_machine
+    path.write_bytes(STAMP.replace(b'\nPRINT_END', b'\n' + extra + b'PRINT_END'))
+    sd = objects['virtual_sdcard']
+    sd.from_sd = True
+    sd.file_position, sd.next_file_position = 0, 1
+    objects['print_stats'] = SimpleNamespace(get_status=lambda now: {'state': obj.printer.state, 'filename': path.name})
+    objects['gcode_macro START_PRINT'] = SimpleNamespace(get_status=lambda now: {'print_body_ready': False})
+    with caplog.at_level(logging.INFO), pytest.raises(ValueError, match='Loaded material evidence is unavailable for h3'):
+        obj._recovery_jobs()._stage_active_sd_recovery()
+    # No false T0 requirement; optional recovery still correctly reaches the
+    # real h3 requirement, and the complete file is hashed rather than skipped.
+    scan = [r.message for r in caplog.records if 'source=active-sd' in r.message]
+    assert len(scan) == 1 and ('bytes=%d ' % path.stat().st_size) in scan[0]
+    preparation = obj._print_preparation().get_status(0)
+    assert preparation['active'] and preparation['phase'] == 'file'
+    assert preparation['file_progress']['bytes'] == path.stat().st_size

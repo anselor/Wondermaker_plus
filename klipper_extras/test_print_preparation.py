@@ -151,3 +151,32 @@ def test_heating_progress_contains_live_bed_temperature(preparation):
     v=preparation;v.feature.cmd_BEGIN(Command());v.feature.cmd_STAGE(Command(PHASE='bed'))
     v.objects['heater_bed']=NS(get_status=lambda now:{'temperature':43.5,'target':60.})
     assert v.feature.get_status(0)['temperatures']['bed']=={'actual':43.5,'target':60.}
+
+
+def test_file_scan_progress_is_visible_before_preheat_and_bound_to_sd_attempt(preparation):
+    v = preparation
+    attempt = v.feature.begin_file_scan('example.gcode', 200)
+    assert attempt and v.feature.get_status(0)['phase'] == 'file'
+    v.feature.file_scan_progress(attempt, 80)
+    assert v.feature.get_status(0)['file_progress'] == {'bytes': 80, 'total': 200}
+    assert not v.calls
+    v.sd.current_file = object()
+    assert not v.feature.get_status(0)['active']
+    v.feature.cmd_BEGIN(Command())
+    v.feature.file_scan_progress(attempt, 200)
+    assert v.feature.get_status(0)['phase'] == 'preheat'
+    assert 'file_progress' not in v.feature.get_status(0)
+
+
+@pytest.mark.parametrize('state,filename,has_stream', [
+    ('complete', 'example.gcode', True),
+    ('printing', 'previous.gcode', True),
+    ('printing', 'example.gcode', False),
+])
+def test_pre_dispatch_file_scan_never_borrows_previous_print(preparation, state, filename, has_stream):
+    v = preparation
+    v.stats.update(state=state, filename=filename)
+    if not has_stream:
+        v.sd.current_file = None
+    assert v.feature.begin_file_scan('example.gcode', 200) is None
+    assert v.feature.get_status(0) == {}
