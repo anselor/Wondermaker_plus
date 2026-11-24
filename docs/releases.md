@@ -19,6 +19,59 @@ component support and distinguish local tests from printer validation.
 Do not assume the moving `main` branch supports your installed firmware.
 Choose the corresponding tag and keep local connection details in ignored `.env`.
 
+## R4 branch update — 24 November 2026
+
+This update targets vendor System **1.1.13** on the moving
+`fw-1.1.13/r4` branch. It does not move an existing release tag.
+
+- **Cooperative Stop:** request-bound cancellation for homing, tool and filament
+  service, identification, calibration, Resume and power-loss recovery. Stop is
+  observed at owned safe boundaries. An admitted lock/unlock and dock back-off
+  finishes before cancellation; existing Z holding is preserved.
+- **Calibration results:** save completed calibration types before starting the
+  next type, discard incomplete results on cancellation, and report confirmed
+  Stop locations and expected save/restart progress honestly.
+- **Print startup:** show file processing and byte progress before heating or
+  homing, allow Stop during pending file processing, and prevent stale scan work
+  from dispatching a retired start. Reduce repeated scan parsing and retain
+  filament telemetry when optional detail queries fail.
+- **Filament controls:** replace unsupported stock special-colour swatches with
+  ten ordered colour families, each with six large solid-colour choices. Centre
+  radio indicators and use the same material/profile nozzle target for standalone
+  Load and Unload. Mixed-material load transition policy remains separate;
+  openACE-owned service stays delegated to that backend.
+- **Consistency and upgrades:** align progress titles with header actions and
+  repair the narrowly identified legacy recovery-marker read permission problem.
+
+The candidate has been installed on the local printer with configuration and
+saved tuning preserved. Representative attended cancellation and completed-type
+save checks are recorded in [the consolidated validation](validation/early-stop-consolidated-plan-2026-11-23.md).
+The Vehicles touchscreen start displayed file-processing progress and its native
+Stop cancelled before SD execution, heating or homing. The final colour picker
+was checked on-device and approved by the user.
+
+All 6,914 regression cases are covered by passing executions across the main
+run and the corrected collection/module check. Exact results are recorded in
+[the release validation](validation/r4-backlog-release-2026-11-24.md).
+Host tests and representative live tests are distinguished there; a complete
+first-run setup, naturally occurring gauge disagreement, and every material's
+physical unload behavior are not claimed as hardware-tested.
+
+**Still under investigation:** intermittent extrusion/Z timing symptoms and
+print stuttering/CPU attribution. This update does not claim their cause has
+been found or fixed. Gauge repeatability and the conditional pre-home dock
+clearance retain their separately scoped verification items. Normal-cancel
+parking off the bed remains separate work.
+
+For an existing clean R4 checkout, update while the printer is idle:
+
+```bash
+git fetch origin
+git switch fw-1.1.13/r4
+git pull --ff-only origin fw-1.1.13/r4
+uv run --with paramiko --with jinja2 python tools/deploy.py install all
+```
+
 ## fw-1.1.12-r1 — touchscreen rendering fix
 
 This release fixes a blank interactive touchscreen when JPEG snapshots and touch
@@ -102,7 +155,7 @@ From an existing checkout with a clean working tree:
 git fetch origin --tags
 git switch --detach fw-1.1.13-r1
 uv run --with paramiko python tools/deploy.py install all --preflight-only
-uv run --with paramiko python tools/deploy.py install all
+uv run --with paramiko --with jinja2 python tools/deploy.py install all
 uv run --with paramiko python tools/deploy.py status
 ```
 

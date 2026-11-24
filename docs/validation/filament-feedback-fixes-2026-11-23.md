@@ -94,3 +94,7 @@ candidate. No merge or push is part of this feedback work.
 
 Final native candidate SHA256: `c2e28ff775b6ab61f59df0a8a366717dcf7a31e49853f16a80e346626af04d45`. The local installer package
 was refreshed from this artifact; normal source/artifact binding checks passed.
+
+The initial local-only status above is superseded by the final installation and
+release qualification in `r4-backlog-release-2026-11-24.md`. The final picker has
+60 RGB choices; `solid-colour-picker-2026-11-23.md` records its current design.

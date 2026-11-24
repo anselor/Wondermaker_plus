@@ -331,22 +331,41 @@ int main(int argc,char**argv){
   picker.chosen=[&](const std::string&colour){selected=colour;++picks;};
   picker.cancelled=[&](){++cancels;};
   std::set<std::string>colours;
-  for(unsigned i=0;i<48;++i){
+  for(unsigned i=0;i<60;++i){
    std::uint32_t rgb=0;assert(stock_rgb(filament_solid_colour(i),rgb));
    assert(colours.insert(filament_solid_colour(i)).second);
    assert(picker.show(page,filament_solid_colour(i)));
    auto*modal=static_cast<fake::Node*>(picker.modal());
    std::vector<fake::Node*>swatches;
-   for(auto*child:modal->children)if(child->background_color==rgb&&child->w==child->h)swatches.push_back(child);
+   for(auto*child:modal->children)if(child->background_color==rgb&&child->y==288)swatches.push_back(child);
+   unsigned shades=0;for(auto*child:modal->children)if(child->y==288)++shades;assert(shades==6);
    assert(swatches.size()==1);auto*swatch=swatches.front();
-   assert(swatch->w>=32&&swatch->x>=0&&swatch->y>=60&&swatch->x+swatch->w<=page->w&&swatch->y+swatch->h<=page->h);
+   assert(swatch->w>=90&&swatch->h>=48&&swatch->x>=0&&swatch->y>=60&&swatch->x+swatch->w<=page->w&&swatch->y+swatch->h<=page->h);
    page->flags|=1;fake::send(swatch,7);assert(picks==i);page->flags&=~1U;
    fake::send(swatch,7);assert(picks==i+1&&selected==filament_solid_colour(i)&&!picker.modal());
   }
-  assert(!filament_solid_colour(48));
+  assert(!filament_solid_colour(60));
+  assert(picker.show(page,"#ffffff"));
+  auto*families=static_cast<fake::Node*>(picker.modal());fake::Node*blue_family=nullptr;
+  for(auto*child:families->children)for(auto*label:child->children)if(label->text=="Blue")blue_family=child;
+  assert(blue_family);fake::send(blue_family,7);assert(picks==60&&picker.modal());
+  fake::Node*blue=nullptr;for(auto*child:families->children)if(child->y==288&&child->background_color==0xff009cdeU)blue=child;
+  assert(blue&&blue->w>=90&&blue->h>=48);
+  fake::Node*violet_family=nullptr,*pink_family=nullptr;unsigned family_count=0;
+  for(auto*child:families->children)if(child->y==104||child->y==174){
+   ++family_count;assert(child->w>=110&&child->h>=60);
+   for(auto*caption:child->children){if(caption->text=="Violet")violet_family=child;if(caption->text=="Pink /\nmagenta")pink_family=child;}
+  }
+  assert(family_count==10&&violet_family&&pink_family);
+  fake::send(violet_family,7);assert(picks==60);
+  for(auto*child:families->children)if(child->y==288)assert(child->background_color!=0xffe10098U);
+  fake::send(pink_family,7);assert(picks==60);bool magenta=false;
+  for(auto*child:families->children)if(child->y==288&&child->background_color==0xffe10098U)magenta=true;
+  assert(magenta);picker.close();
+
   assert(picker.show(page,"#123456"));auto*modal=static_cast<fake::Node*>(picker.modal());
   fake::Node*cancel=nullptr;for(auto*child:modal->children)for(auto*label:child->children)if(label->text=="CANCEL")cancel=child;
-  assert(cancel);fake::send(cancel,7);assert(cancels==1&&picks==48&&!picker.modal());
+  assert(cancel&&cancel->background_opacity==0&&cancel->border_width==0);fake::send(cancel,7);assert(cancels==1&&picks==60&&!picker.modal());
   assert(picker.show(page,"#ffffff"));fake::del(page);assert(!picker.modal());
  }
 
@@ -1224,7 +1243,9 @@ int main(int argc,char**argv){
   fake::Node*cancel=nullptr;for(auto*child:modal->children)for(auto*label:child->children)if(label->text=="CANCEL")cancel=child;
   assert(cancel);fake::send(cancel,7);assert(!RuntimeReceiptTest::identity_active(r)&&!RuntimeReceiptTest::pending(r,false));
   assert(RuntimeReceiptTest::open_standalone_colour(r,page));modal=static_cast<fake::Node*>(r.stock_picker_modal());
-  fake::Node*green=nullptr;for(auto*child:modal->children)if(child->background_color==0xff00b140U&&child->w==child->h)green=child;
+  fake::Node*family=nullptr;for(auto*child:modal->children)for(auto*caption:child->children)if(caption->text=="Green")family=child;
+  assert(family);fake::send(family,7);assert(!RuntimeReceiptTest::pending(r,false));
+  fake::Node*green=nullptr;for(auto*child:modal->children)if(child->background_color==0xff00b140U&&child->y==288)green=child;
   assert(green);fake::send(green,7);assert(!r.stock_picker_modal());
   assert(RuntimeReceiptTest::pending(r,false));
   const auto edit=RuntimeReceiptTest::edit_operation(r);
@@ -3463,7 +3484,7 @@ int main(int argc,char**argv){
  for(const auto&node:fake::nodes)if(node->live&&node->w==88&&node->h==48)for(auto*p=node->parent;p;p=p->parent)if(p==presence_page)colour_button=node.get();
  assert(colour_button);fake::send(colour_button,7);
  auto*actual_modal=static_cast<fake::Node*>(presence_runtime.stock_picker_modal());assert(actual_modal&&actual_modal->parent==presence_page);
- fake::Node*white=nullptr;for(auto*child:actual_modal->children)if(child->background_color==0xffffffffU&&child->w==child->h)white=child;
+ fake::Node*white=nullptr;for(auto*child:actual_modal->children)if(child->background_color==0xffffffffU&&child->y==288)white=child;
  assert(white);fake::send(white,7);assert(!actual_modal->live);presence_runtime.gui_step();
  assert(!RuntimeReceiptTest::pending(presence_runtime,false)); // draft only
  auto*save_colour=page_button("SAVE");assert(save_colour);fake::send(save_colour,7);presence_runtime.gui_step();

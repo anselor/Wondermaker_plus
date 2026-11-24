@@ -80,9 +80,8 @@ submission, forty consecutive matched-pending observations, and factory-font
 fit for file processing and the seven-step continuation. The matching ARM
 artifact and installer package are rebuilt and checked locally.
 
-The new early progress and pre-SD Stop path still require an explicitly scoped
-on-printer check. No further print was started after the observed second run was
-stopped. No merge or push is authorized by this work.
+The early progress and pre-SD Stop path were subsequently checked on the printer,
+as recorded below. No merge or push is authorized by this work.
 
 
 Final local validation:
@@ -96,4 +95,22 @@ Final local validation:
   `5905e3ca6aff86361d7ef96241fd6fbea6cfcb4f253c1efba20d1e8452a316c7`.
 
 These test groups overlap and are not an aggregate unique-test count. The
-candidate is local and has not been installed on the printer.
+candidate was installed and checked on the printer as recorded below.
+
+
+Live verification after installation:
+
+- Installer preserved configuration with zero file changes; Klipper returned Ready
+  and the loaded native artifact matched the candidate hash above (PID 51444).
+- Started the 60,414,444-byte Vehicles file through its touchscreen confirmation.
+  The screen automatically opened Preparing print with Read/process G-code,
+  File checked: 3%, and the explanation of recovery preparation.
+- An independent remote guard tapped the screen STOP button three seconds after
+  observing the pending submission. Native Stop completed without API fallback.
+- The receipt reports cancellation during file_preparation. SD execution never
+  started; heater targets remained zero; no homing or coordinate change occurred.
+  Temporary filament mappings were restored.
+- Private evidence: analysis/early-preparation-live-20261123/ (summary, status
+  samples and screenshots). The prior failed watcher is not counted as passing.
+- An unnecessary bed lowering occurred before installation; it was unrelated to
+  this test and is not part of the installation or validation procedure.

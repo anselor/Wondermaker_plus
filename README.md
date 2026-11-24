@@ -13,7 +13,7 @@ Use the **Filament** tab for filament settings and **Tools** for toolhead
 controls. Saved timelapse videos are under **Files → Video**.
 
 - Record each head's filament brand, material, colour and loaded state across
-  restarts.
+  restarts. Choose from ten colour families with six large shade buttons each.
 - Load and unload filament with automatic head pickup, heating, feeding,
   tip shaping and wiping. Follow the current step or stop the procedure from
   the screen.
@@ -33,7 +33,8 @@ available from the console as `LOAD_FILAMENT HEAD=2` and
 - **Tool changes:** return to the saved print position after wiping with a
   clearance lift, restore travel speed, and pause recoverable docking or pickup
   failures for inspection, repair and Resume.
-- **Print startup:** probe with the first printing head and purge along the
+- **Print startup:** show file-processing progress with Stop available before
+  heating or homing, probe with the first printing head and purge along the
   plate's left edge, away from the front panel.
 - **Pause and resume:** preserve tool-to-head assignments and restore nozzle
   temperatures to the correct heads. Runout and tangle pauses allow manual

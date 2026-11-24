@@ -2,10 +2,10 @@
   "scope": "unified-native-development-candidate",
   "activated": false,
   "toolchain_image": "sha256:86fdcabbf2da48f1023d39362d3edc92495da739c716716b83b973aee91d54a8",
-  "ui_build_id": "b7d83f66ae98194f",
+  "ui_build_id": "a9abeb114ea4ce85",
   "artifact": {
     "path": "libwmp_unified_screen_candidate.so",
-    "sha256": "5905e3ca6aff86361d7ef96241fd6fbea6cfcb4f253c1efba20d1e8452a316c7"
+    "sha256": "d23fb96bea5346cbcf66119c08ed0b3c0cbefd03f94fa9b81f93ed10a2ff4129"
   },
   "runtime_dependencies": {
     "klipper_extras/wmp_component.py": "2157ddcccb944ca6e89222b896715671d51f8ee3ad4e04ad3f294eb82ca1cd94",
@@ -141,7 +141,7 @@
     "client-preload/unified-ui/native/runtime.hpp": "769e753fdfc1acc01c0d84e3fcd305f07afd679e6ace7f403d41a9e42860820f",
     "client-preload/unified-ui/native/runtime_inputs.py": "55490d7f36cbb62766ae1dea008423d86ca3ee257c7667d651c2eef584cc16e1",
     "client-preload/unified-ui/native/setup_completion.hpp": "e25874252d9651ad673e4e5f62c4eaad376168fce6f1a54853689d93f98e0b2d",
-    "client-preload/unified-ui/native/solid_colour_picker.hpp": "3afc526c7a36122dde91333d23b1f648adff68af1d1bd3bf91bfca73a6307973",
+    "client-preload/unified-ui/native/solid_colour_picker.hpp": "d0dd9e449d404a5d95ff22a915c1c10e678a7b32433beccc5f5f67e1d2f6209a",
     "client-preload/unified-ui/native/stock_ace_filaments.hpp": "0fca6ac844107ec229cf2bbffd5be9c36cae4dfe838fa70af3cb5019d08bed72",
     "client-preload/unified-ui/native/stock_api.hpp": "e7f712cd0a8a38c69271a3f8864108a55daa5ec8939497fe0ca57cf589e5e9bf",
     "client-preload/unified-ui/native/stock_async.hpp": "d7bd9b49aba5024424011f7647c8825717196db3226ed3639c3d6299dec13ba2",
