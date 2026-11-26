@@ -723,6 +723,29 @@ def test_dock_settling_wait_finishes_before_sensor_check():
     assert commands[dwell + 2] == '_CHECK_AND_UNLOCK T={current_extruder}'
 
 
+def test_head_one_dock_after_wipe_aligns_x_before_entering_rack():
+    printer = {
+        'save_variables': {'variables': dict(fail_flag=0, current_extruder=0,
+            t0_position=(44.746875, 341.09375), t1_position=(120, 341),
+            t2_position=(195, 341), t3_position=(270, 341))},
+        'toolhead': {'homed_axes': 'xy'}, 'gcode_move': {'position': {'y': 275}},
+        'wm_material': {'session_id': 'test', 'command_generation': 1},
+        'print_stats': {'state': 'standby'},
+    }
+    macros = templates(ROOT / 'config/live')
+    lines = [line.strip() for line in macros['_UNLOCK_TOOL'].render(
+        printer=printer, params={'T': '0'}).splitlines()]
+    expected = ['G0 Y270 F12000', '_WMP_LOG_DOCK_XY PHASE=before_alignment HEAD=0',
+                '_WMP_XY_TRAVEL X=44.746875 Y=270',
+                '_WMP_LOG_DOCK_XY PHASE=alignment_commanded HEAD=0',
+                '_WMP_XY_TRAVEL Y=310', 'G0 Y326.09375 F8000', 'G0 Y341.09375 F1000',
+                '_CHECK_AND_UNLOCK T=0']
+    assert [line for line in lines if line in expected] == expected
+    script = macros['_WMP_XY_TRAVEL'].render(params={'X': '44.746875', 'Y': '270'},
+        travel_speed=300., hot_travel_speed=500., printer={'configfile': {'settings': {'printer': {'max_velocity': 500}}}})
+    assert 'G0 X44.746875 Y270.0 F18000' in script
+
+
 @pytest.mark.parametrize('axes', ['', 'xy', 'xyz'])
 def test_dock_offset_reset_does_not_move_unhomed_z(axes):
     printer = {

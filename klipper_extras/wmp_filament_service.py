@@ -600,6 +600,7 @@ class FilamentService:
                             or not all(axis in th.get("homed_axes", "") for axis in "xy")):
                         raise ValueError("Printer or attachment changed before wiping")
                     self.material.printer.lookup_object("gcode").run_script_from_command("WIPE_NOZZLE XY_ONLY=1\nM400")
+                    self.material.log_dock_xy("load_wipe_complete", head)
             if plan.get("service", {}).get("return_head") is not None:
                 self._filament_checkpoint("return_docking")
                 self.material.printer.lookup_object("gcode").run_script_from_command("SET_HEATER_TEMPERATURE HEATER=%s TARGET=0" % heater)

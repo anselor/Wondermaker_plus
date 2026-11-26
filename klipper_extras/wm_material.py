@@ -271,6 +271,7 @@ class WMMaterial:
                                desc="Reconcile an interrupted tool change from sensors without repeating travel")
         gcode.register_command("_WMP_FAILED_PICKUP_CLEANUP", self.cmd_FAILED_PICKUP_CLEANUP,
                                desc="Release a supported failed pickup, retreat, then report the failed attempt")
+        gcode.register_command("_WMP_LOG_DOCK_XY", self.cmd_LOG_DOCK_XY)
         gcode.register_command("_WMP_CHECK_DOCK_SUPPORT", self.cmd_CHECK_DOCK_SUPPORT,
                                desc="Confirm dock support before unlock; stationary bounded observation")
         gcode.register_command("_WMP_PICKUP_BEGIN", self.cmd_PICKUP_BEGIN,
@@ -698,6 +699,22 @@ class WMMaterial:
 
     _run_recovery_stages = component_method("_recovery_lifecycle", "_run_recovery_stages")
     cmd_FAILED_PICKUP_CLEANUP = component_method("_toolheads", "cmd_FAILED_PICKUP_CLEANUP")
+
+    def log_dock_xy(self, phase, head):
+        now = self.printer.get_reactor().monotonic()
+        move = self.printer.lookup_object("gcode_move", None)
+        saved = self.printer.lookup_object("save_variables", None)
+        if move is None or saved is None:
+            return
+        status = move.get_status(now)
+        variables = saved.get_status(now).get("variables", {})
+        logging.info("WM+ dock XY phase=%s head=%s dock=%r wipe=%r machine_xy=%r gcode_xy=%r origin_xy=%r",
+                     phase, head, variables.get("t%d_position" % head), variables.get("wipe_position"),
+                     status.get("position", ())[:2], status.get("gcode_position", ())[:2],
+                     status.get("homing_origin", ())[:2])
+
+    def cmd_LOG_DOCK_XY(self, gcmd):
+        self.log_dock_xy(gcmd.get("PHASE"), gcmd.get_int("HEAD", minval=0, maxval=3))
 
     cmd_CHECK_DOCK_SUPPORT = component_method("_toolheads", "cmd_CHECK_DOCK_SUPPORT")
     cmd_PICKUP_BEGIN = component_method("_toolheads", "cmd_PICKUP_BEGIN")
