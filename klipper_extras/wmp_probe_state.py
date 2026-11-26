@@ -48,7 +48,8 @@ class ProbeConfigChange:
     def admit_save(self):
         self._unchanged()
         # SAVE_CONFIG writes all pending settings, not just this editor's value.
-        if self.old_pending or self.configfile.status_save_pending != {self.section: {'z_offset': self.value}}:
+        previous_offset = {self.section: {'z_offset': self.old_value}}
+        if self.old_pending not in ({}, previous_offset) or self.configfile.status_save_pending != {self.section: {'z_offset': self.value}}:
             raise ValueError('Other pending calibration changes require review before saving')
 
     def _discard_plan(self):

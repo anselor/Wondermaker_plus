@@ -507,7 +507,11 @@ class ProbeEditorCommands:
     def cmd_run(self, gcmd):
         if self._executing:
             raise gcmd.error('Probe editor command is currently running')
-        self._run(gcmd)
+        try:
+            self._run(gcmd)
+        except ValueError as error:
+            # Klipper treats a raw validation error as an internal shutdown.
+            raise gcmd.error(str(error)) from error
 
     def _run(self, gcmd):
         session = gcmd.get('SESSION', '')

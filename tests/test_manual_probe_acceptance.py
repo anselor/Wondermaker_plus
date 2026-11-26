@@ -376,8 +376,12 @@ def test_editor_discards_accepted_offset_without_restart_or_unrelated_loss(edito
     value.cmd_run(command('BEGIN', 0)); value.cmd_run(command('ACCEPT', 1))
     config = value.printer.lookup_object('configfile')
     config.status_save_pending['extruder'] = {'pid_kp':'25'}
-    with pytest.raises(ValueError, match='Other pending'):
-        value.cmd_run(command('SAVE', 2))
+    save = command('SAVE', 2)
+    class CommandError(Exception):
+        pass
+    save.error = CommandError
+    with pytest.raises(CommandError, match='Other pending'):
+        value.cmd_run(save)
     assert value.state == 'accepted'
     assert value.get_status()['action_refused'] and value.sequence == 2
     discard = command('DISCARD', 3)

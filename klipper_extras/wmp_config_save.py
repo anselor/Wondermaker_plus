@@ -62,7 +62,13 @@ class ConfigurationSave:
             reason = self._mesh_pending_reason(mesh, config.status_save_pending)
             if reason:
                 raise ValueError(reason)
+            pending = config.status_save_pending
             self._publish_print_mesh(config)
+            # Vendor config.set replaces the pending dictionary on every edit.
+            # Retire only the mesh-only snapshot we just durably published.
+            if config.status_save_pending is pending:
+                config.status_save_pending = {}
+                config.save_config_pending = False
             self.material._print_mesh_persisted = True
         except (OSError, ValueError, AttributeError, KeyError, TypeError, configparser.Error,
                 self.material.printer.command_error) as error:
@@ -76,7 +82,7 @@ class ConfigurationSave:
 
         Only called with mesh-only pending settings under the G-code mutex.
         Unlike the vendor two-rename writer, a failed publication cannot leave
-        printer.cfg absent. In-memory pending settings are not modified.
+        printer.cfg absent. The caller retires the pending snapshot after this returns.
         """
         path = self.material.printer.get_start_args()["config_file"]
         if os.path.islink(path):

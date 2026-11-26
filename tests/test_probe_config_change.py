@@ -57,11 +57,11 @@ def test_only_owned_pending_offset_can_save_and_can_be_discarded(config, change)
     with pytest.raises(ValueError): owned.admit_save()
 
 
-def test_preexisting_offset_change_is_restored_not_saved(config, change):
+def test_preexisting_offset_can_be_replaced_or_restored(config, change):
     config.set('probe','z_offset','1.100')
     owned = change(config,'probe')
     config.set('probe','z_offset','1.500'); owned.capture()
-    with pytest.raises(ValueError, match='Other pending'): owned.admit_save()
+    owned.admit_save()
     owned.discard()
     assert config.status_save_pending == {'probe':{'z_offset':'1.100'}}
     assert config.autosave.fileconfig.get('probe','z_offset') == '1.100'
@@ -433,7 +433,7 @@ def test_config_writers_preserve_shutdown_stop_before_writes(guarded_config, com
     assert not v.restarts
 
 
-def test_consecutive_explicit_mesh_saves_replace_retained_pending_mesh(guarded_config):
+def test_consecutive_explicit_mesh_saves_retire_each_published_mesh(guarded_config):
     v = guarded_config
     v.config.status_save_pending = {}
     v.config.autosave.fileconfig.remove_section('probe')
@@ -448,7 +448,7 @@ def test_consecutive_explicit_mesh_saves_replace_retained_pending_mesh(guarded_c
         _, autosave = v.config._find_autosave_data(v.path.read_text())
         parsed = v.config._build_config_wrapper(autosave, str(v.path))
         assert parsed.fileconfig.get('bed_mesh wmp_print', 'points').strip() == points
-        assert set(v.config.status_save_pending) == {'bed_mesh wmp_print'}
+        assert v.config.status_save_pending == {} and not v.config.save_config_pending
     assert not messages and not v.restarts
 
 

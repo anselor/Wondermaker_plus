@@ -2,7 +2,7 @@
 import copy
 from types import SimpleNamespace as NS
 import pytest
-from test_probe_config_change import config, guarded_config
+from test_probe_config_change import change, config, guarded_config
 
 
 def prepare(v):
@@ -16,16 +16,20 @@ def prepare(v):
     return NS(respond_info=messages.append), messages
 
 
-def test_explicit_mesh_save_during_print_keeps_pending_state(guarded_config):
+def test_saved_print_mesh_allows_subsequent_probe_calibration(guarded_config, change):
     v = guarded_config
     command, messages = prepare(v)
-    before, pending = v.path.read_bytes(), copy.deepcopy(v.config.status_save_pending)
+    before = v.path.read_bytes()
     v.material.cmd_SAVE_PRINT_MESH(command)
     assert v.material._print_mesh_persisted
     assert not messages and not v.restarts
     assert '#*# [bed_mesh wmp_print]' in v.path.read_text()
     assert next(v.path.parent.glob('printer-mesh-*.cfg')).read_bytes() == before
-    assert v.config.status_save_pending == pending
+    assert v.config.status_save_pending == {} and not v.config.save_config_pending
+    offset = change(v.config, 'probe')
+    v.config.set('probe', 'z_offset', '-0.165')
+    offset.capture()
+    offset.admit_save()
     # Read the published result using the retained parser, not text alone.
     regular, autosave = v.config._find_autosave_data(v.path.read_text())
     parsed = v.config._build_config_wrapper(autosave, str(v.path))
@@ -97,6 +101,7 @@ def test_failed_directory_sync_never_leaves_config_missing(guarded_config, monke
     assert '#*# [bed_mesh wmp_print]' in v.path.read_text()
     assert not v.material._print_mesh_persisted
     assert 'directory sync failed' in messages[0]
+    assert 'bed_mesh wmp_print' in v.config.status_save_pending and v.config.save_config_pending
 
 
 def test_unreadable_current_config_skips_optional_mesh_save(guarded_config):
