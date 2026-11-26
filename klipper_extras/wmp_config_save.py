@@ -1,9 +1,37 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Scoped print-mesh persistence and configuration save/restart routing."""
 import configparser
+import io
+import logging
+import math
 import os
+import re
 import stat
-import tempfile
+
+try:
+    from .wmp_persistence import atomic_write
+except ImportError:
+    from wmp_persistence import atomic_write
+
+MESH_FILE = "wmp-plr-mesh-v1.cfg"
+MESH_HEADER = "# WM+ transient power-loss recovery mesh v1\n"
+
+
+def check_probe_offset(config, parser, error=ValueError):
+    """Validate the probe offset in the actual autosave candidate."""
+    if parser.has_option("probe", "z_offset"):
+        raw = parser.get("probe", "z_offset", raw=True)
+    else:
+        raw = getattr(config, "status_settings", {}).get("probe", {}).get("z_offset")
+        if raw is None:
+            return
+    try:
+        value = float(raw)
+    except (ValueError, TypeError):
+        value = math.nan
+    if not math.isfinite(value) or value > 0:
+        raise error("Cannot save [probe] z_offset = %s. This printer requires a finite "
+                    "offset of zero or less. Redo the paper calibration before saving." % raw)
 
 
 class ConfigurationSave:
@@ -31,6 +59,8 @@ class ConfigurationSave:
             raise self.material.printer.config_error("Managed configuration requires SAVE_CONFIG")
         def wrap(name, original):
             def save(gcmd):
+                config = self.material.printer.lookup_object("configfile")
+                check_probe_offset(config, config.autosave.fileconfig, gcmd.error)
                 if (self.material.printer.lookup_object("openace", None) is None
                         and self.material.printer.lookup_object("AFC", None) is None):
                     if self.material.printer.is_shutdown():
@@ -53,6 +83,8 @@ class ConfigurationSave:
         """Optional print recovery persistence; never save unrelated edits."""
         if (self.material.printer.lookup_object("openace", None) is not None
                 or self.material.printer.lookup_object("AFC", None) is not None):
+            config = self.material.printer.lookup_object("configfile")
+            check_probe_offset(config, config.autosave.fileconfig, gcmd.error)
             return self._config_save_handlers["SAVE_CONFIG_NO_RESTART"](gcmd)
         self.material._print_mesh_persisted = False
         try:
@@ -78,55 +110,76 @@ class ConfigurationSave:
 
 
     def _publish_print_mesh(self, config):
-        """Retained config serialization with a single atomic replacement.
-
-        Only called with mesh-only pending settings under the G-code mutex.
-        Unlike the vendor two-rename writer, a failed publication cannot leave
-        printer.cfg absent. The caller retires the pending snapshot after this returns.
-        """
+        """Publish only the named profile. The caller owns the G-code mutex."""
+        check_probe_offset(config, config.autosave.fileconfig)
         path = self.material.printer.get_start_args()["config_file"]
-        if os.path.islink(path):
-            raise ValueError("Mesh save cannot replace a linked printer configuration")
-        original = config._read_config_file(path)
-        regular, old_autosave = config._find_autosave_data(original)
-        config._build_config_wrapper(regular, path)
-        regular = config._strip_duplicates(regular, config.autosave)
-        config._disallow_include_conflicts(regular, path, self.material.printer.lookup_object("gcode"))
-        # Preserve the retained writer's header rather than inventing a second
-        # config format. It is defined in the writer's module globals.
-        header = config.cmd_SAVE_CONFIG_NO_RESTART.__func__.__globals__["AUTOSAVE_HEADER"]
-        lines = [("#*# " + line).strip()
-                 for line in config._build_config_string(config.autosave).split("\n")]
-        payload = (regular.rstrip() + "\n" + header.rstrip() + "\n"
-                   + "\n".join(lines) + "\n").encode("utf-8")
         directory = os.path.dirname(os.path.abspath(path))
-        metadata = os.stat(path)
-        fd, temporary = tempfile.mkstemp(prefix=".wmp-print-mesh-", dir=directory)
+        destination = os.path.join(directory, MESH_FILE)
+        regular, _ = config._find_autosave_data(config._read_config_file(path))
+        section = "bed_mesh wmp_print"
+        mesh = configparser.RawConfigParser()
+        mesh.add_section(section)
+        for key, value in config.autosave.fileconfig.items(section, raw=True):
+            mesh.set(section, key, value)
+        stream = io.StringIO()
+        stream.write(MESH_HEADER)
+        mesh.write(stream)
+        # ConfigParser normalizes indentation when reading the vendor's
+        # multiline points. Compare the same on-disk representation.
+        expected = configparser.RawConfigParser()
+        expected.read_string(stream.getvalue())
+        self._check_mesh_owner(destination)
+        atomic_write(destination, stream.getvalue(), ".wmp-print-mesh-")
+        loaded = config._build_config_wrapper(regular, path).fileconfig
+        if (not loaded.has_section(section)
+                or dict(loaded.items(section, raw=True)) != dict(expected.items(section, raw=True))):
+            raise ValueError("Recovery mesh include missing or overridden; update the WM+ config")
+        # BED_MESH_PROFILE SAVE stages the profile in the vendor autosave parser.
+        # Avoid copying it back into printer.cfg on a later calibration save.
+        config.autosave.fileconfig.remove_section(section)
+        self._prune_mesh_backups(directory, path)
+
+    @staticmethod
+    def _check_mesh_owner(path):
         try:
-            with os.fdopen(fd, "wb") as stream:
-                os.fchmod(stream.fileno(), stat.S_IMODE(metadata.st_mode))
-                stream.write(payload)
-                stream.flush()
-                os.fsync(stream.fileno())
-            if config._read_config_file(path) != original:
-                raise ValueError("Printer configuration changed during mesh save")
-            # Retain a backup before publication; failure leaves the original
-            # untouched. A unique name avoids overwriting another save's backup.
-            backup_fd, backup = tempfile.mkstemp(prefix="printer-mesh-", suffix=".cfg", dir=directory)
-            with os.fdopen(backup_fd, "wb") as stream:
-                os.fchmod(stream.fileno(), stat.S_IMODE(metadata.st_mode))
-                stream.write(original.encode("utf-8"))
-                stream.flush()
-                os.fsync(stream.fileno())
-            os.replace(temporary, path)
-            directory_fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
+            if not stat.S_ISREG(os.lstat(path).st_mode):
+                raise ValueError("Recovery mesh path must be a regular file")
+            with open(path, "rb") as stream:
+                if stream.readline(128) != MESH_HEADER.encode():
+                    raise ValueError("Recovery mesh path contains an unmanaged file")
+        except FileNotFoundError:
+            return False
+        return True
+
+    def clear_print_mesh(self):
+        path = os.path.join(os.path.dirname(self.material.printer.get_start_args()["config_file"]), MESH_FILE)
+        if self._check_mesh_owner(path):
+            os.unlink(path)
+            fd = os.open(os.path.dirname(path), os.O_RDONLY | os.O_DIRECTORY)
             try:
-                os.fsync(directory_fd)
+                os.fsync(fd)
             finally:
-                os.close(directory_fd)
-        finally:
-            if os.path.exists(temporary):
-                os.unlink(temporary)
+                os.close(fd)
+
+    @staticmethod
+    def _prune_mesh_backups(directory, active):
+        try:
+            with os.scandir(directory) as entries:
+                for entry in entries:
+                    if (re.fullmatch(r"printer-mesh-[a-z0-9_]{8}\.cfg", entry.name)
+                            and entry.is_file(follow_symlinks=False)
+                            and not os.path.samefile(entry.path, active)):
+                        try:
+                            # Old releases copied the whole main config. Preserve
+                            # similarly named custom snippets and empty files.
+                            with open(entry.path, "rb") as snapshot:
+                                prefix = snapshot.read(65536)
+                            if re.search(rb"(?m)^\[(?:printer|include [^]\r\n]+)\][ \t]*(?:[#;].*)?\r?$", prefix):
+                                os.unlink(entry.path)
+                        except OSError:
+                            logging.warning("Could not prune %s", entry.path, exc_info=True)
+        except OSError:
+            logging.warning("Could not scan mesh backups in %s", directory, exc_info=True)
 
 
     def _mesh_pending_reason(self, mesh, items):

@@ -320,6 +320,8 @@ class RecoveryStorage:
         # Neither staging nor a startup commit alone authorizes recovery.
         # The recovery entry must still admit the matching checkpoint/state.
         self._write_recovery_json(self._recovery_job_path(), record)
+        if record.get("state") == "invalidated":
+            self.material._configuration_save().clear_print_mesh()
 
 
     @staticmethod

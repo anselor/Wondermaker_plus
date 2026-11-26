@@ -25,7 +25,10 @@ OWNERSHIP = '# WM+ generated option hashes: '
 BLOCK = ('\n# >>> WM+ screen runtime include\n[include ' + FILENAME + ']\n'
          '# <<< WM+ screen runtime include\n')
 SAVE_MARKER = b'#*# <---------------------- SAVE_CONFIG ---------------------->'
-DESTINATIONS = {'printer.cfg', FILENAME, 'wm_material.cfg',
+MESH_FILE = 'wmp-plr-mesh-v1.cfg'
+MESH_HEADER = b'# WM+ transient power-loss recovery mesh v1\n'
+MESH_INCLUDE = '[include wmp-plr-mesh-v?.cfg]\n'
+DESTINATIONS = {MESH_FILE, 'printer.cfg', FILENAME, 'wm_material.cfg',
                 'macros.cfg', 'change_macros.cfg', 'offset_calibrate.cfg',
                 'fz-wipe-nozzle.cfg', 'case_light.cfg', 'change_extruder.cfg',
                 'extruder0.cfg', 'extruder1.cfg', 'extruder2.cfg', 'extruder3.cfg',
@@ -70,6 +73,7 @@ def generated_ownership(text):
 def plan(root, directory):
     root, directory = Path(root), Path(directory).absolute()
     main, managed = directory/'printer.cfg', directory/FILENAME
+    mesh = directory/MESH_FILE
     reads = {}
     read_targets = {}
     include_matches = {}
@@ -79,7 +83,7 @@ def plan(root, directory):
         path = Path(path).absolute()
         if os.path.commonpath((str(path), str(directory))) != str(directory):
             raise ValueError('Configuration include outside printer directory: ' + str(path))
-        if path in (main, managed) and path.is_symlink():
+        if path in (main, managed, mesh) and path.is_symlink():
             raise ValueError('Refuse linked writable configuration: ' + str(path))
         resolved = str(path.resolve())
         data = path.read_bytes()
@@ -280,7 +284,7 @@ def plan(root, directory):
     material_include = '[include wm_material*.cfg]\n\n' if not base.has_section('wm_material') else ''
     generated = (HEADER + OWNERSHIP + json.dumps(ownership, sort_keys=True, separators=(',', ':')) + '\n'
                  + '# Generated behavior only; machine settings remain in their original files.\n'
-                 + ''.join('# ' + warning + '\n' for warning in warnings) + '\n' + material_include + stream.getvalue()).encode()
+                 + ''.join('# ' + warning + '\n' for warning in warnings) + '\n' + material_include + MESH_INCLUDE + '\n' + stream.getvalue()).encode()
     original_body, marker, calibration = without.encode().partition(SAVE_MARKER)
     updated_main = original_body + BLOCK.encode() + marker + calibration
     # SAVE_CONFIG may insert blank lines after our already-final include. Keep
@@ -292,6 +296,14 @@ def plan(root, directory):
     changes = []
     if not output.sections() and managed not in reads and BLOCK not in main_text:
         return {'changes': [], 'include_matches': include_matches, 'read_targets': {str(path.relative_to(directory)): target for path, target in read_targets.items()}, 'read_hashes': {str(path.relative_to(directory)): hashlib.sha256(data).hexdigest() for path, data in reads.items()}, 'managed_sections': []}
+    # Drop the obsolete per-print profile from the vendor autosave block.
+    body, marker, saved = updated_main.partition(SAVE_MARKER)
+    legacy = re.search(rb'(?m)^#\*# \[bed_mesh wmp_print\][ \t]*\r?\n(?:#\*#(?! \[)[^\n]*(?:\n|$))*', saved)
+    if mesh.exists() or mesh.is_symlink():
+        if not read(mesh).encode().startswith(MESH_HEADER):
+            raise ValueError('Unmanaged file at reserved recovery mesh path')
+    if marker and legacy:
+        updated_main = body + marker + saved[:legacy.start()] + saved[legacy.end():]
     for path, data in ((managed, generated), (main, updated_main)):
         old = reads.get(path)
         if old != data:
@@ -362,6 +374,8 @@ def removal_plan(root, directory, material_only=False):
                         raise ValueError('Legacy configuration changed while planning: '+name)
                     candidate[path]=factory.read_bytes()
     for path, data in reads.items():
+        if path.name == MESH_FILE:
+            continue
         if path in (managed, material) or path.name not in DESTINATIONS or path.parent != directory or path.suffix!='.cfg':
             continue
         factory_file = root/'config/stock'/path.name
@@ -494,7 +508,7 @@ def removal_plan(root, directory, material_only=False):
         dependencies.extend(section + ' (dynamic command target; definitions retained)'
                             for section in sorted(dynamic_callers))
     for section in active.sections():
-        if section in helpers: continue
+        if section in helpers or section == 'bed_mesh wmp_print': continue
         text = section + '\n' + '\n'.join(value for _, value in active.items(section))
         if re.search(r'\b(?:_?WMP_[A-Z0-9_]+|wm_material|wmp_recovery|wmp_case_light)\b', text, re.IGNORECASE):
             dependencies.append(section)
@@ -503,7 +517,10 @@ def removal_plan(root, directory, material_only=False):
             if path in reads:
                 candidate[path] = transform(path, remove_helpers=True)
                 if path == managed and not material_only:
-                    candidate[path] = candidate[path].replace(b'[include wm_material*.cfg]\n', b'')
+                    candidate[path] = candidate[path].replace(b'[include wm_material*.cfg]\n', b'').replace(MESH_INCLUDE.encode(), b'')
+        mesh = directory/MESH_FILE
+        if not material_only and mesh.is_file() and not mesh.is_symlink() and read(mesh).encode().startswith(MESH_HEADER):
+            candidate[mesh] = None
     # Keep the include if custom executable sections remain. A comment-only file
     # can stay on disk as evidence but need not remain in the active include tree.
     if managed in candidate:

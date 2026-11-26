@@ -144,6 +144,6 @@ def test_retained_stock_sd_startup_mesh_save(guarded_config, blocker):
         assert not v.material._print_mesh_persisted
         assert set(v.config.status_save_pending) == {'bed_mesh wmp_print', 'extruder'}
     else:
-        assert '#*# [bed_mesh wmp_print]' in v.path.read_text()
-        assert next(v.path.parent.glob('printer-*.cfg')).read_bytes() == before
+        assert v.config.read_main_config().fileconfig.has_section('bed_mesh wmp_print')
+        assert v.path.read_bytes() == before
         assert v.material._print_mesh_persisted

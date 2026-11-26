@@ -50,7 +50,7 @@ def test_discard_restores_old_offset_and_preserves_other_new_changes(config, cha
 
 def test_only_owned_pending_offset_can_save_and_can_be_discarded(config, change):
     owned = change(config,'probe')
-    config.set('probe','z_offset','1.500'); owned.capture(); owned.admit_save()
+    config.set('probe','z_offset','-0.145'); owned.capture(); owned.admit_save()
     owned.discard()
     assert config.status_save_pending == {} and not config.save_config_pending
     assert not config.autosave.fileconfig.has_section('probe')
@@ -60,7 +60,7 @@ def test_only_owned_pending_offset_can_save_and_can_be_discarded(config, change)
 def test_preexisting_offset_can_be_replaced_or_restored(config, change):
     config.set('probe','z_offset','1.100')
     owned = change(config,'probe')
-    config.set('probe','z_offset','1.500'); owned.capture()
+    config.set('probe','z_offset','-0.145'); owned.capture()
     owned.admit_save()
     owned.discard()
     assert config.status_save_pending == {'probe':{'z_offset':'1.100'}}
@@ -149,7 +149,7 @@ def test_retained_save_requests_restart_only_after_persisting_offset(config, tmp
 def test_ready_restores_save_review_without_replay(config, tmp_path, matching, monkeypatch, repaired):
     module = load('probe_restore_owner', ROOT / 'klipper_extras/wmp_recovery.py')
     path = tmp_path / 'printer.cfg'
-    path.write_text('[printer]\nkinematics = cartesian\n')
+    path.write_text('[include wmp-plr-mesh-v?.cfg]\n[printer]\nkinematics = cartesian\n')
     handlers, commands = {}, []
     gcode = NS(error=ValueError, request_restart=lambda kind: None,
                register_command=lambda *a, **k: None,
@@ -268,7 +268,7 @@ def guarded_config(config, tmp_path, monkeypatch):
     monkeypatch.syspath_prepend(str(ROOT / 'klipper_extras'))
     from wm_material import WMMaterial
     path = tmp_path / 'printer.cfg'
-    path.write_text('[printer]\nkinematics = cartesian\n')
+    path.write_text('[include wmp-plr-mesh-v?.cfg]\n[printer]\nkinematics = cartesian\n')
     handlers = {'SAVE_CONFIG': config.cmd_SAVE_CONFIG,
                 'SAVE_CONFIG_NO_RESTART': config.cmd_SAVE_CONFIG_NO_RESTART}
     def register(name, callback):
@@ -280,7 +280,7 @@ def guarded_config(config, tmp_path, monkeypatch):
     gcode = NS(register_command=register, error=ValueError, quick_stop_flag=False,
                request_restart=lambda kind: restarts.append(kind))
     state = {'print_stats': {'state': 'standby'}, 'pause_resume': {'is_paused': False}}
-    objects = {'gcode': gcode, 'virtual_sdcard': NS(current_file=None,
+    objects = {'configfile': config, 'gcode': gcode, 'virtual_sdcard': NS(current_file=None,
         is_active=lambda: False, is_cmd_from_sd=lambda: False)}
     def lookup(name, default=None):
         if name in objects: return objects[name]
@@ -289,7 +289,7 @@ def guarded_config(config, tmp_path, monkeypatch):
                  get_start_args=lambda: {'config_file': str(path)},
                  command_error=ValueError, config_error=ValueError, is_shutdown=lambda: False)
     config.printer = printer
-    config.set('probe', 'z_offset', '1.500')
+    config.set('probe', 'z_offset', '-0.145')
     material = WMMaterial.__new__(WMMaterial)
     material.printer = printer
     material._print_cancel = {}
@@ -335,7 +335,7 @@ def test_admitted_config_save_keeps_original_writer(guarded_config, command, con
         v.state['print_stats']['state'] = 'printing'  # Existing owner's policy stays intact.
     original = v.path.read_bytes()
     v.handlers[command](NS(error=ValueError))
-    assert '#*# z_offset = 1.500' in v.path.read_text()
+    assert '#*# z_offset = -0.145' in v.path.read_text()
     assert next(v.path.parent.glob('printer-*.cfg')).read_bytes() == original
     assert v.restarts == (['firmware_restart'] if command == 'SAVE_CONFIG' else [])
 
@@ -391,7 +391,7 @@ def test_config_save_guard_through_retained_dispatcher(guarded_config, held):
         assert v.path.read_bytes() == before and not v.restarts
     else:
         dispatch.ready_gcode_handlers['SAVE_CONFIG'](command)
-        assert '#*# z_offset = 1.500' in v.path.read_text()
+        assert '#*# z_offset = -0.145' in v.path.read_text()
         assert v.restarts == ['firmware_restart']
     assert dispatch.get_command_help()['SAVE_CONFIG'] == 'Save configuration'
 
@@ -414,7 +414,7 @@ def test_explicit_no_restart_save_is_whole_set_intent(guarded_config, activity):
     v.config.set('extruder', 'pid_kp', '25')
     before = v.path.read_bytes()
     v.handlers['SAVE_CONFIG_NO_RESTART'](NS(error=ValueError))
-    assert '#*# z_offset = 1.500' in v.path.read_text()
+    assert '#*# z_offset = -0.145' in v.path.read_text()
     assert '#*# pid_kp = 25' in v.path.read_text()
     assert next(v.path.parent.glob('printer-*.cfg')).read_bytes() == before
     assert not v.restarts
@@ -445,8 +445,7 @@ def test_consecutive_explicit_mesh_saves_retire_each_published_mesh(guarded_conf
         v.config.set('bed_mesh wmp_print', 'points', points)
         v.material.cmd_SAVE_PRINT_MESH(NS(respond_info=messages.append))
         assert v.material._print_mesh_persisted
-        _, autosave = v.config._find_autosave_data(v.path.read_text())
-        parsed = v.config._build_config_wrapper(autosave, str(v.path))
+        parsed = v.config.read_main_config()
         assert parsed.fileconfig.get('bed_mesh wmp_print', 'points').strip() == points
         assert v.config.status_save_pending == {} and not v.config.save_config_pending
     assert not messages and not v.restarts
@@ -481,7 +480,7 @@ def test_read_only_profile_import_does_not_block_explicit_mesh_save(guarded_conf
     v.material.profile_import = {'action': action, 'state': 'busy'}
     v.config.set('bed_mesh wmp_print', 'points', '0.1, 0.2')
     v.material.cmd_SAVE_PRINT_MESH(NS(respond_info=lambda message: pytest.fail(message)))
-    assert '#*# [bed_mesh wmp_print]' in v.path.read_text()
+    assert v.config.read_main_config().fileconfig.has_section('bed_mesh wmp_print')
     assert not v.restarts
 
 
@@ -491,3 +490,29 @@ def test_read_only_profile_import_does_not_block_restart(guarded_config, action)
     v.material._profile_import_busy = True
     v.material.profile_import = {'action': action, 'state': 'busy'}
     v.material._restart_requested(None)
+
+
+@pytest.mark.parametrize('command', ['SAVE_CONFIG', 'SAVE_CONFIG_NO_RESTART'])
+@pytest.mark.parametrize('value', ['2.730', '0.001', 'nan', 'inf'])
+def test_bad_probe_offset_never_reaches_writer(guarded_config, command, value):
+    v = guarded_config
+    before = v.path.read_bytes()
+    v.config.set('probe', 'z_offset', value)
+    with pytest.raises(ValueError, match='zero or less'):
+        v.handlers[command](NS(error=ValueError))
+    assert v.path.read_bytes() == before and not v.restarts
+    assert not list(v.path.parent.glob('printer-*.cfg'))
+    # A replacement zero can be explicitly saved without a restart.
+    v.config.set('probe', 'z_offset', '0.000')
+    v.handlers['SAVE_CONFIG_NO_RESTART'](NS(error=ValueError))
+    assert '#*# z_offset = 0.000' in v.path.read_text()
+
+
+def test_positive_probe_editor_result_can_be_discarded(config, change):
+    owned = change(config, 'probe')
+    config.set('probe', 'z_offset', '2.730')
+    owned.capture()
+    with pytest.raises(ValueError, match='zero or less'):
+        owned.admit_save()
+    owned.discard()
+    assert not config.status_save_pending

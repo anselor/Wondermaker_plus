@@ -1,5 +1,18 @@
 # Power-loss recovery and first-tool probing
 
+## R4 standalone print mesh
+
+Print preparation atomically saves the current job's `[bed_mesh wmp_print]`
+profile in `wmp-plr-mesh-v1.cfg`. The optional include loads it on restart,
+including after power loss. A pause keeps it. Finish, cancellation and confirmed
+recovery discard remove the file when recovery is retired. The user's default
+mesh and other calibrations stay in their original configuration.
+
+Upgrading removes the obsolete autosaved `wmp_print` profile from `printer.cfg`.
+Print preparation creates the recovery mesh file when needed. The next successful mesh save removes
+old WM+ backups named `printer-mesh-<eight random characters>.cfg`. Klipper's
+timestamped configuration backups are retained.
+
 ## Current standalone UI development candidate — 12 November 2026
 
 The unreleased `feature/standalone-ui` candidate uses managed recovery on the

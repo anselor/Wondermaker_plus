@@ -13,6 +13,12 @@ import copy
 import uuid
 
 
+try:
+    from .wmp_config_save import check_probe_offset
+except ImportError:
+    from wmp_config_save import check_probe_offset
+
+
 class ProbeConfigChange:
     """Own one unsaved probe offset without reverting unrelated calibration."""
     def __init__(self, configfile, section):
@@ -51,6 +57,7 @@ class ProbeConfigChange:
         previous_offset = {self.section: {'z_offset': self.old_value}}
         if self.old_pending not in ({}, previous_offset) or self.configfile.status_save_pending != {self.section: {'z_offset': self.value}}:
             raise ValueError('Other pending calibration changes require review before saving')
+        check_probe_offset(self.configfile, self.configfile.autosave.fileconfig)
 
     def _discard_plan(self):
         self._unchanged()

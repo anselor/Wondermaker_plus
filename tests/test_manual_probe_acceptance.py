@@ -259,8 +259,8 @@ def editor(manual, preparation, tmp_path, monkeypatch):
         original_finalize(position)
         if position is not None:
             config.autosave.fileconfig.add_section('probe')
-            config.autosave.fileconfig.set('probe', 'z_offset', '1.500')
-            config.status_save_pending = {'probe': {'z_offset':'1.500'}}
+            config.autosave.fileconfig.set('probe', 'z_offset', '-0.145')
+            config.status_save_pending = {'probe': {'z_offset':'-0.145'}}
             config.save_config_pending = True
     probe_calibrate_finalize.__self__ = NS(name='probe')
     manual.helper.finalize_callback = probe_calibrate_finalize
@@ -876,7 +876,7 @@ def test_save_intent_precedes_writer_and_survives_unknown_outcome(editor):
     def fail(script):
         store, path = value._save_record_store()
         record = store.read()
-        assert record['config_path'] == path and record['offset'] == '1.500'
+        assert record['config_path'] == path and record['offset'] == '-0.145'
         assert record['session'] == value.calibration.session
         raise ValueError('write outcome unknown')
     value.gcode.run_script_from_command = fail
@@ -885,7 +885,7 @@ def test_save_intent_precedes_writer_and_survives_unknown_outcome(editor):
     value.state, value.request, value.sequence = 'idle', '', -1
     value._restore_save_evidence()  # missing loaded evidence must retain the hold too
     assert value.state == 'save_review' and not value.busy()
-    assert value._save_record_store()[0].read()['offset'] == '1.500'
+    assert value._save_record_store()[0].read()['offset'] == '-0.145'
 
 
 @pytest.mark.parametrize('historical', ['save_review', 'unknown', 'failed'])

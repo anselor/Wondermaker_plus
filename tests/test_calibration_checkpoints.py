@@ -533,3 +533,11 @@ def test_external_owner_keeps_original_persistence_policy(env, owner):
         pid(env)
     assert env.path.read_bytes() == raw and 'checkpoints' not in env.attempt
     assert 'set' not in vars(env.config) and 'remove_section' not in vars(env.config)
+
+
+def test_checkpoint_cannot_republish_a_positive_disk_probe_offset(env):
+    env.path.write_text(env.path.read_text() + '#*# [probe]\n#*# z_offset = 2.730\n')
+    before = env.path.read_bytes()
+    with pytest.raises(ValueError, match='zero or less'):
+        checkpoints.publish(env.config, env.cal.gcode, str(env.path), {})
+    assert env.path.read_bytes() == before

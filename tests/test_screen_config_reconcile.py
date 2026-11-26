@@ -1244,3 +1244,28 @@ def test_finish_position_controls_preserve_user_edits_across_updates(printer,min
         current=bundle.read_active_config(printer/'printer.cfg')
         assert current.getfloat('gcode_macro PRINT_END','variable_bed_drop_minimum')==float(minimum)
         assert current.getfloat('gcode_macro PRINT_END','variable_bed_drop_target_z')==float(target)
+
+
+def test_upgrade_drops_only_obsolete_print_mesh(printer):
+    main = printer / 'printer.cfg'
+    previous = main.read_bytes()
+    profile = b'#*# [bed_mesh wmp_print]\n#*# points =\n#*#   0.1, 0.2\n#*#   0.3, 0.4\n'
+    following = b'#*# [bed_mesh default]\n#*# points = 0.1, 0.2\n#*# [extruder]\n#*# pid_kp = 42\n'
+    main.write_bytes(previous + profile + following)
+    planned = reconcile.plan(ROOT, printer)
+    apply_plan(printer, planned)
+    mesh = printer / reconcile.MESH_FILE
+    assert not mesh.exists()
+    assert profile not in main.read_bytes() and main.read_bytes().endswith(following)
+    assert b'#*# z_offset = 1.234' in main.read_bytes()
+    assert not bundle.read_active_config(main).has_section('bed_mesh wmp_print')
+    assert not reconcile.plan(ROOT, printer)['changes']
+
+
+
+def test_uninstall_removes_runtime_mesh(printer):
+    apply_plan(printer, reconcile.plan(ROOT, printer))
+    mesh = printer / reconcile.MESH_FILE
+    mesh.write_bytes(reconcile.MESH_HEADER + b'[bed_mesh wmp_print]\npoints = 0.1, 0.2\n')
+    apply_plan(printer, reconcile.removal_plan(ROOT, printer))
+    assert not mesh.exists()

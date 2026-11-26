@@ -95,6 +95,7 @@ class RecoveryReview:
             self._recovery_retirement_result = {'id': request['id'], 'state': 'pending'}
             result = self._recovery_retirement_store().retire(
                 request['evidence'], request['id'], request['session'], admit)
+            self.material._configuration_save().clear_print_mesh()
             if getattr(self.material, '_recovery_restore_error', ''):
                 self.material._restore_recovery_attempt()
                 if self.material._recovery_restore_error:

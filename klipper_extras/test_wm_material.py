@@ -105,6 +105,7 @@ def material(tmp_path):
     obj = WMMaterial.__new__(WMMaterial)
     obj._async_completions = queue.SimpleQueue()
     obj.printer = FakePrinter()
+    obj.printer.get_start_args = lambda: {"config_file": str(tmp_path / "printer.cfg")}
     obj.session_id = "test-session"
     obj._filament_checks = {}
     obj.filament_operation = {}

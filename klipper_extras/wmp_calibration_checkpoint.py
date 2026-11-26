@@ -10,6 +10,12 @@ import tempfile
 from contextlib import nullcontext
 
 
+try:
+    from .wmp_config_save import check_probe_offset
+except ImportError:
+    from wmp_config_save import check_probe_offset
+
+
 class Checkpoints:
     def __init__(self, calibration):
         self.calibration = calibration
@@ -328,6 +334,7 @@ def publish(config, gcode, path, values, expected=None):
             wrapper.fileconfig.add_section(section)
         for option, value in options.items():
             wrapper.fileconfig.set(section, option, value)
+    check_probe_offset(config, wrapper.fileconfig)
     regular = config._strip_duplicates(regular, wrapper)
     # The retained conflict check must see the scoped disk candidate, not live
     # unrelated pending edits. Other methods keep their retained bound self.
