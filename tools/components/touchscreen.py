@@ -173,7 +173,7 @@ def install(ctx):
     try:
         result = transaction_result(checks.remote(ctx, transaction_code('install', stage, journal), sudo=True, quiet=True))
     except Exception as error:
-        raise ctx.DeployError('Touchscreen installation failed or its outcome is unknown; inspect retained journal '+journal+': '+str(error)) from error
+        raise ctx.DeployError('Touchscreen installation failed or its outcome is unknown; journal path (if created) '+journal+': '+str(error)) from error
     if result.get('state') != 'applied' or result.get('journal') != journal:
         raise ctx.DeployError('Touchscreen activation unconfirmed; inspect '+journal)
     return receipt

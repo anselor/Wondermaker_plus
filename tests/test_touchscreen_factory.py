@@ -102,3 +102,30 @@ def test_unknown_legacy_nginx_edit_is_not_overwritten(tmp_path):
         runtime.adopt_legacy_factory(directory,ports,root)
     assert site.read_bytes()==before
     assert not (directory/'factory-baseline').exists()
+
+
+@pytest.mark.parametrize('rewrite, accepted', [
+    (b'KLP_IMG_WM_ZRU_V1.0.26_20251127_Release\ninstalled 2026-11-20T23:02:47Z\n', True),
+    (b'different-image\ninstalled 2026-11-20T23:02:47Z\n', False),
+    (b'operator edit\n', False),
+])
+def test_legacy_timestamp_refresh_between_updates(tmp_path, rewrite, accepted):
+    directory, ports, root, _, _ = legacy_fixture(tmp_path)
+    marker = root / 'opt/wondermaker_plus/installed-against.txt'
+    original = b'KLP_IMG_WM_ZRU_V1.0.26_20251127_Release\ninstalled 2026-11-19T23:02:47Z\n'
+    first = tx.Transaction(directory / 'first.json', ports.services, ports.request)
+    first.prepare([(marker, original, 0o644)])
+    first.install()
+    marker.write_bytes(rewrite)
+    second = tx.Transaction(directory / 'second.json', ports.services, ports.request)
+    second.prepare([(marker, original, 0o644)])
+    second.install()
+    if not accepted:
+        with pytest.raises(ValueError, match='changed between updates'):
+            runtime.adopt_legacy_factory(directory, ports, root)
+        assert not (directory / 'factory-baseline').exists()
+        return
+    marker.write_bytes(rewrite)  # Another legacy refresh after the final receipt.
+    runtime.adopt_legacy_factory(directory, ports, root)
+    tx.Transaction(directory / 'factory-baseline', ports.services, ports.request).restore()
+    assert not marker.exists()

@@ -4,6 +4,7 @@ import copy
 import hashlib
 import os
 from pathlib import Path
+import re
 import subprocess
 import time
 from urllib.parse import urlencode
@@ -206,7 +207,25 @@ def pending(directory, ports=None):
             reconcile_pending(path, ports)
 
 
-def factory_candidate(previous, receipt, generation, migration=False):
+def legacy_stamp_refresh(expected, observed):
+    """Recognize only a timestamp rewrite by the old touchscreen installer."""
+    if expected is None or observed is None:
+        return False
+    if {k: v for k, v in expected.items() if k != 'data'} != {
+            k: v for k, v in observed.items() if k != 'data'}:
+        return False
+
+    def firmware(snapshot):
+        match = re.fullmatch(rb'([^\r\n]*)\ninstalled [0-9]{4}-[0-9]{2}-[0-9]{2}T'
+                             rb'[0-9]{2}:[0-9]{2}:[0-9]{2}Z\n',
+                             bytes.fromhex(snapshot['data']))
+        return match.group(1) if match else None
+
+    version = firmware(expected)
+    return version is not None and version == firmware(observed)
+
+
+def factory_candidate(previous, receipt, generation, migration=False, legacy_stamp=None):
     """Carry original snapshots forward; replace only the installed generation."""
     candidate = copy.deepcopy(receipt)
     candidate['state'] = 'applied'
@@ -227,7 +246,10 @@ def factory_candidate(previous, receipt, generation, migration=False):
         if row['path'] in rows:
             old = rows[row['path']]
             expected = old['before'] if previous['state']=='restored' else old['after']
-            if row['before'] != expected:
+            if row['before'] != expected and not (
+                    migration and row['path'] == legacy_stamp
+                    and row['resolved'] == old['resolved']
+                    and legacy_stamp_refresh(expected, row['before'])):
                 raise ValueError('Touchscreen resource changed between updates: ' + row['path'])
             rows[row['path']]['after'] = copy.deepcopy(row['after'])
         else:
@@ -308,6 +330,7 @@ def adopt_legacy_factory(directory, ports, root=Path('/'), dry_run=False):
         return _factory_read(baseline_path)
     prefix=root/'opt/wondermaker_plus'
     site=root/'etc/nginx/sites-available/fluidd'
+    legacy_stamp=str(prefix/'installed-against.txt')
     line=b'    include /opt/wondermaker_plus/nginx-screen.conf; # wondermaker_plus'
     def original_site(snapshot):
         data=bytes.fromhex(snapshot['data'])
@@ -329,7 +352,8 @@ def adopt_legacy_factory(directory, ports, root=Path('/'), dry_run=False):
     for path,receipt in histories:
         if baseline is None:
             if receipt.get('factory_before') is not None:
-                baseline=factory_candidate(receipt['factory_before'],receipt,path.name,migration=True)
+                baseline=factory_candidate(receipt['factory_before'],receipt,path.name,migration=True,
+                                           legacy_stamp=legacy_stamp)
                 continue
             baseline=copy.deepcopy(receipt)
             baseline['state']='applied';baseline['generation']=path.name
@@ -349,7 +373,7 @@ def adopt_legacy_factory(directory, ports, root=Path('/'), dry_run=False):
                     row['before']=None
             baseline['services']={unit:{'active':False,'enabled':False} for unit in (transaction.SCREEN,transaction.FIXER)}
         else:
-            baseline=factory_candidate(baseline,receipt,path.name,migration=True)
+            baseline=factory_candidate(baseline,receipt,path.name,migration=True,legacy_stamp=legacy_stamp)
     if baseline is None:
         files=[]
         if prefix.is_symlink():
@@ -375,6 +399,13 @@ def adopt_legacy_factory(directory, ports, root=Path('/'), dry_run=False):
         baseline['camera']={'version':1,'state':'applied','before':before,'after':copy.deepcopy(before),
                             'selected_before':None,'selected_after':None,'selection_managed':False,
                             'fixer_policy':'enable' if ports.services('state',transaction.FIXER)['enabled'] else 'disable'}
+    # A legacy script can refresh this marker without writing a transaction.
+    for row in baseline['files']:
+        if row['path'] == legacy_stamp:
+            current = transaction.snapshot(legacy_stamp)
+            if legacy_stamp_refresh(row['after'], current):
+                row['after'] = current
+            break
     camera=baseline['camera']
     before=camera['before']
     if before and before.get('stream_url')=='/wmp-screen/':
