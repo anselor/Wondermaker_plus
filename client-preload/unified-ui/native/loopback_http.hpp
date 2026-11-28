@@ -32,8 +32,9 @@ public:
  std::string post(const std::string&path,const std::string&body)override {
   const bool recovery_review=path=="/printer/wmp/recovery/review"||path=="/printer/wmp/recovery/resolve_review"||path=="/printer/wmp/recovery/retire_review"||path=="/printer/wmp/recovery/retire_result", recovery_stop=path=="/printer/wmp/recovery/stop";
   const bool print_cancel=path=="/printer/wmp/print/cancel_review"||path=="/printer/wmp/print/cancel"||path=="/printer/wmp/print/cancel_resolve_review";
+  const bool clear_cancelled=path=="/printer/wmp/print/clear_cancelled";
   const bool probe_stop=path=="/printer/wmp/probe_editor/stop"||path=="/printer/wmp/calibration/cancel"||path=="/printer/wmp/identification/cancel";
-  if(path!="/printer/gcode/script"&&path!="/printer/wmp/filament/cancel"&&path!="/printer/wmp/toolhead/cancel"&&!recovery_review&&!recovery_stop&&!print_cancel&&!probe_stop)throw std::runtime_error("unsupported UI command");
+  if(path!="/printer/gcode/script"&&path!="/printer/wmp/filament/cancel"&&path!="/printer/wmp/toolhead/cancel"&&!recovery_review&&!recovery_stop&&!print_cancel&&!clear_cancelled&&!probe_stop)throw std::runtime_error("unsupported UI command");
   if(body.size()>((path=="/printer/gcode/script"||print_cancel)?32768u:recovery_review?16384u:2048u))throw std::runtime_error("UI command too large");
   if(path=="/printer/gcode/script"){
    // Vendor Moonraker copies multiline Klipper errors into the HTTP reason

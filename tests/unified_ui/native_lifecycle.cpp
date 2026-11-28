@@ -3120,7 +3120,14 @@ int main(int argc,char**argv){
    result["receipt"].erase("stop_point");panel.update(result);assert(!contains("Stopped at:"));
   }
   fake::Node*close=nullptr;for(auto*b:root->children)for(auto*l:b->children)if(l->text=="DONE")close=b;
-  assert(close);fake::send(close,7);assert(!panel.active());panel.update(result);assert(!panel.active());fake::del(parent);
+  assert(close);
+  unsigned clears=0;panel.clear_cancelled=[&]{++clears;return true;};
+  result["clearable"]=true;panel.update(result);
+  assert(!contains("CLEAR FILE"));
+  fake::send(close,7);assert(panel.active()&&clears==1&&(close->state&128));
+  fake::send(close,7);assert(clears==1);
+  result["clearable"]=false;result["clear_complete"]=true;
+  panel.update(result);assert(!panel.active());fake::del(parent);
  }
  // Terminal recovery/discard history survives stale status without enabling actions.
  {

@@ -195,6 +195,7 @@ class WMMaterial:
         self.printer.register_event_handler("klippy:shutdown", self._afc_stop)
         self.printer.register_event_handler("virtual_sdcard:reset_file", self._clear_filament_checks)
         self.printer.register_event_handler("virtual_sdcard:reset_file", self._close_stop_waits)
+        self.printer.register_event_handler("virtual_sdcard:reset_file", self._cancellation().note_sd_reset)
         self.printer.lookup_object("webhooks").register_endpoint(
             "wmp/toolhead/cancel", self._handle_toolhead_cancel)
         self.printer.lookup_object("webhooks").register_endpoint(
@@ -205,6 +206,8 @@ class WMMaterial:
             "wmp/print/cancel_review", self._handle_print_cancel_review)
         self.printer.lookup_object("webhooks").register_endpoint(
             "wmp/print/cancel", self._handle_print_cancel)
+        self.printer.lookup_object("webhooks").register_endpoint(
+            "wmp/print/clear_cancelled", self._cancellation()._handle_clear_cancelled)
         self.printer.lookup_object("webhooks").register_endpoint(
             "wmp/print/cancel_resolve_review", self._handle_print_cancel_resolution_review)
         self.printer.lookup_object("webhooks").register_endpoint(

@@ -74,6 +74,9 @@ class MaterialStatus:
         if eventtime is None:
             eventtime = self.material.printer.get_reactor().monotonic()
         self._refresh()
+        cancel = copy.deepcopy(getattr(self.material, "_print_cancel", {}))
+        if self.material._cancellation().can_clear_cancelled():
+            cancel["clearable"] = True
         status = {"available": self._mtime is not None,
                   "ini_path": self.material.ini_path, "session_id": self.material.session_id,
                   "command_generation": getattr(self.material, "_command_generation", 0),
@@ -89,7 +92,7 @@ class MaterialStatus:
                   "toolchange_pause": self.material._toolchange_pause_status(),
                   "print_submission": dict(self.material.print_submission),
                   "print_preparation": self.material._print_preparation().get_status(eventtime),
-                  "print_cancel": copy.deepcopy(getattr(self.material, "_print_cancel", {})),
+                  "print_cancel": cancel,
                   "print_cancel_protocol": 1,
                   "print_start_cancel_protocol": 1,
                   "script_generation_protocol": 1 if getattr(self.material, "_cancel_script_wrapper", None) is not None else 0,

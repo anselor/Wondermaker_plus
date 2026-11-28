@@ -753,6 +753,7 @@ public:
  void enable_print_cancel(wmp_openace::HttpPort&transport){
   if(cancel_worker_)throw std::runtime_error("Cancel worker already configured");
   cancel_worker_.reset(new PrintCancelWorker(transport,true));
+  cancel_progress_.clear_cancelled=[this](){return cancel_worker_->request_clear();};
  }
  // True consumes the stock command, including refusal. Never fall back after
  // an unknown delivery. A freshly confirmed openACE owner keeps its own path.

@@ -4,10 +4,14 @@
 using namespace wmp_ui;using namespace wmp_ui::native;
 struct Http:wmp_openace::HttpPort{
  std::mutex mutex;std::condition_variable wake;bool review_block=false,review_entered=false,cancel_entered=false,released=false,lost=false,wrong=false;
- unsigned reviews=0,cancels=0,intents=0;Json selected;
+ unsigned reviews=0,cancels=0,intents=0,clears=0;Json selected;
  std::string get(const std::string&)override{assert(false);return {};}
  std::string post(const std::string&path,const std::string&body)override{
   std::unique_lock<std::mutex>lock(mutex);auto request=Json::parse(body);
+  if(path=="/printer/wmp/print/clear_cancelled"){
+   ++clears;assert(request==Json({{"session",selected.at("session")},{"id",selected.at("id")}}));
+   return Json{{"result",{{"state","complete"},{"id",request.at("id")}}}}.dump();
+  }
   if(path=="/printer/gcode/script"){assert(request.at("script")=="CANCEL_PRINT");++intents;wake.notify_all();if(lost)throw std::runtime_error("lost intent response");return "{\"result\":\"ok\"}";}
   if(path=="/printer/wmp/print/cancel_review"){
    ++reviews;selected=request;review_entered=true;wake.notify_all();
@@ -83,6 +87,23 @@ int main(){
   auto h=base;h["command_generation"]=1;h["print_cancel"]=http.receipt("complete");worker.observe(h,stats,true);
   assert(worker.result().at("state")=="complete");http.release();done(worker);
   assert(worker.result().at("state")=="complete");assert(http.cancels==1);
+ }
+ {
+  Http wire;PrintCancelWorker worker(wire);worker.observe(base,stats,true);assert(worker.select());wire.wait();
+  auto h=base;h["print_cancel"]=wire.receipt("complete");h["print_cancel"]["clearable"]=true;
+  auto cancelled=stats;cancelled["state"]="cancelled";
+  worker.observe(h,cancelled,true);wire.release();done(worker);
+  assert(worker.result().at("clearable")==true);
+  auto changed=h;changed["session_id"]="new-session";worker.observe(changed,cancelled,true);
+  assert(!worker.request_clear());
+  changed=h;changed["afc_metadata"]["owner"]="openace";changed["openace_print_control"]["protocol"]=1;
+  worker.observe(changed,cancelled,true);
+  assert(!worker.request_clear());
+  h["print_submission"]["state"]="pending";worker.observe(h,cancelled,true);
+  assert(!worker.request_clear());
+  h.erase("print_submission");worker.observe(h,cancelled,true);
+  assert(worker.request_clear()&&!worker.request_clear());done(worker);
+  assert(worker.result().at("clear_complete")==true&&worker.result().at("clear_pending")==false&&wire.clears==1);
  }
  // Lost acknowledgement is not replayed; an unrelated status receipt cannot release it.
  {

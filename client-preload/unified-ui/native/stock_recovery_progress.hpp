@@ -90,13 +90,14 @@ class StockRecoveryProgress {
   text(close_caption,verified?"DONE":"CLOSE");center_caption(close_,close_caption,verified?"DONE":"CLOSE");
   stock_function<void(*)(void*,unsigned)>(lv_obj_add_flag)(review_,1);
   text(stock_function<void*(*)(void*,int)>(lv_obj_get_child)(review_,0),"");
+  stock_function<void(*)(void*,unsigned)>(result_.value("clear_pending",false)?lv_obj_add_state:lv_obj_clear_state)(close_,128);
   stock_function<void(*)(void*,unsigned)>(actionable?lv_obj_clear_flag:lv_obj_add_flag)(stop_,1);
   stock_function<void(*)(void*,unsigned)>(actionable?lv_obj_clear_state:lv_obj_add_state)(stop_,128);
   auto*caption=stock_function<void*(*)(void*,int)>(lv_obj_get_child)(stop_,0);
   const char*button=action=="discard_saved_job"?"DISCARD":"FINISH";
   text(caption,button);center_caption(stop_,caption,button);
   std::string summary;
-  if(verified)summary="Print cancelled.";
+  if(verified)summary=result_.value("clear_message","").empty()?"Print cancelled.":result_.at("clear_message").get<std::string>();
   else if(!result_.value("fresh",false))summary="Waiting for printer status...";
   else if(state=="pending"||state=="running")summary="Cancelling...";
   else {
@@ -120,7 +121,7 @@ class StockRecoveryProgress {
   if(progress_.attached()){progress_.update({{"instruction",summary},{"steps",Json::array()}});stock_function<void(*)(void*,unsigned)>(lv_obj_add_flag)(summary_,1);}
  }
 public:
- std::function<bool()>stop;
+ std::function<bool()>stop,clear_cancelled;
  std::function<bool()>allow_close;
  std::function<bool()>review_retirement,refresh_retirement;
  std::function<void()>cancel_retirement;
@@ -167,6 +168,7 @@ public:
   if(!active())return;
   if(screen_!=stock_function<void*(*)(void*)>(lv_disp_get_scr_act)(nullptr)){close();return;}
   if(result.value("id","")!=id_)return;
+  if(cancel_mode_&&result.value("clear_complete",false)){close();return;}
   // Identical syncs must not invalidate text/layout or compete with input.
   // Check screen lifetime first; a new screen still closes this panel.
   if(rendered_&&result==result_)return;
@@ -306,6 +308,13 @@ private:
   auto*target=stock_function<void*(*)(void*)>(lv_event_get_target)(e);
   if(target!=o->stop_&&target!=o->review_){
    if(o->allow_close&&!o->allow_close())return;
+   if(o->cancel_mode_){
+    auto next=o->result_;
+    if(next.value("clear_pending",false))return;
+    if(o->cancel_verified()&&next.value("clearable",false)&&o->clear_cancelled&&o->clear_cancelled()){
+     next["clearable"]=false;next["clear_pending"]=true;next["clear_message"]="Clearing cancelled job…";o->update(next);return;
+    }
+   }
    if(o->result_.value("retirement_mode",false)&&o->retirement_action()=="DISCARD"&&o->cancel_retirement)o->cancel_retirement();
    o->close();return;}
   auto next=o->result_;
@@ -327,6 +336,7 @@ private:
    }
    return;
   }
+  if(o->cancel_mode_&&target==o->review_)return;
   if(target==o->review_){
    if(o->can_reconcile()&&o->review_resolution&&o->review_resolution("reconcile")){next["resolution"]={{"state","reviewing"},{"message","Checking PLR checkpoint"}};o->update(next);}return;
   }

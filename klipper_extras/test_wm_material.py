@@ -11393,3 +11393,44 @@ def test_filament_appearance_rejects_invalid_values_without_overwriting(material
     with pytest.raises(ValueError,match='appearance'):
         material.cmd_SET_FILAMENT(profile_command(material,PROFILE=json.dumps(identity).encode().hex()))
     assert material._profiles()==before
+
+
+@pytest.mark.parametrize('change', [None, 'same-file-reset', 'pending-start', 'recovery', 'active-sd'])
+def test_clear_cancelled_checks_current_generation_and_is_one_shot(change):
+    from contextlib import nullcontext
+    from types import SimpleNamespace as NS
+    from wmp_print_cancel import PrintCancellation
+
+    stats = NS(filename='same.gcode', state='cancelled')
+    sd = NS(current_file=None, is_active=lambda: change == 'active-sd', is_cmd_from_sd=lambda: False)
+    pause = NS(get_status=lambda _: {'is_paused': False})
+    calls = []
+    def run(command):
+        calls.append(command)
+        cancellation.note_sd_reset()
+        stats.filename, stats.state = '', 'standby'
+    ports = dict(gcode=NS(get_mutex=nullcontext, run_script_from_command=run),
+                 print_stats=stats, virtual_sdcard=sd, pause_resume=pause,
+                 webhooks=NS(get_status=lambda _: {'state': 'ready'}))
+    printer = NS(lookup_object=lambda name, default=None: ports.get(name, default),
+                 is_shutdown=lambda: False,
+                 get_reactor=lambda: NS(monotonic=lambda: 1.))
+    material = NS(printer=printer, session_id='helper',
+                  print_submission={'state': 'pending'} if change == 'pending-start' else {},
+                  _recovery_lifecycle=lambda: NS(_recovery_attempt_unresolved=lambda: change == 'recovery'))
+    cancellation = PrintCancellation(material)
+    cancellation._print_cancel = dict(session='helper', id='cancelled', file='same.gcode', state='complete')
+    cancellation._clearable_cancel = ('cancelled', 0)
+    if change == 'same-file-reset':
+        cancellation.note_sd_reset()
+    request = CancelWebRequest(session='helper', id='cancelled')
+    if change:
+        with pytest.raises(ValueError):
+            cancellation._handle_clear_cancelled(request)
+        assert calls == []
+    else:
+        cancellation._handle_clear_cancelled(request)
+        assert request.response == dict(state='complete', id='cancelled')
+        with pytest.raises(ValueError, match='job changed'):
+            cancellation._handle_clear_cancelled(request)
+        assert calls == ['SDCARD_RESET_FILE']

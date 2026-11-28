@@ -20,6 +20,54 @@ class PrintCancellation:
 
     def __init__(self, material):
         self.material = material
+        self._sd_generation = 0
+        self._clearable_cancel = None
+
+    def note_sd_reset(self):
+        self._sd_generation += 1
+        self._clearable_cancel = None
+
+    def can_clear_cancelled(self):
+        record = getattr(self, "_print_cancel", {})
+        return (record.get("state") == "complete"
+                and self._clearable_cancel == (record.get("id"), self._sd_generation))
+
+    def _handle_clear_cancelled(self, web_request):
+        material = self.material
+        printer = material.printer
+        try:
+            session = web_request.get_str("session")
+            request_id = web_request.get_str("id")
+            gcode = printer.lookup_object("gcode")
+            with gcode.get_mutex():
+                record = self._print_cancel
+                now = printer.get_reactor().monotonic()
+                sd = printer.lookup_object("virtual_sdcard")
+                stats = printer.lookup_object("print_stats")
+                pause = printer.lookup_object("pause_resume").get_status(now)
+                if (session != material.session_id
+                        or record.get("session") != session
+                        or record.get("state") != "complete"
+                        or record.get("id") != request_id
+                        or self._clearable_cancel != (request_id, self._sd_generation)
+                        or stats.filename != record.get("file")
+                        or stats.state != "cancelled"):
+                    raise ValueError("The cancelled job changed. Refresh the print screen.")
+                if (printer.is_shutdown()
+                        or printer.lookup_object("webhooks").get_status(now).get("state") != "ready"
+                        or any(printer.lookup_object(owner, None) is not None for owner in ("openace", "AFC"))
+                        or sd.is_active() or sd.is_cmd_from_sd() or sd.current_file is not None
+                        or pause.get("is_paused") is not False
+                        or material.print_submission.get("state") == "pending"
+                        or material._recovery_lifecycle()._recovery_attempt_unresolved()):
+                    raise ValueError("Wait for print and recovery operations to finish before clearing the file.")
+                self._clearable_cancel = None
+                gcode.run_script_from_command("SDCARD_RESET_FILE")
+                if stats.state != "standby" or stats.filename or sd.current_file is not None:
+                    raise ValueError("Could not confirm that the file was cleared. Refresh the print screen.")
+        except ValueError as error:
+            raise web_request.error(str(error))
+        web_request.send({"state": "complete", "id": request_id})
 
     def _handle_print_cancel_review(self, web_request):
         """Capture the exact open print for a separate explicit cancellation.
@@ -380,6 +428,7 @@ class PrintCancellation:
         if request_id in used and not self._print_cancel_active():
             raise ValueError("Print cancellation already attempted")
         binding = dict(binding)
+        sd_generation = self._sd_generation
         sd = self.material.printer.lookup_object("virtual_sdcard")
         stats = self.material.printer.lookup_object("print_stats")
         reactor = self.material.printer.get_reactor()
@@ -472,6 +521,8 @@ class PrintCancellation:
                     message = "Print cancelled" + ("; housekeeping warnings: " + "; ".join(warnings)[:384] if warnings else "")
                     self._print_cancel.update(state="complete", phase="complete", message=message)
                     persist()
+                    if self._sd_generation == sd_generation:
+                        self._clearable_cancel = (request_id, sd_generation)
             except Exception as error:
                 unknown(error)
             finally:

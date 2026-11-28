@@ -16,6 +16,15 @@ class PrintCancelWorker {
  Clock::time_point observed_{};bool fresh_=false,quit_=false,queued_=false,busy_=false,matched_=false,sent_=false;
  std::string refusal_,last_owner_;bool fallback_enabled_=false,intent_queued_=false;
  long long generation_=0;unsigned serial_=0;std::thread thread_;
+ bool clear_queued_=false,clear_attempted_=false,clear_complete_=false;std::string clear_message_;
+ bool can_clear()const{
+  const auto receipt=helper_.value("print_cancel",Json::object());
+  return current()&&!queued_&&!busy_&&!clear_attempted_&&
+   helper_.value("session_id","")==selection_.value("session","")&&
+   result_.value("state","")=="complete"&&matches(receipt)&&receipt.value("clearable",false)&&
+   helper_.value("print_submission",Json::object()).value("state","")!="pending"&&
+   stats_.value("state","")=="cancelled"&&stats_.value("filename","")==selection_.value("file","");
+ }
  bool current()const{return fresh_&&Clock::now()-observed_<std::chrono::seconds(2)
   &&helper_.value("afc_metadata",Json::object()).value("owner","")=="standalone"
   &&helper_.value("print_cancel_protocol",0)==1;}
@@ -53,9 +62,10 @@ class PrintCancelWorker {
   matched_=true;result_=r;return true;
  }
  void loop()noexcept{
-  for(;;){Json selected;bool sent=false,intent=false;std::string rejected;
+  for(;;){Json selected;bool sent=false,intent=false,clear=false;std::string rejected;
    {std::unique_lock<std::mutex>lock(mutex_);wake_.wait(lock,[this]{return quit_||queued_;});if(quit_)return;
-    queued_=false;busy_=true;selected=selection_;intent=intent_queued_;intent_queued_=false;}
+    queued_=false;busy_=true;selected=selection_;intent=intent_queued_;intent_queued_=false;clear=clear_queued_;clear_queued_=false;}
+   if(clear){clear_file(selected);continue;}
    try{
     if(intent){
      bool allowed=false;{std::lock_guard<std::mutex>lock(mutex_);allowed=last_owner_=="standalone";}
@@ -84,6 +94,21 @@ class PrintCancelWorker {
    {std::lock_guard<std::mutex>lock(mutex_);if(!rejected.empty()){report_rejection("cancellation dispatch",rejected);if(!matched_)result_["message"]=rejected+" No cancellation sent.";}busy_=false;}
   }
  }
+ void clear_file(const Json&selected){
+  std::string message="Clear file outcome unconfirmed. Check the print screen.";
+  bool complete=false;
+  try{
+   const Json request={{"session",selected.at("session")},{"id",selected.at("id")}};
+   const auto reply=Json::parse(http_.post("/printer/wmp/print/clear_cancelled",request.dump()));
+   const auto result=reply.value("result",Json::object());
+   if(result.value("id","")==selected.at("id")&&result.value("state","")=="complete"){
+    complete=true;
+    message="Cancelled job cleared.";
+   }
+   else if(reply.contains("error"))message="Could not clear the cancelled job. Check the print screen.";
+  }catch(...){}
+  std::lock_guard<std::mutex>lock(mutex_);clear_complete_=complete;clear_message_=std::move(message);busy_=false;
+ }
  void send_intent(){
   std::string message="Cancellation intent sent. Waiting for printer status.";
   try{const auto reply=Json::parse(http_.post("/printer/gcode/script",Json{{"script","CANCEL_PRINT"}}.dump()));
@@ -99,6 +124,12 @@ public:
   std::lock_guard<std::mutex>lock(mutex_);helper_=helper;stats_=stats;fresh_=fresh;observed_=Clock::now();
   const auto owner=helper.value("afc_metadata",Json::object()).value("owner","");if(fresh&&!owner.empty())last_owner_=owner;
   if(sent_&&current())record(helper.value("print_cancel",Json::object()));
+ }
+ bool request_clear(){
+  std::lock_guard<std::mutex>lock(mutex_);
+  if(!can_clear())return false;
+  clear_attempted_=clear_queued_=queued_=true;
+  clear_message_="Clearing cancelled job…";wake_.notify_all();return true;
  }
  bool request(){
   if(select())return true;
@@ -136,6 +167,7 @@ public:
   if(!selection_.empty()&&selection_.value("session","")==session&&selection_.value("file","")==file
      &&generation_==helper_.value("command_generation",0LL)&&state=="complete"&&!starting&&!selection_.contains("start"))return true;
   generation_=helper_.value("command_generation",0LL);
+  clear_attempted_=clear_complete_=false;clear_message_.clear();
   selection_={{"id","cancel_"+std::to_string(std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now().time_since_epoch()).count())+"_"+std::to_string(++serial_)},
               {"session",session},{"file",file}};
   if(starting){
@@ -150,6 +182,8 @@ public:
  std::string owner()const{std::lock_guard<std::mutex>lock(mutex_);
   return last_owner_.empty()?"unknown":last_owner_;}
  Json result()const{std::lock_guard<std::mutex>lock(mutex_);auto r=result_;r["delivery_pending"]=queued_||busy_;
+  r["clearable"]=can_clear();r["clear_message"]=clear_message_;
+  r["clear_pending"]=clear_attempted_&&(queued_||busy_);r["clear_complete"]=clear_complete_;
   r["fresh"]=current()&&helper_.value("session_id","")==selection_.value("session","");return r;}
 };
 }}

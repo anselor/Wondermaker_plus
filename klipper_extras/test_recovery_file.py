@@ -2,10 +2,12 @@
 import hashlib
 import importlib.util
 import os
+from contextlib import nullcontext
 from pathlib import Path
 from types import SimpleNamespace as NS
 import pytest
 from wm_material import WMMaterial
+from wmp_print_cancel import PrintCancellation
 
 SOURCE = Path(__file__).resolve().parents[1] / 'analysis/fw_1.1.13_payload/root/home/t13dp/klipper/klippy/extras/virtual_sdcard.py'
 
@@ -50,6 +52,54 @@ def file_machine(tmp_path):
     yield material, sd, objects, events, reactor, make
     if sd.current_file is not None:
         sd.current_file.close()
+
+
+def test_clear_cancelled_uses_vendor_sd_reset_and_print_stats(file_machine):
+    material, sd, objects, events, _, make = file_machine
+    _, path = make()
+    source = SOURCE.with_name('print_stats.py')
+    if not source.is_file():
+        pytest.skip('retained vendor print statistics unavailable')
+    spec = importlib.util.spec_from_file_location('vendor_print_stats', source)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    stats = module.PrintStats.__new__(module.PrintStats)
+    stats.reset()
+    stats.state, stats.filename = 'cancelled', path.name
+    sd.print_stats = objects['print_stats'] = stats
+    sd.file_position = sd.file_size = path.stat().st_size
+    material.printer.is_shutdown = lambda: False
+    owner = NS(printer=material.printer, session_id='wm', print_submission={},
+               _recovery_lifecycle=lambda: NS(_recovery_attempt_unresolved=lambda: False))
+    cancellation = PrintCancellation(owner)
+    cancellation._print_cancel = dict(session='wm', id='cancel1', file=path.name, state='complete')
+    cancellation._clearable_cancel = ('cancel1', 0)
+
+    def reset_event(name):
+        events.append(name)
+        cancellation.note_sd_reset()
+
+    def dispatch(command):
+        assert command == 'SDCARD_RESET_FILE'
+        sd.cmd_SDCARD_RESET_FILE(NS(error=ValueError))
+
+    material.printer.send_event = reset_event
+    objects['pause_resume'] = NS(get_status=lambda _: {'is_paused': False})
+    objects['webhooks'] = NS(get_status=lambda _: {'state': 'ready'})
+    objects['gcode'].get_mutex = nullcontext
+    objects['gcode'].run_script_from_command = dispatch
+    replies = []
+    request = NS(get_str={'session': 'wm', 'id': 'cancel1'}.__getitem__,
+                 error=ValueError, send=replies.append)
+
+    cancellation._handle_clear_cancelled(request)
+    assert (stats.state, stats.filename) == ('standby', '')
+    assert (sd.file_position, sd.file_size) == (0, 0)
+    assert path.is_file()
+    assert replies == [dict(state='complete', id='cancel1')]
+    with pytest.raises(ValueError, match='job changed'):
+        cancellation._handle_clear_cancelled(request)
+    assert events == ['virtual_sdcard:reset_file']
 
 
 @pytest.mark.parametrize('name', ['job.gcode', 'models/Part One.gcode', 'models/Grün.gcode'])
